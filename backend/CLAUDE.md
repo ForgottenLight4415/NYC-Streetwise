@@ -255,8 +255,12 @@ depending on environment.
 ## Deployment (Vercel)
 
 - Express app must be adapted for serverless, not run as-is with app.listen().
-  Wrap the whole app with `serverless-http` in api/index.js (least restructuring
-  for a hackathon timeline vs splitting every route into its own /api file).
+  **DONE** — `api/index.js` exports `createApp()`'s app instance directly.
+  Vercel's Node.js runtime calls functions with plain `(req, res)`, the same
+  signature an Express app already implements as an http.Server request
+  listener, so no adapter is needed. (`serverless-http` was tried first — it
+  targets AWS Lambda's event/context convention, which Vercel's Node.js
+  functions don't use, and it 500'd on every request in practice.)
 - Mongo connections MUST be cached on `global`, not opened fresh per invocation,
   or you'll exhaust Atlas's connection limit under any real traffic.
   **DONE** — `providers/mongo.js` caches the client and its connect promise on a

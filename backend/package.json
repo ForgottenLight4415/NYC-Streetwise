@@ -21,8 +21,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "mongodb": "^6.21.0",
-    "serverless-http": "^4.0.0"
+    "mongodb": "^6.21.0"
   },
   "devDependencies": {
     "mongodb-memory-server": "^11.2.0",
