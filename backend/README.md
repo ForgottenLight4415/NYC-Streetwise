@@ -17,15 +17,13 @@ Pick one path. You do not need both.
 | Path | You need |
 | --- | --- |
 | **Docker** (recommended for a fresh clone) | Docker Desktop |
-| **Native Node** | Node ≥ 20.6 (22.x tested) **and** MongoDB |
+| **Native Node** | Node ≥ 20.6 (22.x tested) |
 
-**Mongo is required** as of M7 — auth stores users and sessions there, and the
-app exits at boot without `MONGODB_URI` (Docker provides one for you). A
-`JWT_SECRET` is required for the same reason.
-
-The rest still degrades rather than fails: no Socrata token means throttled but
-working requests, and no AI provider means template explanations instead of
-generated ones. Neither turns an endpoint into an error.
+**Nothing is required beyond Node.** Every dependency degrades rather than
+fails: no Mongo means an uncached app that hits Socrata on every request, no
+Socrata token means throttled but working requests, and no AI provider means
+template explanations instead of generated ones. None of them turns an endpoint
+into an error.
 
 ---
 
@@ -41,73 +39,47 @@ docker compose up --build
 ```
 
 ```bash
-curl localhost:3001/health          # 200, no token needed
-
-# Everything else needs a token. Make an account, then use it:
-TOKEN=$(curl -s -X POST localhost:3001/api/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"demo","password":"a good password","role":"tenant"}' \
-  | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).accessToken")
+curl localhost:3001/health
 
 curl -X POST localhost:3001/api/score \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{"lat":40.7128,"lng":-74.0060}'
 ```
 
 The first call for a coordinate takes ~7s (live NYC Open Data). Every call after
 that is ~10ms from the Mongo cache.
 
-Full auth reference — endpoints, parameters, Postman examples:
-[`API.md`](API.md#authentication).
+Full endpoint reference — parameters, payloads, errors: [`API.md`](API.md).
 
 Two containers run:
 
 | Service | What it is | Host port |
 | --- | --- | --- |
 | `backend` | the Express API | 3001 |
-| `mongo` | MongoDB 8 — `complaint_cache`, `users`, `auth_sessions` | none published |
-
-Docker needs `JWT_SECRET` in `.env` before it will start — see
-[Mongo and JWT setup](#mongo-and-jwt-setup).
+| `mongo` | MongoDB 8 — the **dev** database (`complaint_cache` + the baseline document). Prod uses Atlas; nothing here is deployed. | 127.0.0.1:27017 |
 
 ### Option B — Native Node
-
-You need a MongoDB running and a `JWT_SECRET`. **The app exits at boot without
-either** — it will not start half-configured.
 
 ```bash
 cd backend
 npm install
+npm run dev          # http://localhost:3001, with --watch
+```
+
+That is the whole setup — it runs with no `.env` at all, uncached and throttled.
+For a cache, start the dev Mongo and point at it:
+
+```bash
 cp .env.example .env
 
-# 1. a Mongo the HOST can reach, then set MONGODB_URI in .env.
-#    brew install mongodb-community && brew services start mongodb-community
-#    -> MONGODB_URI=mongodb://localhost:27017
-#    (Atlas works too. The Compose mongo publishes no host port — see below.)
-
-# 2. a signing secret, into .env as JWT_SECRET=
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
-
-# 3. start it
-npm run dev          # http://localhost:3001, with --watch
-
-# 4. an account to log in with
-npm run user:create -- --username demo --password 'a good password' --role tenant
+docker compose up -d mongo    # dev database, published on 127.0.0.1:27017
+# .env already has MONGODB_URI=mongodb://127.0.0.1:27017
 ```
 
-If you skipped a step the app tells you which one and exits:
+Without one the app still starts, and says so:
 
 ```
-[auth] FATAL: MONGODB_URI is REQUIRED and is unset.
-        Mongo stores user accounts and sessions, and auth guards every
-        data route — so without it the app can serve nothing but /health.
-        `docker compose up` provides one; see README.md.
-
-[auth] FATAL: JWT_SECRET is unset or shorter than 32 characters.
-        Generate one with:
-          node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
-        then put it in .env as JWT_SECRET=...
+[cache] no usable MONGODB_URI — caching disabled, every lookup hits Socrata
 ```
 
 `npm start` is the same without file watching. Both load `.env` automatically via
@@ -117,24 +89,20 @@ Node's built-in `--env-file-if-exists` — there is no `dotenv` dependency.
 
 ## Environment setup
 
-**Two variables are now required to boot** (`JWT_SECRET` and `MONGODB_URI`) —
-auth guards every data endpoint, and the app exits with instructions if either
-is missing. Everything else is still optional.
+**Every variable is optional.** The app boots and answers requests with no
+`.env` at all; each one below buys speed or quality, not basic function.
 
 ```bash
 cd backend
 cp .env.example .env
-
-# generate a signing secret and paste it into .env as JWT_SECRET=
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
 ```
 
 | Var | Required? | What it does |
 | --- | --- | --- |
-| `JWT_SECRET` | **yes** | Signs access tokens. Min 32 chars, no default, never committed. Changing it logs everyone out. |
 | `SOCRATA_APP_TOKEN` | strongly recommended | NYC Open Data token. Without one, requests work but throttle hard under load — set it before any demo. |
-| `MONGODB_URI` | **yes** | Users and sessions live here. Also enables the complaint cache. |
-| `MONGODB_DB` | no | Defaults to `should_i_live_here`. |
+| `MONGODB_URI` | no | Enables the complaint cache. `mongodb://127.0.0.1:27017` in dev, an Atlas `mongodb+srv://…` in prod. Without it every lookup hits Socrata live. |
+| `MONGODB_DB` | no | `nyc-streetwise-dev` in dev, `nyc-streetwise` in prod. Defaults to `should_i_live_here` when unset. |
+| `MONGO_MAX_POOL_SIZE` | no | Defaults to 10. Only raise it if you measure pool saturation. |
 | `PORT` | no | Defaults to `3001`. |
 | `USE_MOCK_DATA` | no | `1` serves deterministic mock data — useful for offline frontend work. |
 | `AI_PROVIDER` | no | `ollama` (default) or `gemini`. |
@@ -143,7 +111,7 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 | `GEMINI_API_KEY` | for `gemini` | **Never commit this.** |
 | `GEMINI_MODEL` | no | Defaults to `gemini-3.5-flash-lite`. |
 | `GEMINI_THINKING_BUDGET` | no | Set `0` for `gemini-2.5-*` models; leave unset for 3.x. |
-| `MONGO_SERVER_SELECTION_TIMEOUT_MS` | no | Defaults to 5000. Raise it if your cluster is slow to select. |
+| `MONGO_SERVER_SELECTION_TIMEOUT_MS` | no | Defaults to 8000. Raise it if your cluster is slow to select — a cold Atlas M0 can be. |
 
 ### Where to get the credentials
 
@@ -155,35 +123,64 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 
 `.env` is gitignored. Keep it that way.
 
-### Mongo and JWT setup
+### Mongo setup (optional)
 
-Both are **required** — the app exits at boot without them. Mongo holds the
-accounts and sessions auth runs on, not just the complaint cache.
+Mongo backs the complaint cache and nothing else. Skipping it costs ~7s per
+uncached lookup and nothing else.
 
-#### Getting a Mongo running
+#### Dev and prod are different databases
 
-Any Mongo works; the code passes the URI straight through, so local and Atlas
-look identical to it. Pick one:
-
-| How | Setup | `MONGODB_URI` |
+| | Dev | Prod |
 | --- | --- | --- |
-| **All of Docker** (Option A) | `docker compose up` | set for you — nothing to do |
-| **Homebrew** (macOS native) | `brew tap mongodb/brew && brew install mongodb-community`<br>`brew services start mongodb-community` | `mongodb://localhost:27017` |
-| **Atlas** (free tier, needed for deploy) | create a cluster at [cloud.mongodb.com](https://cloud.mongodb.com), add your IP under Network Access | `mongodb+srv://user:pass@cluster.mongodb.net` |
+| Where | Docker, on your machine | MongoDB Atlas |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017` | `mongodb+srv://…@nyc-streetwise.…mongodb.net/…` |
+| `MONGODB_DB` | `nyc-streetwise-dev` | `nyc-streetwise` |
+| Set in | `backend/.env` (gitignored) | the deploy host's env settings |
+| Reference | `.env.example` | [`.env.production.example`](.env.production.example) |
 
-> **The Compose `mongo` service is not reachable from the host.** It exposes
-> 27017 to the other container only — `compose.yaml` publishes no host port on
-> purpose. So `docker compose up -d mongo` + `npm run dev` on the host does
-> **not** work out of the box. To run the API natively against it, add a
-> mapping to the `mongo` service:
+**No code branches on this.** `src/providers/mongo.js` reads the URI and the
+database name and passes them to the driver; local mongod and Atlas SRV look
+identical to everything above it. The two database *names* differ on purpose —
+an SRV URI carries no database name of its own, so `MONGODB_DB` is the only
+thing standing between a local experiment and the production cache.
+
+#### Getting the dev Mongo running
+
+```bash
+docker compose up -d mongo
+```
+
+That is it. It is published on `127.0.0.1:27017`, so it works both for the API
+running in Compose (which reaches it as `mongodb://mongo:27017`) and for
+`npm run dev` on the host. It is loopback-only and has no authentication —
+never republish it on `0.0.0.0`.
+
+Already have a Homebrew `mongod` on 27017? The bind will collide. Either stop it
+(`brew services stop mongodb-community`) or move the container to
+`"127.0.0.1:27018:27017"` in `compose.yaml` and set
+`MONGODB_URI=mongodb://127.0.0.1:27018`.
+
+#### Pointing at Atlas
+
+Only needed if you are deploying, or deliberately reproducing a prod issue.
+Copy the SRV string from **Atlas → Connect → Drivers**, replace `<db_password>`
+with the real password, and percent-encode it if it contains `@ : / ? # [ ] %`.
+
+> **The unreplaced `<db_password>` placeholder is caught for you.** Left in, it
+> is not a "wrong password" — the driver rejects the string at parse time on
+> every request. The app detects it, warns once, and runs uncached:
 >
-> ```yaml
-> ports:
->   - "127.0.0.1:27017:27017"    # loopback only — do not expose Mongo to the network
+> ```
+> [mongo] MONGODB_URI still contains an unreplaced <db_password> placeholder …
 > ```
 >
-> If you already have a local `mongod` on 27017 that will collide; use
-> `"127.0.0.1:27018:27017"` and `MONGODB_URI=mongodb://localhost:27018`.
+> That means a forgotten password shows up as a *slow* app, not a broken one.
+> Check the boot logs if the cache seems to be doing nothing.
+
+Atlas checklist: a **Database Access** user with `readWrite`, and **Network
+Access** allowing wherever the app runs from. Serverless hosts have no stable
+egress IP, so that is usually `0.0.0.0/0` — which makes the database password
+the only thing protecting the cluster.
 
 Check Mongo is actually reachable **from where the API runs**, before starting
 it. This needs no `mongosh` install — it reuses the driver `npm install` already
@@ -203,16 +200,6 @@ If you do have `mongosh`, `mongosh "$MONGODB_URI" --quiet --eval
 inside: `docker compose exec mongo mongosh --quiet --eval
 'db.adminCommand("ping").ok'`.
 
-#### Generating `JWT_SECRET`
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
-```
-
-Paste it into `.env` as `JWT_SECRET=...`. Minimum 32 characters, no default, one
-per environment. Changing it invalidates every issued token — which is also the
-emergency "log everyone out" lever.
-
 #### What gets created
 
 Nothing to set up by hand. The app creates its own collections and indexes at
@@ -221,45 +208,30 @@ boot:
 | Collection | Holds | Self-maintaining |
 | --- | --- | --- |
 | `complaint_cache` | 311 counts + explanations | 24h TTL, self-refreshing |
-| `users` | accounts (scrypt password hashes) | unique index on `username` |
-| `auth_sessions` | one doc per active login | TTL removes expired sessions |
-
-Then make an account:
-
-```bash
-npm run user:create -- --username demo --password 'a good password' --role tenant
-```
-
-Inspect what landed (password hashes projected out):
-
-```bash
-node --env-file-if-exists=.env -e "
-const {MongoClient}=require('mongodb');
-new MongoClient(process.env.MONGODB_URI).connect().then(async c=>{
-  console.table(await c.db(process.env.MONGODB_DB).collection('users')
-    .find({},{projection:{passwordHash:0}}).toArray());
-  await c.close();
-});
-"
-```
+| `baseline` | the citywide percentile baseline | written by `npm run baseline` |
 
 ### Environment inside Docker
 
-`compose.yaml` reads your `.env`, so `SOCRATA_APP_TOKEN`, `GEMINI_API_KEY`, and
-`JWT_SECRET` carry through without being committed.
+`compose.yaml` reads your `.env`, so `SOCRATA_APP_TOKEN` and `GEMINI_API_KEY`
+carry through without being committed.
 
-**`JWT_SECRET` must be set in `.env` or `docker compose up` refuses to start**
-with a message telling you so. There is deliberately no dev default — a shared
-fallback secret is one copy-paste away from being the production one.
-
-**Three values are deliberately overridden**, because `localhost` inside a
+**Four values are deliberately overridden**, because `localhost` inside a
 container means *the container*, not your machine:
 
 | Var | Value in Docker |
 | --- | --- |
-| `MONGODB_URI` | `mongodb://mongo:27017` |
+| `MONGODB_URI` | `mongodb://mongo:27017` (the compose service — same database `.env`'s `127.0.0.1:27017` reaches, just addressed from inside the network) |
+| `MONGODB_DB` | `nyc-streetwise-dev` |
 | `OLLAMA_ENDPOINT` | `http://host.docker.internal:11434/api/generate` |
 | `PORT` | `3001` |
+
+Compose is a **dev** tool here — it never points at Atlas. To deliberately run a
+container against prod, override on the command line rather than editing
+`compose.yaml`, so the safe default survives:
+
+```bash
+MONGODB_URI_OVERRIDE='mongodb+srv://…' MONGODB_DB=nyc-streetwise docker compose up
+```
 
 If you ever think "the container is ignoring my `.env`", this is why — explicit
 `environment:` beats `env_file:` in Compose, by design.
@@ -344,10 +316,8 @@ npm run verify:explanations
 ## Common tasks
 
 ```bash
-npm test                    # 351 tests, no network. Run these on the host, not in Docker.
+npm test                    # 313 tests, no network. Run these on the host, not in Docker.
 npm run baseline            # regenerate the citywide baseline (~3 min, live API)
-npm run user:create -- --username demo --password 'a good password' --role tenant
-npm run user:create -- --username demo --password 'new password' --force   # reset
 npm run verify:dataset      # confirm the 311 dataset hasn't moved
 npm run verify:scoring      # score distribution sanity check
 npm run verify:cache        # cache round-trip against a real Mongo
@@ -363,14 +333,15 @@ docker compose down                # stop; cached complaints survive
 docker compose down -v             # stop and wipe the cache volume
 ```
 
-Inspect the cache:
+Inspect the dev cache:
 
 ```bash
 docker compose exec mongo mongosh --quiet \
-  --eval 'db.getSiblingDB("should-i-live-here").complaint_cache.countDocuments()'
+  --eval 'db.getSiblingDB("nyc-streetwise-dev").complaint_cache.countDocuments()'
 ```
 
-To attach MongoDB Compass, add `ports: ["27017:27017"]` to the `mongo` service.
+MongoDB Compass attaches to `mongodb://127.0.0.1:27017` — the port is already
+published. For prod, use the Atlas UI or Compass with the SRV string.
 
 ---
 

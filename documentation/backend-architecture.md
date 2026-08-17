@@ -66,7 +66,8 @@ This separation is deliberate and enforced by convention (see
 - Fires off two **non-blocking** startup tasks (not awaited before
   `app.listen`, so a slow/missing Mongo or baseline never delays the app from
   answering `/health`):
-  - `ensureCacheIndexes()` if `MONGODB_URI` is set.
+  - `ensureCacheIndexes()` if a usable `MONGODB_URI` is set (local mongod in
+    dev, Atlas in prod — same code path either way).
   - `loadBaseline()` (skipped entirely in mock mode) — memoized for the
     process lifetime, so this pays the one-time Mongo/disk read cost at boot
     rather than on the first user's request.
@@ -75,8 +76,9 @@ This separation is deliberate and enforced by convention (see
 
 ## Design principles worth knowing before changing anything
 
-- **Optional infrastructure everywhere.** No `MONGODB_URI`? The app runs
-  uncached, not broken. No baseline in Mongo? Falls back to the committed
+- **Optional infrastructure everywhere.** No `MONGODB_URI` — or one still
+  holding Atlas's `<db_password>` placeholder? The app runs uncached, not
+  broken. No baseline in Mongo? Falls back to the committed
   `src/config/baseline.json`. No Socrata token? Requests still work,
   unauthenticated, just throttled harder. Nothing here throws at startup for
   a missing credential — see `providers/mongo.js`, `providers/baseline.js`.

@@ -10,8 +10,13 @@ these are reference docs, not a getting-started guide.
 ## Start here
 
 [`handoff.md`](./handoff.md) — running log of recent changes, what broke, and
-the environment gotchas (stale Docker images, two Mongo instances) that cost
-the most debugging time.
+the environment gotchas (stale Docker images, the dev/prod Mongo split) that
+cost the most debugging time.
+
+**Configuration split, if that's what you're here for:** Mongo is dev (local
+Docker) vs prod (Atlas) — [`backend-providers.md`](./backend-providers.md#mongojs--connection-management).
+Google Maps is two keys, server vs browser —
+[`frontend-architecture.md`](./frontend-architecture.md#the-two-google-maps-keys).
 
 ## Backend (`backend/`)
 
@@ -38,8 +43,8 @@ caveats like `streetCondition`'s null-geocode rate).
 The root README's
 ["What's real vs. mocked/stubbed"](../README.md#whats-real-vs-mockedstubbed-right-now)
 table is the current answer to "is what I'm looking at real". Scores, the
-complaint list, and the explanation text are real; the complaint timeline and
-comment threads are still deliberate UI stubs.
+complaint list, and the explanation text are real; the complaint timeline is
+still a deliberate UI stub.
 
 > Previously this section warned that a fully-populated-looking report was no
 > proof the backend was being used, because `fetchReport()` silently fell back

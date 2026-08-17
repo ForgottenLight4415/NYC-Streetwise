@@ -1,7 +1,31 @@
 # Frontend — `lib/`
 
-The non-UI core: the API client, scoring/formatting helpers, and the mock
-data generator that stands in for real data wherever it isn't available.
+The non-UI core: the API client, Google credentials, scoring/formatting
+helpers, and the mock data generator that stands in for real data wherever it
+isn't available.
+
+---
+
+## `maps-keys.ts` — the two Google Maps credentials
+
+The single place either Google key is read. Three exports:
+
+| Export | Reads | For |
+|---|---|---|
+| `serverMapsKey()` | `GOOGLE_MAPS_API_KEY` | Geocoding + Places, called from route handlers only |
+| `clientMapsKey()` | `GOOGLE_MAPS_CLIENT_KEY` (legacy alias: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`) | the browser's Maps JS SDK |
+| `mapsScriptSrc()` | — | the full `<script src>` URL, or `null` when no client key is set |
+
+**No fallback between them, deliberately.** The keys carry different Google
+restrictions (IP vs HTTP referrer) and are not substitutable in either
+direction: Google rejects a referrer-restricted key on the server-side
+Geocoding/Places APIs, and rendering the server key into page source would
+publish billed quota. A `??` between them is exactly how the second of those
+happens, so there isn't one. Both are read at call time, not module scope, so a
+key added mid-session applies on the next request.
+
+See [`frontend-architecture.md`](./frontend-architecture.md#the-two-google-maps-keys)
+for the failure modes.
 
 ---
 
@@ -10,7 +34,7 @@ data generator that stands in for real data wherever it isn't available.
 ### `getLatLng(address)`
 
 Geocodes an address via the app's own `/api/geocode` route (Google under the
-hood). If the first lookup returns nothing, retries with unit designators
+hood, on the server key — the browser never sees it). If the first lookup returns nothing, retries with unit designators
 stripped (`stripUnit()` — removes `apt`/`unit`/`suite`/`floor`/`room`/`#`
 etc.) before giving up. This exists because a unit-suffixed address can fail
 to geocode even though the building itself resolves fine, and scoring only
@@ -43,9 +67,6 @@ fails for any reason (backend not running, wrong port, network error), this
 > existed only to feed it, and the dead `app/api/report/route.ts` route that
 > served the same mock. A backend outage now surfaces as an error.
 
-On a 401 with `error: "token_expired"` it attempts one token refresh and
-retries once; any other 401 triggers the login modal.
-
 If the backend *is* reachable, its real response is returned as-is — which
 notably does **not** include `recentComplaints` (see
 [Real backend response vs. what components expect](#real-backend-response-vs-what-components-expect)
@@ -53,13 +74,13 @@ below).
 
 ### `fetchExplanation(lat, lng, tier)`
 
-The slow path of the two-call AI explanation flow. `GET /api/explanation` with
-the bearer token, for `tier` of `"building"` or `"block"`.
+The slow path of the two-call AI explanation flow. `GET /api/explanation` for
+`tier` of `"building"` or `"block"`.
 
 Returns the AI text, or **`null` whenever there is nothing to swap in** — a
-network failure, an auth failure, or the endpoint answering `200` with
-template text because the AI call failed server-side. It never throws;
-callers treat `null` as "keep the deterministic client-side copy".
+network failure, or the endpoint answering `200` with template text because
+the AI call failed server-side. It never throws; callers treat `null` as
+"keep the deterministic client-side copy".
 
 Only worth calling for a tier whose `/api/score` response came back with
 `explanationSource: "template"`. See
@@ -125,10 +146,6 @@ which are *always* mock regardless of backend status.
   plausible note. Explicitly a stand-in for a real per-complaint history NYC
   311 doesn't expose — see
   [`frontend-components.md`](./frontend-components.md#complaint-detail-modal).
-- **`buildSeedComments(complaint)`** — deterministic starter comment thread:
-  one resident comment always; an admin reply added once the complaint is
-  past `"open"`, with wording that varies by whether it's `in-progress` or
-  `closed`.
 
 ---
 
@@ -176,5 +193,3 @@ silently disappears unless something is added to populate it (e.g. wiring up
   `{ complaintId, events }`. This is the exact stub shape the timeline
   feature was scoped around, ready to swap in a real data source later
   without changing any component.
-- **`Comment`** — `{ id, author, role: "resident" | "building_admin", text,
-  timestamp, replies? }`. One level of nesting only.

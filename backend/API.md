@@ -4,8 +4,8 @@ Backend for the NYC 311 address risk tool. Takes a coordinate, returns two
 0–100 scores derived from live NYC 311 complaint data.
 
 - **Base URL (local):** `http://localhost:3001`
-- **Auth:** JWT bearer token on every endpoint except `/health` and `/api/auth/*`.
-  See [Authentication](#authentication).
+- **Auth:** none. Every endpoint is public — this is a read-only view over NYC
+  Open Data, and nothing here belongs to any one caller.
 - **Content type:** `application/json` everywhere.
 - **CORS:** open (`Access-Control-Allow-Origin: *`), preflight answered with 204.
 
@@ -15,10 +15,6 @@ illustrations.
 ---
 
 ## Three things to know before integrating
-
-**0. Every data endpoint needs a token.** `/api/score`, `/api/complaints`, and
-`/api/explanation` return `401` without `Authorization: Bearer <accessToken>`.
-Log in once, attach the header, refresh when it expires — [Authentication](#authentication).
 
 **1. This API does not geocode.** It takes `{lat, lng}` and never converts an
 address. The frontend gets coordinates from Google Places Autocomplete and sends
@@ -114,239 +110,8 @@ given any.
 
 ---
 
-## Authentication
-
-Five endpoints. Log in, then send `Authorization: Bearer <accessToken>` on every
-data request.
-
-| Method | Endpoint | Auth | Purpose |
-| --- | --- | --- | --- |
-| `POST` | `/api/auth/register` | — | Create an account, returns tokens |
-| `POST` | `/api/auth/login` | — | Exchange credentials for tokens |
-| `POST` | `/api/auth/refresh` | refresh token | New access token |
-| `POST` | `/api/auth/logout` | access token | End the session |
-| `GET` | `/api/auth/me` | access token | Current user |
-
-Access token expires in **7 days**; refresh token in **30 days**.
-
-### Token response
-
-`register`, `login`, and `refresh` all return this shape:
-
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "kR7pXnG2vQ8mL...",
-  "tokenType": "Bearer",
-  "expiresIn": 604800,
-  "expiresAt": "2026-08-23T01:45:34.714Z",
-  "user": {
-    "id": "6eb2dd28-4ce6-483f-870c-2d570010ae46",
-    "username": "owner",
-    "role": "landlord",
-    "createdAt": "2026-08-16T01:45:34.714Z"
-  }
-}
-```
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `accessToken` | string | Send as `Authorization: Bearer <accessToken>` |
-| `refreshToken` | string | Store it; **rotates on every refresh** |
-| `tokenType` | string | Always `"Bearer"` |
-| `expiresIn` | number | Access token lifetime in seconds (`604800` = 7 days) |
-| `expiresAt` | string | ISO 8601 expiry of the access token |
-| `user.id` | string | UUID |
-| `user.username` | string | Lowercased |
-| `user.role` | string | `"tenant"` or `"landlord"` |
-| `user.createdAt` | string | ISO 8601 |
-
----
-
-### `POST /api/auth/register`
-
-Creates an account and logs it in — no second call needed.
-
-| Parameter | In | Type | Required | Notes |
-| --- | --- | --- | --- | --- |
-| `username` | body | string | yes | 3–32 chars, `a-z 0-9 . - _`, case-insensitive |
-| `password` | body | string | yes | 8–200 chars |
-| `role` | body | string | yes | `"tenant"` or `"landlord"` |
-
-**Postman**
-
-```
-POST http://localhost:3001/api/auth/register
-Headers:  Content-Type: application/json
-Body (raw / JSON):
-{
-  "username": "owner",
-  "password": "landlord-password-1",
-  "role": "landlord"
-}
-```
-
-**Returns** `201 Created` — the [token response](#token-response) above.
-
-**Errors:** `400 invalid_username` · `400 invalid_password` · `400 missing_role`
-· `400 invalid_role` · `409 username_taken`
-
----
-
-### `POST /api/auth/login`
-
-Exchanges credentials for a token pair. Opens a new session each time, so
-logging in on a second device does not sign out the first.
-
-| Parameter | In | Type | Required |
-| --- | --- | --- | --- |
-| `username` | body | string | yes |
-| `password` | body | string | yes |
-
-**Postman**
-
-```
-POST http://localhost:3001/api/auth/login
-Headers:  Content-Type: application/json
-Body (raw / JSON):
-{
-  "username": "owner",
-  "password": "landlord-password-1"
-}
-```
-
-**Returns** `200 OK` — the [token response](#token-response) above.
-
-**Errors:** `401 invalid_credentials` (same code for a wrong password and an
-unknown user, deliberately)
-
----
-
-### `POST /api/auth/refresh`
-
-Trades a refresh token for a new access token. **The refresh token rotates** —
-store the new one, the submitted one stops working immediately.
-
-| Parameter | In | Type | Required |
-| --- | --- | --- | --- |
-| `refreshToken` | body | string | yes |
-
-**Postman**
-
-```
-POST http://localhost:3001/api/auth/refresh
-Headers:  Content-Type: application/json
-Body (raw / JSON):
-{
-  "refreshToken": "kR7pXnG2vQ8mL..."
-}
-```
-
-**Returns** `200 OK` — the [token response](#token-response) above, with a new
-`accessToken` **and** a new `refreshToken`.
-
-**Errors:** `400 missing_refreshToken` · `401 invalid_refresh_token` (expired,
-already used, or revoked → send the user to login)
-
----
-
-### `POST /api/auth/logout`
-
-Ends the session. The access token **and** its refresh token stop working
-immediately, not at expiry.
-
-| Parameter | In | Type | Required |
-| --- | --- | --- | --- |
-| `Authorization` | header | string | yes — `Bearer <accessToken>` |
-
-**Postman**
-
-```
-POST http://localhost:3001/api/auth/logout
-Headers:  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-**Returns** `200 OK`
-
-```json
-{ "ended": true }
-```
-
-Only the calling session ends — other devices stay logged in. Calling it twice
-is fine.
-
-**Errors:** `401 missing_token` · `401 invalid_token` · `401 session_revoked`
-
----
-
-### `GET /api/auth/me`
-
-Checks whether a stored token is still valid, and who it belongs to.
-
-| Parameter | In | Type | Required |
-| --- | --- | --- | --- |
-| `Authorization` | header | string | yes — `Bearer <accessToken>` |
-
-**Postman**
-
-```
-GET http://localhost:3001/api/auth/me
-Headers:  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-**Returns** `200 OK`
-
-```json
-{
-  "user": {
-    "id": "6eb2dd28-4ce6-483f-870c-2d570010ae46",
-    "username": "owner",
-    "role": "landlord",
-    "createdAt": "2026-08-16T01:45:34.714Z"
-  }
-}
-```
-
-**Errors:** `401 missing_token` · `401 invalid_token` · `401 token_expired` ·
-`401 session_revoked`
-
----
-
-### Using the token
-
-Attach it to every data request:
-
-```
-POST http://localhost:3001/api/score
-Headers:  Content-Type: application/json
-          Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-Body (raw / JSON):
-{ "lat": 40.7484, "lng": -73.9857 }
-```
-
-### Handling a 401
-
-| `error` | What to do |
-| --- | --- |
-| `token_expired` | Call `/api/auth/refresh`, store the new tokens, retry once |
-| `missing_token` | Attach the header |
-| `invalid_token` | Clear stored tokens, send the user to login |
-| `session_revoked` | Clear stored tokens, send the user to login |
-
-### Creating the first account
-
-```bash
-npm run user:create -- --username demo --password 'a good password' --role tenant
-```
-
-Or `POST /api/auth/register`. Add `--force` to reset an existing user's password
-(this also ends all their sessions).
-
----
-
 ## `POST /api/score`
 
-Requires `Authorization: Bearer <accessToken>`.
 The main endpoint. Returns Building Health and Block Quality for one coordinate.
 
 ### Request
@@ -549,7 +314,6 @@ intend to demo — cache entries live 24h.
 
 ## `GET /api/complaints`
 
-Requires `Authorization: Bearer <accessToken>`.
 Individual complaint points for the heatmap.
 
 ### Query parameters
@@ -634,7 +398,6 @@ endpoint for visual density only; take every number from `/api/score`.**
 
 ## `GET /api/explanation`
 
-Requires `Authorization: Bearer <accessToken>`.
 The slow path. Generates the AI explanation for **one** sub-score, caches it,
 and returns it. Call this only when `/api/score` returned
 `explanationSource: "template"` for that tier.
@@ -799,24 +562,9 @@ where there is nothing useful to say that would not leak internals.
 | 400 | `invalid_radius` | Not 1–2000 meters |
 | 400 | `invalid_limit` | Not a whole number in 1–5000 |
 | 400 | `missing_tier` / `invalid_tier` | `/api/explanation` needs `tier=building` or `tier=block` |
-| 400 | `missing_username` / `missing_password` | Auth field absent, empty, or not a string |
-| 400 | `invalid_username` | Not 3–32 chars of `a-z 0-9 . - _` (registration only) |
-| 400 | `invalid_password` | Not 8–200 chars (registration only) |
-| 400 | `missing_role` / `invalid_role` | Registration needs `role: "tenant"` or `"landlord"` |
-| 400 | `missing_refreshToken` | `/api/auth/refresh` body field absent |
-| 401 | `missing_token` | No `Authorization: Bearer` header |
-| 401 | `invalid_token` | Signature, issuer, or payload is wrong |
-| 401 | `token_expired` | Access token past 7 days — refresh it |
-| 401 | `session_revoked` | Logged out, or the session expired |
-| 401 | `invalid_credentials` | Wrong password **or** unknown user |
-| 401 | `invalid_refresh_token` | Expired, already used, or revoked |
 | 404 | `not_found` | Unknown path |
-| 409 | `username_taken` | That username is already registered |
 | 503 | `upstream_unavailable` | NYC Open Data is not responding |
-| 503 | `auth_unavailable` | The account database is unreachable |
 | 500 | `internal_error` | Anything else; details are not leaked |
-
-Every `401` also carries a `WWW-Authenticate: Bearer realm="api"` header.
 
 Examples:
 
@@ -829,13 +577,9 @@ $ curl -X POST localhost:3001/api/score -H 'Content-Type: application/json' \
     -d '{"lng":-73.9}'
 {"error":"missing_lat","details":"lat is required"}
 
-$ curl localhost:3001/api/nope -H "Authorization: Bearer $TOKEN"
+$ curl localhost:3001/api/nope
 {"error":"not_found"}
 ```
-
-An unknown path **without** a token returns `401 missing_token`, not `404` — the
-auth gate sits in front of the 404 handler, so the API does not reveal which
-paths exist to an unauthenticated caller.
 
 ### Handling `503 upstream_unavailable`
 
@@ -878,19 +622,18 @@ All variants within a bucket are summed into **one** number before scoring — t
 npm install
 npm start          # http://localhost:3001
 npm run dev        # same, with --watch
-
-# first run only — auth needs a secret and a database
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
-# put that in .env as JWT_SECRET=..., then:
-npm run user:create -- --username demo --password 'a good password' --role tenant
 ```
+
+No `.env` is required — every variable below is optional, and the app boots and
+answers requests with none of them set.
 
 | Env var | Required | Purpose |
 | --- | --- | --- |
-| `JWT_SECRET` | **yes** | Signs access tokens, min 32 chars. App exits if unset |
 | `SOCRATA_APP_TOKEN` | for live data | NYC Open Data token; requests throttle hard without it |
-| `MONGODB_URI` | **yes** | Users + sessions live here. App exits if unset |
-| `MONGODB_DB` | no | Defaults to `should_i_live_here` |
+| `MONGODB_URI` | no | Backs the complaint cache. Local mongod in dev, Atlas SRV in prod. Without it every lookup hits Socrata |
+| `MONGODB_DB` | no | `nyc-streetwise-dev` / `nyc-streetwise`; defaults to `should_i_live_here` |
+| `MONGO_SERVER_SELECTION_TIMEOUT_MS` | no | Defaults to 8000 |
+| `MONGO_MAX_POOL_SIZE` | no | Defaults to 10 |
 | `PORT` | no | Defaults to 3001 |
 | `USE_MOCK_DATA` | no | `1` serves deterministic mock data |
 | `AI_PROVIDER` | no | `ollama` (default, local) or `gemini` (deployed) |
@@ -928,8 +671,7 @@ USE_MOCK_DATA=1 npm start
 ```
 
 Serves the identical response shape with deterministic fake data — no Socrata
-token and no network. It still needs `JWT_SECRET` and `MONGODB_URI` (auth is not
-mocked) and still requires a bearer token. The same coordinate always returns
+token, no Mongo, and no network at all. The same coordinate always returns
 the same report, and all three bands are reachable. Mock payloads carry `meta.mock: true`, so nothing can
 be demoed as live data by accident.
 
@@ -948,4 +690,3 @@ be built and tested with no AI provider running at all. See the
 | `documentation/handoff.md` | Decisions, roadblocks, current state |
 | `documentation/m4-m5-scoring-integration.md` | How scoring and the baseline work |
 | `documentation/m6-ai-explanations.md` | How explanations work, prompt rules, model findings |
-| `documentation/m7-auth.md` | How auth works, why the token design is what it is |

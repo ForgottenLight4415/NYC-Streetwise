@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findSuggestions } from "@/lib/mock-data";
+import { serverMapsKey } from "@/lib/maps-keys";
 
 // Tight bounding box around the outer edges of the five boroughs (Staten
 // Island's western tip to the Bronx's northern tip, Staten Island's western
@@ -33,7 +34,9 @@ export async function GET(request: NextRequest) {
       suggestions: findSuggestions(q).map((s) => ({ id: s.id, description: s.description })),
     });
 
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // Server-side key only (Places API New). See lib/maps-keys.ts for why the
+  // browser's client key is not a valid substitute.
+  const apiKey = serverMapsKey();
   if (!apiKey) {
     return mockFallback();
   }

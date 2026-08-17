@@ -11,7 +11,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "baseline": "node --env-file-if-exists=.env scripts/buildBaseline.js",
-    "user:create": "node --env-file-if-exists=.env scripts/createUser.js",
     "verify:dataset": "node --env-file-if-exists=.env scripts/verifyDataset.js",
     "verify:cache": "node --env-file-if-exists=.env scripts/verifyCache.js",
     "verify:scoring": "node --env-file-if-exists=.env scripts/verifyScoring.js",
@@ -22,8 +21,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.3",
-    "mongodb": "^6.20.0"
+    "mongodb": "^6.21.0"
   },
   "devDependencies": {
     "mongodb-memory-server": "^11.2.0",

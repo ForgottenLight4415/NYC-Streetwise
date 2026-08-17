@@ -41,12 +41,6 @@ Two things:
 
 ### Mongo is optional, not a dependency
 
-> **SUPERSEDED BY M7 at the app level.** Everything below still describes the
-> *cache* accurately — it degrades to "miss" exactly as written. But `MONGODB_URI`
-> is no longer optional for the **app**: M7 put user accounts and sessions in
-> Mongo, and the process now exits at boot without it. See
-> [m7-auth.md](m7-auth.md).
-
 Every cache function degrades to "miss" when Mongo is unconfigured, unreachable,
 or slow, and `writeCounts` returns `false` rather than throwing. A cache outage
 must not become a 500 on `/api/score` mid-demo — the cost of a cache miss is

@@ -41,25 +41,6 @@ vi.mock("../src/providers/ai/index.js", async (importOriginal) => {
   return { ...actual, generateExplanation: aiSpy };
 });
 
-// Auth is stubbed out here, for the same reason Socrata is: this file's subject
-// is the CONTRACT SHAPE, and requiring a real token would drag a mongod, a user
-// fixture, and a live cache into every assertion about response fields — the
-// cache alone would break the "exactly two upstream calls" tests.
-//
-// That the routes are actually protected is proven for real, against a real
-// mongod and real tokens, in auth.test.js. Neither file is complete alone.
-vi.mock("../src/middleware/requireAuth.js", () => ({
-  requireAuth: (req, res, next) => {
-    req.auth = {
-      userId: "test-user",
-      username: "tester",
-      role: "tenant",
-      sessionId: "test-session",
-    };
-    next();
-  },
-}));
-
 const { SocrataError } = await import("../src/providers/socrata.js");
 
 const COUNTS = {

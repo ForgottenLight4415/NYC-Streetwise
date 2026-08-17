@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AuthProvider } from "@/components/AuthProvider";
+import { Header } from "@/components/Header";
+import { mapsScriptSrc } from "@/lib/maps-keys";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,19 +21,19 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  const mapsApiKey = process.env.GOOGLE_MAPS_API_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const mapsScriptSrc = mapsApiKey
-    ? `https://maps.googleapis.com/maps/api/js?key=${mapsApiKey}&libraries=maps,marker,places`
-    : null;
+  // Rendered into page source, so this is the referrer-restricted CLIENT key
+  // (GOOGLE_MAPS_CLIENT_KEY) — never the billed server key. See lib/maps-keys.ts.
+  const scriptSrc = mapsScriptSrc();
 
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>{mapsScriptSrc && <script async src={mapsScriptSrc} />}</head>
+      <head>{scriptSrc && <script async src={scriptSrc} />}</head>
       <body className="min-h-full flex flex-col bg-[color:var(--background)] text-[color:var(--foreground)]">
-        <AuthProvider>{children}</AuthProvider>
+        <Header />
+        {children}
       </body>
     </html>
   );

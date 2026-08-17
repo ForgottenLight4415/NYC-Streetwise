@@ -77,14 +77,3 @@ export interface ComplaintTimeline {
   complaintId: string;
   events: TimelineEvent[];
 }
-
-export type CommentRole = "resident" | "building_admin";
-
-export interface Comment {
-  id: string;
-  author: string;
-  role: CommentRole;
-  text: string;
-  timestamp: string; // YYYY-MM-DD
-  replies?: Comment[];
-}

@@ -4,21 +4,19 @@ Running log for the backend/data layer (Person 1). Newest milestone at the top o
 each section. Spec lives in `../CLAUDE.md`; per-milestone detail in the `mN-*.md`
 files alongside this one.
 
-**Last updated:** 2026-08-15, after M7 (JWT authentication).
+**Last updated:** 2026-08-16, after authentication was removed for the hosted
+demo build.
 
-> ### ⚠️ ACTION REQUIRED — Person 2 (frontend)
+> ### Note — authentication has been removed
 >
-> **M7 protected the data endpoints.** `/api/score`, `/api/complaints`, and
-> `/api/explanation` now return **401** without
-> `Authorization: Bearer <accessToken>`.
+> A short-lived JWT auth layer (accounts, sessions, tenant/landlord roles) sat in
+> front of `/api/score`, `/api/complaints`, and `/api/explanation`. It has been
+> deleted along with its routes, providers, collections, and tests, so the demo
+> can be hosted without an account step.
 >
-> **Response shapes are unchanged** — no field added, removed, or renamed. The
-> only work is: log in, attach the header, refresh on `token_expired`.
-> Registration also takes a **role** (`tenant` | `landlord`), returned on
-> `user.role`.
->
-> Endpoints, parameters, and Postman-ready examples: [`../API.md`](../API.md#authentication).
-> Rationale: [m7-auth.md](m7-auth.md).
+> **Every endpoint is public again, and response shapes never changed** — no
+> field was added, removed, or renamed by either the addition or the removal.
+> Mongo is optional once more; it backs the complaint cache and nothing else.
 
 ---
 
@@ -33,28 +31,20 @@ files alongside this one.
 | M4 — P3 baseline + pure scoring | done |
 | M5 — P4 swap mock for real | done |
 | M6 — P3.5 AI explanation layer (new scope) | done |
-| M7 — JWT auth (new scope, not in CLAUDE.md's build order) | done — see [m7-auth.md](m7-auth.md) |
 | P5 — demo hardening | next |
 | Docker local stack (not a milestone) | done — see [docker.md](docker.md) |
 
 **Runnable today:** `npm start` serves all three endpoints in the frozen contract
-with **live NYC 311 data**, scored against a committed citywide baseline, behind
-JWT auth. Needs `SOCRATA_APP_TOKEN` for live data, and now **requires**
-`JWT_SECRET` and `MONGODB_URI` — the app exits at boot without either.
-`USE_MOCK_DATA=1` still serves the mock for offline frontend work (auth is not
-mocked; a token is still required).
+with **live NYC 311 data**, scored against a committed citywide baseline. Needs
+nothing to boot; `SOCRATA_APP_TOKEN` for unthrottled live data and `MONGODB_URI`
+for the cache (dev: compose mongod; prod: Atlas) are both optional. `USE_MOCK_DATA=1` serves the mock for offline
+frontend work.
 
-**First run:**
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"  # → JWT_SECRET in .env
-npm run user:create -- --username demo --password 'a good password' --role tenant
-```
 Each sub-score also carries a plain-English `explanation`. `/api/score` never
 waits on the AI; `GET /api/explanation` is the slow path the frontend calls to
 upgrade template text in place.
 
-**Tested today:** `npm test` — **351 tests, all passing, no network** (299 after M6).
+**Tested today:** `npm test` — **299 tests, all passing, no network**.
 **Verified today, live:**
 - `npm run verify:scoring` — all checks pass. Block-tier median score **49**,
   full 6–98 spread, all three bands populated. That median is the headline: a
@@ -109,9 +99,6 @@ upgrade template text in place.
 - **Mongo is optional.** Every cache path degrades to "miss" when it is
   unconfigured, unreachable, or slow; `writeCounts` returns `false` rather than
   throwing. A cache outage costs latency, not a 500.
-  **SUPERSEDED BY M7 at the app level:** the *cache* still degrades exactly as
-  described, but the app no longer boots without `MONGODB_URI`, because auth
-  needs a real user store. See the Auth section below.
 - **Index creation is not awaited before `listen()`** — a slow Atlas cluster must
   not delay `/health`, which is what a host uses to judge the deploy.
 - **Socrata is queried with the ROUNDED coordinate**, not the caller's raw one.
@@ -179,37 +166,6 @@ upgrade template text in place.
   produces a truncated 200, not an error. See roadblock 11.
 - **Prompt divergence is fixed in `prompt.js`, never per adapter.** Three rules
   exist solely to stop Llama and Gemini drifting into two different voices.
-
-### Auth (M7)
-- **The 7-day access token is checked against a live session document.** A
-  stateless 7-day JWT cannot be revoked, so "log me out" would mean "your token
-  works for six more days". Every token carries a `sid`; `requireAuth` verifies
-  the session still exists. Costs one indexed `findOne` per request, buys
-  immediate revocation. Full reasoning in [m7-auth.md](m7-auth.md).
-- **Refresh tokens are opaque random bytes, not JWTs, and only a SHA-256 hash is
-  stored.** Nothing in them is meant to be read, and a database dump must not
-  hand out working sessions.
-- **Refresh tokens rotate, atomically.** One `findOneAndUpdate` matched on the
-  OLD hash — two concurrent refreshes race for one document and exactly one
-  wins. A read-then-write would leave both callers with live tokens.
-- **`node:crypto` scrypt, not bcrypt.** No dependency and no native build, which
-  matters on alpine/musl. Self-describing hash format so parameters can be
-  raised later without invalidating existing hashes.
-- **Unknown user and wrong password return identical responses AND take the same
-  time.** `loginUser` verifies against a dummy hash when the user is missing;
-  skipping scrypt would make the ~0ms-vs-~80ms gap a username oracle.
-- **Login validation is deliberately looser than registration validation.**
-  Enforcing the username pattern at login would be a second enumeration oracle
-  and would lock out existing users if the rules were ever tightened.
-- **`algorithms: ["HS256"]` is pinned on verify.** Without it an `alg: none`
-  token is accepted — the most common JWT vulnerability, and a one-line omission.
-- **Role (`tenant` | `landlord`) is required at registration with no default,**
-  and rides in the token. Defaulting a landlord to "tenant" produces a wrong
-  account nobody notices until a role check matters.
-- **`JWT_SECRET` has no fallback and the app exits without it.** A default
-  secret means anyone with the source can mint tokens for any deployment, and
-  "change it before deploy" is the step that gets skipped.
-- **`/health` stays public.** A 401 there reads to a host as a failed deploy.
 
 ---
 
@@ -362,53 +318,19 @@ they reached a real Ollama server because one happened to be running locally.
 **Fixed:** the AI provider is mocked in `routes.test.js` and
 `scoreService.test.js`, so the suite is machine-independent and stays offline.
 
-### 14. The error handler dispatched on `err.status`, and `SocrataError` has one (M7) — FIXED
-Auth added a "4xx means client error" branch to the central error handler. But
-`SocrataError.status` is the **upstream's** status, not ours, so it was caught by
-that branch first. Two existing tests went red immediately — a Socrata 503
-started returning `{"error":"socrata 503: down"}` instead of
-`upstream_unavailable`.
+### 14. The error handler dispatched on `err.status`, and `SocrataError` has one — FIXED
+A short-lived "4xx means client error" branch in the central error handler
+caught `SocrataError` first, because `SocrataError.status` is the **upstream's**
+status, not ours. Two existing tests went red immediately — a Socrata 503 started
+returning `{"error":"socrata 503: down"}` instead of `upstream_unavailable`.
 
 The tests caught the 503. The case they did **not** cover is a Socrata **400**,
 which would have forwarded Socrata's error body — SoQL query text included —
 straight to the browser.
 **Fixed:** the handler dispatches on error *type*, never a bare status number.
-`SocrataError` first, then `instanceof HttpError || instanceof BadRequestError`.
-The rule is now a comment at the top of the handler, because the collision is
-invisible until it bites.
-
-### 15. `verifyPassword` returned `true` for a truncated hash (M7) — FIXED
-A stored hash ending in an empty key field (`scrypt$16384$8$1$aa$`) parsed
-cleanly, gave `keyLength: 0`, and `timingSafeEqual` on two **empty buffers
-returns true** — a corrupt user document would have authenticated *every*
-password for that user.
-**Fixed:** explicit non-empty hex validation on both the salt and key fields
-before deriving. Caught by the malformed-input test, which existed for
-robustness ("return false, never throw") and turned out to be catching a full
-authentication bypass.
-
-### 16. Auth broke every existing route test (M7) — FIXED
-`routes.test.js` deliberately runs without Mongo: it asserts the frozen contract
-against the committed baseline file, and its "exactly two upstream calls" tests
-depend on there being no live cache. Real tokens would have dragged a mongod and
-an active cache into every assertion.
-**Fixed:** the auth middleware is mocked there, exactly as that file already
-mocks Socrata and the AI adapter, and protection is proven for real in
-`auth.test.js` against a real mongod with real tokens. Each file points at the
-other in a comment.
-
-### 17. Mongo stopped being optional (M7) — ACCEPTED, NOT FIXED
-Every previous milestone treated Mongo as an optimisation; `cache.js` degrades
-every failure to "miss". Auth cannot: an unreachable database during a login
-must not read as "no such user" (which looks like a wrong password), and must
-never read as success.
-**Resolution:** `mongo.js` grew a second accessor, `requireDb()`, that throws
-503 `auth_unavailable` where `getDb()` returns `null`. Both exist side by side,
-and which one a provider calls *is* the statement of whether it can degrade. The
-cache still uses `getDb()` and still degrades.
-**Consequence to know:** a teammate with no `MONGODB_URI` no longer gets a
-working-but-uncached backend — they get a backend that refuses to start.
-`docker compose up` already provides Mongo, so the documented path is unaffected.
+`SocrataError` first, then `instanceof BadRequestError`. The rule is now a
+comment at the top of the handler, because the collision is invisible until it
+bites.
 
 ---
 
@@ -492,19 +414,6 @@ the UI can explain *why* a score is what it is, so it is worth using.
 
 ## Next steps — P5 (demo hardening)
 
-**0. Tell Person 2 the data endpoints now need a token** (see the banner at the
-top). This is the one item with a hard dependency on someone else, so it goes
-first. Nothing else in this list is blocked by it.
-
-**0b. Auth items deliberately left out of M7,** listed so they are decisions
-rather than oversights — full detail in [m7-auth.md](m7-auth.md#known-gaps):
-rate limiting on `/api/auth/login` (nothing currently slows password guessing),
-open registration (anyone reaching the deployment can create an account), and
-tokens living in JS-readable storage rather than httpOnly cookies. Add
-`JWT_SECRET` to the Vercel dashboard before deploying — the app will not boot
-without it.
-
-
 1. **Pre-warm the cache for the demo addresses — scores AND explanations.**
    Non-negotiable: cold is 1.6–2.5s, warm is 2ms, and Socrata has already gone
    fully dark for hours once. Without an explanation pre-warm the demo opens on
@@ -527,14 +436,21 @@ without it.
    adapters, and read the output for tone rather than for errors.
 
 **Credentials status:** `SOCRATA_APP_TOKEN` is set in `.env` (gitignored).
-`MONGODB_URI` **is** set and points at a local mongod. A real Atlas URI is still
-needed before deploy. `JWT_SECRET` must be generated per environment (M7) — it
-is required in `.env` locally and in the Vercel dashboard before deploy; there
-is no fallback and the app exits without it.
+`MONGODB_URI` in `.env` is the **dev** database — the compose mongod on
+`127.0.0.1:27017`, database `nyc-streetwise-dev`.
 
-Mongo is now **required for the app to start** (users + sessions). It is still
-not required for the *baseline* — `src/config/baseline.json` is committed and is
-used automatically when Mongo has no document.
+The **prod** Atlas cluster (`nyc-streetwise.7aqt3oz.mongodb.net`, database
+`nyc-streetwise`) exists and its connection string is recorded in
+[`.env.production.example`](../.env.production.example), but the `<db_password>`
+placeholder in it has **not** been filled in — that is the one remaining step
+before deploy, along with pasting the whole set into the deploy host's env
+settings. The app tolerates the placeholder (warns once, runs uncached), so the
+failure mode is a silently slow deploy rather than a crash. Verify against a
+real password before trusting the prod cache.
+
+Mongo is optional throughout. It is not required to start, and not required for
+the *baseline* either — `src/config/baseline.json` is committed and is used
+automatically when Mongo has no document.
 
 ## Watch items (not blocking, don't lose)
 
@@ -563,7 +479,7 @@ used automatically when Mongo has no document.
 - **`AI_PROVIDER=gemini` has never run on Vercel.** It has been verified live
   from local Node against the real API. The adapter is stateless HTTP so there is
   no known serverless blocker, but "no known blocker" is not "tested".
-- **Explanations are not pre-warmed.** M7 should generate them for the demo
+- **Explanations are not pre-warmed.** P5 should generate them for the demo
   addresses alongside the score pre-warm, or the demo opens on template text and
   visibly swaps a second later.
 - **Gemini free-tier rate limits are still unverified** (CLAUDE.md open item 6).
@@ -591,13 +507,19 @@ used automatically when Mongo has no document.
   edit. Decide this before demo day, not during it.
 - **CORS is `*`.** Fine for a hackathon; tighten before anything public.
 - **In Docker, `localhost` is the container.** `compose.yaml` therefore overrides
-  `MONGODB_URI` and `OLLAMA_ENDPOINT` from `.env`. If someone reports "the
-  container ignores my `.env`", this is why — explicit `environment:` wins over
-  `env_file:` by design. Note the containerized backend reaches a **host** Ollama
+  `MONGODB_URI` / `MONGODB_DB` / `OLLAMA_ENDPOINT` from `.env`. If someone
+  reports "the container ignores my `.env`", this is why — explicit
+  `environment:` wins over `env_file:` by design. Compose only ever points at
+  the **dev** Mongo; pointing a container at Atlas is an explicit
+  `MONGODB_URI_OVERRIDE=… docker compose up`. Note the containerized backend reaches a **host** Ollama
   via `host.docker.internal`; that path is untested (Ollama was not running
   during verification, so only the template fallback was exercised).
-- **`MONGO_SERVER_SELECTION_TIMEOUT_MS`** overrides the 5s Mongo connect timeout.
-  Added for tests; also useful if Atlas turns out to be slow to select.
+- **`MONGO_SERVER_SELECTION_TIMEOUT_MS`** overrides the 8s Mongo connect timeout
+  (raised from 5s when prod moved to Atlas — a cold M0 cluster can be slow to
+  elect a primary, and a spurious timeout there costs a cache miss on every
+  request). Also used by tests to exercise the unreachable-Mongo path without a
+  stall. `MONGO_MAX_POOL_SIZE` (default 10) bounds the pool against Atlas's
+  500-connection cap.
 - **Dataset floor is 2020-01-01.** `WINDOW_MONTHS` beyond ~68 truncates silently.
 - **`Heat/Hot Water` and `Unsanitary Condition` (title case) match zero rows** in
   the window — only the uppercase variants exist. Kept deliberately as cheap

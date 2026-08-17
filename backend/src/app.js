@@ -3,9 +3,6 @@ import { healthRouter } from "./routes/health.js";
 import { scoreRouter } from "./routes/score.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { explanationRouter } from "./routes/explanation.js";
-import { authRouter } from "./routes/auth.js";
-import { requireAuth } from "./middleware/requireAuth.js";
-import { HttpError } from "./lib/errors.js";
 import { BadRequestError } from "./lib/validate.js";
 
 /** Custom response headers the browser must be allowed to read cross-origin. */
@@ -22,9 +19,7 @@ export function createApp() {
   // Frontend is served from a different origin during development.
   app.use((req, res, next) => {
     res.set("Access-Control-Allow-Origin", "*");
-    // Authorization must be listed or the browser's preflight rejects every
-    // authenticated cross-origin request before it is ever sent.
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
     res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     // Without this, browser JS cannot READ our custom headers even though they
     // arrive — /api/complaints reports its truncation there, and the frontend
@@ -34,37 +29,19 @@ export function createApp() {
     next();
   });
 
-  // --- public --------------------------------------------------------------
-  // /health stays open deliberately. A deploy health check and a keep-warm ping
-  // have no credentials, and a 401 there reads to the host as a failed deploy.
-  // It exposes only "the process is up", which is not worth protecting.
+  // Every route is public — this is a read-only view over NYC Open Data, and
+  // there is nothing here that belongs to any one caller.
   app.use(healthRouter);
-  // Token issuance cannot itself require a token.
-  app.use(authRouter);
-
-  // --- protected -----------------------------------------------------------
-  // Everything below needs `Authorization: Bearer <accessToken>`.
-  //
-  // NOTE FOR PERSON 2: this is a BREAKING change to the frozen contract in
-  // CLAUDE.md. /api/score, /api/complaints, and /api/explanation now 401
-  // without a token. The response shapes are otherwise untouched — the only
-  // frontend change needed is logging in and attaching the header. See
-  // documentation/m7-auth.md.
-  app.use(requireAuth);
   app.use(scoreRouter);
   app.use(complaintsRouter);
   app.use(explanationRouter);
 
-  // Deliberately BEHIND requireAuth: an unknown path returns 401 to an
-  // unauthenticated caller and 404 only to an authenticated one, so the API
-  // does not enumerate its own routes for anyone who asks.
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });
   });
 
   // Central error handler. Routes throw BadRequestError (400) via the shared
-  // validator and HttpError subclasses (401/409/503) from the auth layer;
-  // anything else is a 500 with no internals leaked.
+  // validator; anything else is a 500 with no internals leaked.
   app.use((err, req, res, next) => {
     // Dispatch on error TYPE, never on `err.status` alone. SocrataError also
     // carries a `status`, but it is the UPSTREAM's status, not ours — a generic
@@ -83,29 +60,10 @@ export function createApp() {
       });
     }
 
-    // Auth is misconfigured (no JWT_SECRET). That is our bug, not the caller's,
-    // and it must be loud in the logs — but the client gets a bare 500, since
-    // the message names the missing variable.
-    if (err?.name === "AuthConfigError") {
-      console.error("[auth] misconfigured:", err.message);
-      return res.status(500).json({ error: "internal_error" });
-    }
-
-    // Ours: BadRequestError (400) from the validator and HttpError subclasses
-    // (401/409/503) from the auth layer. Both already carry a safe
+    // Ours: BadRequestError (400) from the validator. It already carries a safe
     // machine-readable code as `message` and prose in `details`, neither
     // derived from an internal exception, so forwarding both leaks nothing.
-    if (err instanceof HttpError || err instanceof BadRequestError) {
-      if (err.status === 401) {
-        // RFC 7235: a 401 must say how to authenticate. Some HTTP clients will
-        // not attach credentials on retry without it.
-        res.set("WWW-Authenticate", 'Bearer realm="api"');
-      }
-      if (err.status >= 500) {
-        // A 503 here means our own user store is unreachable — worth logging,
-        // unlike a routine 400.
-        console.error("[auth]", err.message, err.details ?? "");
-      }
+    if (err instanceof BadRequestError) {
       return res.status(err.status).json({ error: err.message, details: err.details });
     }
     console.error("[error]", err);

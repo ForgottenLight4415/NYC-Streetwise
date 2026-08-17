@@ -51,15 +51,10 @@ itself (open item 5), not the pipeline.
 Three separate problems stacked on top of each other, all presenting as "the
 backend always returns template explanations".
 
-1. **The Docker container was running pre-auth code.** Port 3001 was held by
-   `should-i-live-here-backend-1`, built before the auth commit, so
-   `/api/auth/register` fell through to the catch-all 404. `compose.yaml` uses
-   `build: .` with no bind mount — **editing `backend/src/` does not reach the
-   running container.** Fix: `docker compose up -d --build backend`.
-
-   Fast way to spot this: the stale container answered
-   `Access-Control-Allow-Headers: Content-Type`, but current `app.js` sends
-   `Content-Type, Authorization`.
+1. **The Docker container was running stale code.** Port 3001 was held by
+   `should-i-live-here-backend-1`, built from an older commit. `compose.yaml`
+   uses `build: .` with no bind mount — **editing `backend/src/` does not reach
+   the running container.** Fix: `docker compose up -d --build backend`.
 
 2. **Ollama was not running.** `AI_PROVIDER=ollama`, so every generation threw
    `ollama unreachable`, which `services/explain.js` catches and degrades to
@@ -91,14 +86,20 @@ never empty and never shows an error.
 
 ### Gotchas for the next person
 
-- **Two MongoDB instances are running.** The compose Mongo
-  (`should-i-live-here-mongo-1`, mongo:8) holds all real data — users,
-  sessions, cache. A second standalone `local-mongo` (mongo:7) owns host port
-  27017 and is **empty**. Docker runs hit the first (compose hard-overrides
-  `MONGODB_URI` to `mongodb://mongo:27017`); `npm run dev` reads `.env` and
-  hits the *second*. Switching run modes silently switches databases.
-  Consider deleting `local-mongo` and publishing `27017:27017` on the compose
-  Mongo so both modes agree.
+- **Mongo is now split dev/prod.** Dev is the compose `mongo` service
+  (database `nyc-streetwise-dev`); prod is Atlas (database `nyc-streetwise`),
+  configured on the deploy host — see
+  [`backend/.env.production.example`](../backend/.env.production.example). No
+  code branches on this; only `MONGODB_URI` / `MONGODB_DB` differ.
+  - *Previously a gotcha, now fixed:* two Mongos used to be running, and
+    `docker compose up` vs `npm run dev` silently hit different databases. The
+    compose Mongo now publishes `127.0.0.1:27017`, so both run modes use the
+    same dev database. If you still have an old standalone `local-mongo`
+    (mongo:7) container squatting on 27017, delete it — it will collide.
+  - Atlas's connection string arrives with a literal `<db_password>` in it.
+    Left unreplaced, the app warns once and runs **uncached** rather than
+    crashing, so the symptom is "the cache does nothing", not an error. Check
+    the boot logs.
 - **`explanationSource` is per tier**, not per report. Seeing `"template"` on
   `blockQuality` while `buildingHealth` says `"ai"` is correct — it just means
   only the building tier has been generated.
@@ -116,8 +117,8 @@ never empty and never shows an error.
 
 ### Deliberately not done
 
-`lib/mock-data.ts` still backs four live UI features with no backend
+`lib/mock-data.ts` still backs three live UI features with no backend
 equivalent — the homepage featured carousel (`buildFeaturedReport`), the
-autocomplete no-key fallback (`findSuggestions`), the complaint timeline
-(`buildComplaintTimeline`), and comment threads (`buildSeedComments`).
-Removing the file means deleting those features. Left in place by decision.
+autocomplete no-key fallback (`findSuggestions`), and the complaint timeline
+(`buildComplaintTimeline`). Removing the file means deleting those features.
+Left in place by decision.

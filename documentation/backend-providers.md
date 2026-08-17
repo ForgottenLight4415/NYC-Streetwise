@@ -95,17 +95,51 @@ Two rules shape every function in this file:
 Deliberately the *only* file with Mongo connection logic (no collection
 queries live here — that's `cache.js` and `baseline.js`).
 
-- `isMongoConfigured()` → `Boolean(process.env.MONGODB_URI)`.
+**Dev and prod point at different databases; the code does not know which.**
+Dev is a local mongod in Docker (`mongodb://127.0.0.1:27017`, database
+`nyc-streetwise-dev`); prod is Atlas (`mongodb+srv://…`, database
+`nyc-streetwise`). Nothing in this file — or anywhere else — branches on
+environment. Only `MONGODB_URI` and `MONGODB_DB` change.
+
+- `isMongoConfigured()` → true when `MONGODB_URI` is set **and usable**.
 - `getDb()` connects lazily and memoizes the connection promise. Returns
   `null` immediately if no URI is set — nothing here throws on a missing
   credential.
 - A **failed** connection clears the memo, so the *next* request retries
   instead of being permanently stuck with a rejected promise for the process
   lifetime.
-- Fails fast: `serverSelectionTimeoutMS` / `connectTimeoutMS` default to 5s
+- Fails fast: `serverSelectionTimeoutMS` / `connectTimeoutMS` default to 8s
   (overridable via `MONGO_SERVER_SELECTION_TIMEOUT_MS`), so a hung driver
   can't sit on a request well past the point a user has given up on the page.
+  8s rather than 5s because a cold Atlas M0 cluster can be slow to elect a
+  primary, and a spurious timeout there costs a cache miss on every request.
 - `closeMongo()` — used by tests and graceful shutdown.
+
+### Three things exist specifically because prod is Atlas
+
+- **The `<db_password>` guard.** Atlas hands you the connection string with a
+  literal `<db_password>` still in it. Pasted unedited, the driver throws a
+  *parse* error — on every request, in a code path whose entire contract is that
+  it degrades quietly. `isMongoConfigured()` detects the placeholder, warns
+  once, and reports unconfigured, so a forgotten password costs you the cache
+  instead of the deploy. It keys on the placeholder token, not on the presence
+  of `<`/`>`, so a genuine (percent-encoded) password containing brackets is
+  not misread.
+- **The client is cached on `globalThis`,** not in module scope. Under
+  `node --watch` and under serverless invocation reuse, the module registry can
+  be rebuilt while the process lives on; a module-local memo is lost in that
+  rebuild and the reimported copy opens a *second* pool. Do that enough times
+  and you hit Atlas's per-cluster connection cap (500 on M0). `backend/CLAUDE.md`
+  calls this out as a deployment requirement; this is where it is satisfied.
+- **A bounded pool** — `maxPoolSize` 10 (`MONGO_MAX_POOL_SIZE`), `minPoolSize`
+  0, `maxIdleTimeMS` 60s. The workload is read-mostly with a tiny working set,
+  so a small pool is plenty and leaves the cluster's connection budget for
+  everything else sharing it.
+
+`test/mongo.test.js` covers all three against an in-memory mongod — no live
+cluster, no password, so it actually runs in CI. The `mongodb://` vs
+`mongodb+srv://` difference is invisible above this file: the driver resolves
+SRV to the same wire protocol and no code inspects the scheme.
 
 ---
 

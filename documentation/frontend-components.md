@@ -7,8 +7,9 @@ rendered inside an already-client tree.
 
 ## Layout
 
-- **`Header.tsx`** — sticky top nav: logo/home link, "Compare" link, and a
-  static "Preview · sample data" badge.
+- **`Header.tsx`** — sticky top nav: logo/home link and a "Compare" link.
+  Rendered once by `app/layout.tsx`, so every page gets it. Purely
+  presentational — no state, no client directive.
 
 ## Search
 
@@ -123,28 +124,12 @@ Two implementation details worth preserving:
 - **`ComplaintDetailModal.tsx`** — opens when a complaint in
   `RecentComplaintsList` is clicked. Shows the complaint's current status and
   a visual timeline (connected dots, one per status change) with dates and
-  notes, plus the comment thread below it. Closes on Escape or backdrop
-  click.
+  notes. Closes on Escape or backdrop click.
   - **The timeline data is a labeled stub**, not real — 311 doesn't expose
     per-complaint status-change history at all. `lib/mock-data.ts#buildComplaintTimeline()`
     deterministically synthesizes a plausible Open → In Progress → Closed
     sequence from the complaint's submission date and current status. See
     [`frontend-lib.md`](./frontend-lib.md).
-- **`ComplaintComments.tsx`** — the comment/reply thread for one complaint.
-  - One level of threading (top-level comments, each with a flat `replies[]`
-    array — not arbitrarily deep).
-  - Admin comments/replies render with a blue-tinted background, border, and
-    a "Building Admin" badge, visually distinct from resident comments.
-  - **Auth stub:** a checkbox, "Posting as registered building admin," is the
-    entire permission model right now (`isBuildingAdmin` local state) — there
-    is no real authentication. It exists to demonstrate the intended
-    UI/permission structure (only an "admin" can post as one) ahead of real
-    auth being wired up.
-  - Seeded from `lib/mock-data.ts#buildSeedComments()` (deterministic per
-    complaint: one resident comment, plus an admin reply once the complaint
-    is past "open"); new comments/replies added during a session live only in
-    component state — nothing persists, and there is no backend endpoint for
-    comments at all.
 
 ## Compare page
 

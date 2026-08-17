@@ -1,6 +1,6 @@
 # Docker — containerized local stack
 
-Not a numbered milestone; a side addition between M6 and M7. Goal was **local
+Not a numbered milestone; a side addition after M6. Goal was **local
 team reproducibility**: let Person 2 and Person 3 get a working API on
 `localhost:3001` without installing Node 22, installing Mongo, or distributing
 credentials first.
@@ -35,16 +35,26 @@ container needs.
   `GEMINI_API_KEY` through from the gitignored `.env` without committing them,
   while still starting cleanly for a teammate who has no `.env` at all. Needs
   Compose ≥ 2.24; 2.40 is installed.
-- **Explicit `environment:` overrides `env_file`** for `MONGODB_URI` and
-  `OLLAMA_ENDPOINT`. The local `.env` points both at `localhost`, which inside a
-  container is the container. This is the single most likely thing to confuse
-  someone debugging the stack.
+- **Explicit `environment:` overrides `env_file`** for `MONGODB_URI`,
+  `MONGODB_DB` and `OLLAMA_ENDPOINT`. The local `.env` points the first and last
+  at `localhost`, which inside a container is the container. This is the single
+  most likely thing to confuse someone debugging the stack.
+- **Compose is dev-only, and only ever talks to the dev Mongo.** Prod is Atlas
+  and is configured on the deploy host, not here. The `MONGODB_URI` override is
+  written as `${MONGODB_URI_OVERRIDE:-mongodb://mongo:27017}` — a separate
+  variable rather than `${MONGODB_URI:-…}` on purpose, because Compose
+  interpolates from `./.env`, so the plain form would let whatever is in `.env`
+  quietly become the container's database. Deliberately running a container
+  against Atlas is then an explicit `MONGODB_URI_OVERRIDE=… docker compose up`.
 - **Alpine is safe here** only because `mongodb-memory-server` — the one package
   that needs glibc — is a devDependency that `--omit=dev` excludes. Which is also
   why **tests are not run in the image**: a Linux `mongod` would be downloaded on
   every run. `npm test` stays on the host.
-- **Mongo publishes no host port.** Nothing outside the compose network needs it;
-  README documents the one-line addition for Compass.
+- **Mongo publishes `127.0.0.1:27017`.** Loopback only — this mongod has no
+  authentication, so it must never bind `0.0.0.0`. It is published (it was not,
+  originally) so that `npm run dev` on the host and the containerised API use
+  the *same* dev database instead of silently diverging depending on how you
+  started the app.
 - **`HEALTHCHECK` uses Node's global `fetch`**, not curl — the alpine image has
   no curl and adding one for a healthcheck is not worth a layer.
 - **Independent of the Vercel path** in `CLAUDE.md`. Vercel ignores Dockerfiles,

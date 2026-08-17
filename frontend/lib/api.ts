@@ -1,4 +1,3 @@
-import { getAccessToken, tryRefresh, triggerAuthError } from "./auth";
 import type { AutocompleteSuggestion, Complaint, ComplaintStatus, ReportResponse } from "./types";
 
 // Geocoding (via /api/geocode, Google under the hood) can return zero
@@ -62,12 +61,9 @@ export async function fetchNearbyComplaints(
   radius: number,
   limit = 25
 ): Promise<Complaint[]> {
-  const token = getAccessToken();
   const url = `${API_BASE_URL}/api/complaints?lat=${lat}&lng=${lng}&radius=${radius}&limit=${limit}`;
   try {
-    const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await fetch(url);
     if (!res.ok) return [];
     const points: Array<{ type: string; lat: number; lng: number; created_date: string; status: string }> =
       await res.json();
@@ -86,22 +82,19 @@ export async function fetchNearbyComplaints(
  * The SLOW path. Only worth calling for a tier whose /api/score response came
  * back with explanationSource "template".
  *
- * Returns null whenever there is nothing to swap in — a network failure, an
- * auth failure, or the endpoint answering 200 with template text because the
- * AI call failed server-side. Callers treat null as "fall back to the
- * client-side copy", so this never throws.
+ * Returns null whenever there is nothing to swap in — a network failure, or the
+ * endpoint answering 200 with template text because the AI call failed
+ * server-side. Callers treat null as "fall back to the client-side copy", so
+ * this never throws.
  */
 export async function fetchExplanation(
   lat: number,
   lng: number,
   tier: "building" | "block"
 ): Promise<string | null> {
-  const token = getAccessToken();
   const url = `${API_BASE_URL}/api/explanation?lat=${lat}&lng=${lng}&tier=${tier}`;
   try {
-    const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
     return data.explanationSource === "ai" && data.explanation ? data.explanation : null;
@@ -125,42 +118,16 @@ export async function fetchSuggestions(
 
 const API_BASE_URL = "http://localhost:3001";
 
-async function scoreRequest(lat: number, lng: number, token: string | null): Promise<Response> {
-  return fetch(`${API_BASE_URL}/api/score`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ lat, lng }),
-  });
-}
-
 export async function fetchReport(lat: number, lng: number): Promise<ReportResponse> {
-  const token = getAccessToken();
-
   let res: Response;
   try {
-    res = await scoreRequest(lat, lng, token);
+    res = await fetch(`${API_BASE_URL}/api/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+    });
   } catch {
     throw new Error("Couldn't reach the backend — is it running?");
-  }
-
-  if (res.status === 401) {
-    const body = await res.json().catch(() => ({}));
-    if (body.error === "token_expired") {
-      const newToken = await tryRefresh();
-      if (newToken) {
-        try {
-          res = await scoreRequest(lat, lng, newToken);
-        } catch {
-          throw new Error("Couldn't reach the backend — is it running?");
-        }
-        if (res.ok) return res.json();
-      }
-    }
-    triggerAuthError();
-    throw new Error("Please log in to view reports.");
   }
 
   if (!res.ok) {

@@ -11,7 +11,6 @@ Per-milestone records for the "Should I Live Here" backend (Person 1 — data la
 | [m3-cache.md](m3-cache.md) | P2 — Mongo cache, cache-first `getCounts`, and the M0–M2 test backfill |
 | [m4-m5-scoring-integration.md](m4-m5-scoring-integration.md) | P3/P4 — citywide baseline, pure scoring, and the swap from mock to live data |
 | [m6-ai-explanations.md](m6-ai-explanations.md) | P3.5 — AI explanation layer, both adapters, template fallback, model findings |
-| [m7-auth.md](m7-auth.md) | JWT auth — 7-day tokens, rotating refresh, tenant/landlord roles. **Breaking change for the frontend** |
 | [docker.md](docker.md) | Containerized local stack (backend + Mongo) for teammates — decisions and what was verified |
 
 Setup — Docker, environment variables, Ollama — is in

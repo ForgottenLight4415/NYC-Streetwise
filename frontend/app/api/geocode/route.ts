@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { serverMapsKey } from "@/lib/maps-keys";
 
 export interface GeocodeResponse {
   address: string;
@@ -20,10 +21,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // Server-side key only (Geocoding + Places). The browser's client key is a
+  // different credential and is not accepted here — see lib/maps-keys.ts.
+  const apiKey = serverMapsKey();
   if (!apiKey) {
     return NextResponse.json(
-      { error: "Google Maps API key not configured" },
+      { error: "Google Maps server key not configured. Set GOOGLE_MAPS_API_KEY in frontend/.env.local." },
       { status: 500 }
     );
   }

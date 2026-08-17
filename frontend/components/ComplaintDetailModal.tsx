@@ -1,9 +1,7 @@
 import { useEffect } from "react";
 import { STATUS_LABEL, STATUS_VAR } from "@/lib/score";
-import { buildSeedComments } from "@/lib/mock-data";
 import type { Complaint, ComplaintTimeline } from "@/lib/types";
 import { CloseIcon } from "./icons";
-import { ComplaintComments } from "./ComplaintComments";
 
 function formatDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
@@ -112,10 +110,6 @@ export function ComplaintDetailModal({
           Status history is estimated from the complaint&apos;s submission date and current status — NYC 311 doesn&apos;t
           expose a full change log yet.
         </p>
-
-        <div className="mt-6 border-t pt-5" style={{ borderColor: "var(--border-hairline)" }}>
-          <ComplaintComments complaintId={complaint.id} seed={buildSeedComments(complaint)} />
-        </div>
       </div>
     </div>
   );

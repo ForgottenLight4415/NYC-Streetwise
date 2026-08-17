@@ -2,34 +2,9 @@ import { createApp } from "./app.js";
 import { ensureCacheIndexes } from "./providers/cache.js";
 import { closeMongo, isMongoConfigured } from "./providers/mongo.js";
 import { loadBaseline } from "./providers/baseline.js";
-import { ensureUserIndexes } from "./providers/users.js";
-import { ensureSessionIndexes } from "./providers/sessions.js";
-import { isJwtConfigured } from "./lib/tokens.js";
 import { isMockMode } from "./services/scoreService.js";
 
 const PORT = Number(process.env.PORT) || 3001;
-
-// Auth guards every data route, so a missing prerequisite means the app can
-// serve nothing but /health. Refusing to start is better than booting into a
-// server that 500s on every request and looks like a code bug.
-if (!isJwtConfigured()) {
-  console.error(
-    "[auth] FATAL: JWT_SECRET is unset or shorter than 32 characters.\n" +
-      "        Generate one with:\n" +
-      "          node -e \"console.log(require('node:crypto').randomBytes(48).toString('base64url'))\"\n" +
-      "        then put it in .env as JWT_SECRET=..."
-  );
-  process.exit(1);
-}
-if (!isMongoConfigured()) {
-  console.error(
-    "[auth] FATAL: MONGODB_URI is REQUIRED and is unset.\n" +
-      "        Mongo stores user accounts and sessions, and auth guards every\n" +
-      "        data route — so without it the app can serve nothing but /health.\n" +
-      "        `docker compose up` provides one; see README.md."
-  );
-  process.exit(1);
-}
 
 const app = createApp();
 
@@ -37,22 +12,22 @@ const server = app.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);
 });
 
-// Index creation is deliberately NOT awaited before listening. A slow Atlas
-// cluster must not stop the app from answering /health, which is what a host
-// uses to decide the deploy succeeded. (The URI itself is checked above — this
-// is about latency, not absence.)
-ensureCacheIndexes()
-  .then(() => console.log("[cache] indexes ready"))
-  .catch((err) => console.warn("[cache] index setup failed:", err.message));
-
-// Auth indexes are NOT optional the way the cache's are — `username_unique` is
-// what prevents duplicate accounts and `expiresAt_ttl` is what expires dead
-// sessions. A failure here is logged as an error, not a warning, but still does
-// not block the listener: the app is degraded, not useless, and /health must
-// keep answering.
-Promise.all([ensureUserIndexes(), ensureSessionIndexes()])
-  .then(() => console.log("[auth] indexes ready"))
-  .catch((err) => console.error("[auth] index setup FAILED:", err.message));
+// Mongo is OPTIONAL: it backs the complaint cache and nothing else. Without it
+// every request goes straight to Socrata — slower, and more likely to throttle,
+// but correct. Say so at boot rather than leaving a silent performance cliff.
+// isMongoConfigured() is false for both an unset URI and one still holding
+// Atlas's <db_password> placeholder; it logs the specific reason itself, so this
+// only has to state the consequence.
+if (!isMongoConfigured()) {
+  console.warn("[cache] no usable MONGODB_URI — caching disabled, every lookup hits Socrata");
+} else {
+  // Index creation is deliberately NOT awaited before listening. A slow Atlas
+  // cluster must not stop the app from answering /health, which is what a host
+  // uses to decide the deploy succeeded.
+  ensureCacheIndexes()
+    .then(() => console.log("[cache] indexes ready"))
+    .catch((err) => console.warn("[cache] index setup failed:", err.message));
+}
 
 if (isMockMode()) {
   console.warn("[mode] USE_MOCK_DATA is set — serving MOCK data, not live 311");

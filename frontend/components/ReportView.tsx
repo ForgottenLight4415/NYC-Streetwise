@@ -51,7 +51,7 @@ export function ReportView() {
         const data = await fetchReport(coords.lat, coords.lng);
 
         // Fetch recent complaint points for both panels in parallel so the
-        // "Recent Complaints" section and comments feature are populated.
+        // "Recent Complaints" section is populated.
         const [buildingComplaints, blockComplaints] = await Promise.all([
           fetchNearbyComplaints(coords.lat, coords.lng, data.buildingHealth.radiusMeters),
           fetchNearbyComplaints(coords.lat, coords.lng, data.blockQuality.radiusMeters),

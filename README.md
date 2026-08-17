@@ -105,7 +105,8 @@ cp .env.example .env
 | Var | Required? | Notes |
 |---|---|---|
 | `SOCRATA_APP_TOKEN` | Recommended | Free at [data.cityofnewyork.us developer settings](https://data.cityofnewyork.us/profile/edit/developer_settings). Works without one, but requests throttle hard under load — register one before demoing. |
-| `MONGODB_URI` | Optional | Atlas or local. Without it, the app runs **uncached** — every request hits Socrata live, no persistence. Scoring still works with zero Mongo, via the committed baseline fallback at `backend/src/config/baseline.json`. |
+| `MONGODB_URI` | Optional | **Dev: local Mongo in Docker** (`mongodb://127.0.0.1:27017`, started by `docker compose up`). **Prod: Atlas** (`mongodb+srv://…`, set in the deploy host's env settings — see [`backend/.env.production.example`](backend/.env.production.example)). No code branches on environment; only this value changes. Without it, the app runs **uncached** — every request hits Socrata live, no persistence. Scoring still works with zero Mongo, via the committed baseline fallback at `backend/src/config/baseline.json`. |
+| `MONGODB_DB` | Optional | Which database inside the cluster. `nyc-streetwise-dev` locally, `nyc-streetwise` in prod — keeping them different is the only thing stopping a local experiment from writing into the Atlas cache, since an SRV URI carries no database name of its own. |
 | `AI_PROVIDER` | Optional | `ollama` (default, local-only) or `gemini` (works anywhere, needs `GEMINI_API_KEY`). Neither is required — explanations fall back to a deterministic template on any failure. |
 | `USE_MOCK_DATA` | Optional | Set to `1`/`true` to serve fake (but realistic) scores instead of hitting Socrata — useful for frontend work with no network/token/Mongo at all. |
 
@@ -122,15 +123,30 @@ npm run dev                # → http://localhost:3000
 ```
 
 Create `frontend/.env.local` yourself — it's gitignored, so it won't exist on
-a fresh clone (nobody's key is committed to the repo):
+a fresh clone (nobody's key is committed to the repo). Start from the template:
 
-```
-GOOGLE_MAPS_API_KEY=your_key_here
+```bash
+cd frontend
+cp .env.example .env.local
 ```
 
-| Var | Required? | Notes |
-|---|---|---|
-| `GOOGLE_MAPS_API_KEY` | Yes, for real geocoding/map/autocomplete | Needs the **Geocoding API**, **Places API (New)**, and **Maps JavaScript API** enabled on the Google Cloud project. Without it, the map shows a config-needed message and autocomplete falls back to a small local mock address list — the app still runs, just without real map/geocoding. |
+**Two Google Maps keys, not one.** They are restricted differently in the Google
+Cloud console and are not interchangeable:
+
+| Var | Called from | Required? | Notes |
+|---|---|---|---|
+| `GOOGLE_MAPS_API_KEY` | our server (`app/api/geocode`, `app/api/autocomplete`) | Yes, for real geocoding + autocomplete | Enable **Geocoding API** and **Places API (New)**. Restrict by **IP address**. Never reaches the browser. Without it, geocoding 500s and autocomplete falls back to a small local mock address list. |
+| `GOOGLE_MAPS_CLIENT_KEY` | the browser (Maps JS SDK, via `app/layout.tsx`) | Yes, for the interactive map | Enable **Maps JavaScript API** + Advanced Markers. Restrict by **HTTP referrer**. This one is published in page source by design — that's unavoidable for the JS SDK, which is exactly why it's a separate key. Without it, the map shows a config-needed message and the rest of the app still works. |
+
+> A key restricted by HTTP referrer **cannot** be used for the server-side
+> Geocoding/Places calls — Google rejects it with `REQUEST_DENIED`
+> ("API keys with referer restrictions cannot be used with this API"). If
+> geocoding fails while the map renders fine, that is the reason: the server key
+> needs an IP restriction, not a referrer one.
+
+The code enforces the split — there is deliberately no fallback from one key to
+the other (`frontend/lib/maps-keys.ts`), because a fallback is how a billed
+server key ends up in page source.
 
 ### 3. Use it
 
@@ -183,12 +199,11 @@ in the UI is backed by the real data pipeline yet:
 | Per-score "why" explanation text | **Yes** — AI-generated via Ollama/Gemini when a provider is configured and reachable, otherwise a deterministic (but still accurate) template. Either way it's derived from the real counts, never fabricated. The report banner now actually requests and displays the AI text (`GET /api/explanation`); it previously ignored it and always showed the client-side `explainVerdict` copy. |
 | "Recent Complaints" list on each report | **Yes** — `ReportView` populates each panel's `recentComplaints` from `GET /api/complaints` (real individual 311 records). Note `/api/score` itself still returns only aggregate counts, so a component handed a raw `/api/score` response sees no complaint list. |
 | Complaint status timeline (Open → In Progress → Closed) | **No** — 311 doesn't expose per-complaint status history at all. Explicitly labeled stub (`buildComplaintTimeline` in `frontend/lib/mock-data.ts`) that synthesizes a plausible timeline from a complaint's date + current status. |
-| Comment/reply threads on complaints, "Building Admin" role | **No** — no backend support exists or is planned. Seeded + session-local only; the admin role is a UI checkbox, not real auth. |
 
-**Trust the scores and the complaint list. Don't trust the timeline or
-comments as real 311 records** — those two remain intentionally-scoped UI
-stubs with data shapes already matching what a real implementation would
-need, ready to swap in real data later without a redesign.
+**Trust the scores and the complaint list. Don't trust the timeline as a real
+311 record** — it remains an intentionally-scoped UI stub whose data shape
+already matches what a real implementation would need, ready to swap in real
+data later without a redesign.
 
 **A working-looking report is now proof the backend is real.** `fetchReport()`
 used to fall back to a fully fake `mock-data.ts` report whenever the backend
