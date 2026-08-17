@@ -118,7 +118,10 @@ export async function fetchSuggestions(
 
 // Same-origin API routes (/api/geocode, /api/autocomplete) don't need this —
 // only the calls below, which hit the separately-deployed Express backend.
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+// Trailing slash stripped: a doubled "//" here gets 308-redirected by
+// Vercel's edge, and that redirect response carries no CORS headers, so the
+// browser blocks it as a CORS failure before ever following it.
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
 
 export async function fetchReport(lat: number, lng: number): Promise<ReportResponse> {
   let res: Response;
