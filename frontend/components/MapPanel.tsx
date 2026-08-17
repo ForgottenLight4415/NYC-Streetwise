@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MapPinIcon } from "./icons";
+import { mapId } from "../lib/maps-keys";
 
 declare global {
   interface Window {
@@ -32,8 +33,12 @@ export function MapPanel({
     async function initMap() {
       try {
         if (!window.google) {
+          // The map script is injected by app/layout.tsx from the CLIENT key.
+          // A missing map is a client-key problem, not a server-key one — the
+          // search box above can be working fine off GOOGLE_MAPS_API_KEY while
+          // this panel is blank.
           throw new Error(
-            "Google Maps API not loaded. Set GOOGLE_MAPS_API_KEY in front/.env.local."
+            "Google Maps API not loaded. Set GOOGLE_MAPS_CLIENT_KEY in frontend/.env.local."
           );
         }
 
@@ -45,19 +50,8 @@ export function MapPanel({
         const map = new Map(mapContainerRef.current, {
           center: { lat: centerLat, lng: centerLng },
           zoom: 16,
-          mapId: "movecheck-nyc-map",
+          mapId: mapId(),
           disableDefaultUI: false,
-          styles: [
-            { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
-            { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
-            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-            { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-          ],
         });
         mapRef.current = map;
 
@@ -89,7 +83,7 @@ export function MapPanel({
         new AdvancedMarkerElement({
           map,
           position: { lat: centerLat, lng: centerLng },
-          content: pin.element,
+          content: pin,
           title: "Searched address",
         });
 
@@ -149,11 +143,11 @@ export function MapPanel({
                 {mapInitError}
               </p>
               <p className="mt-2 text-xs text-[color:var(--text-muted)]">
-                Add a <code className="rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">front/.env.local</code>{" "}
-                with:
+                Add a <code className="rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">frontend/.env.local</code>{" "}
+                with a Maps JavaScript API key:
                 <br />
                 <code className="mt-2 inline-block rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">
-                  GOOGLE_MAPS_API_KEY=your_api_key
+                  GOOGLE_MAPS_CLIENT_KEY=your_browser_key
                 </code>
               </p>
             </div>
