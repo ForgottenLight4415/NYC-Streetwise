@@ -116,7 +116,9 @@ export async function fetchSuggestions(
   return data.suggestions ?? [];
 }
 
-const API_BASE_URL = "http://localhost:3001";
+// Same-origin API routes (/api/geocode, /api/autocomplete) don't need this —
+// only the calls below, which hit the separately-deployed Express backend.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 export async function fetchReport(lat: number, lng: number): Promise<ReportResponse> {
   let res: Response;

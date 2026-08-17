@@ -316,9 +316,19 @@ describe("app wiring", () => {
     expect(body).toEqual({ error: "not_found" });
   });
 
-  it("sets permissive CORS headers for the cross-origin frontend", async () => {
-    const { headers } = await server.request("/health");
-    expect(headers.get("access-control-allow-origin")).toBe("*");
+  it("reflects Access-Control-Allow-Origin for an allowlisted origin", async () => {
+    const { headers } = await server.request("/health", {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+    expect(headers.get("vary")).toBe("Origin");
+  });
+
+  it("omits Access-Control-Allow-Origin for a non-allowlisted origin", async () => {
+    const { headers } = await server.request("/health", {
+      headers: { Origin: "https://evil.example.com" },
+    });
+    expect(headers.get("access-control-allow-origin")).toBeNull();
   });
 
   it("answers CORS preflight with 204", async () => {

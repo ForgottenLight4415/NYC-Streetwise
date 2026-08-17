@@ -8,6 +8,22 @@ import { BadRequestError } from "./lib/validate.js";
 /** Custom response headers the browser must be allowed to read cross-origin. */
 const COMPLAINTS_HEADERS = ["X-Complaints-Truncated", "X-Complaints-Limit"];
 
+// Comma-separated list of origins allowed to read responses from a browser.
+// Read at request time (not module load) so it can be set after the module
+// graph is built, same reasoning as MONGODB_URI in providers/mongo.js.
+// Defaults to the frontend's local dev origin so `npm run dev` on both sides
+// works with zero config; the deployed frontend's Vercel URL must be set here
+// explicitly via ALLOWED_ORIGIN, or its browser calls will be blocked from
+// reading the response (the request still completes — this is a read-only
+// public API, not auth — only the browser's JS is denied the body).
+const DEFAULT_ALLOWED_ORIGIN = "http://localhost:3000";
+
+function getAllowedOrigins() {
+  const raw = process.env.ALLOWED_ORIGIN;
+  if (!raw) return [DEFAULT_ALLOWED_ORIGIN];
+  return raw.split(",").map((origin) => origin.trim()).filter(Boolean);
+}
+
 /**
  * Builds the Express app without starting a listener, so tests and the entry
  * point share exactly one wiring path.
@@ -16,9 +32,16 @@ export function createApp() {
   const app = express();
   app.use(express.json());
 
-  // Frontend is served from a different origin during development.
+  // Frontend is served from a different origin than this API, in both dev and
+  // prod. Reflect the request's Origin back only when it is on the allowlist,
+  // rather than "*", so only our own deployed frontend (or local dev) can read
+  // responses from a browser.
   app.use((req, res, next) => {
-    res.set("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    if (origin && getAllowedOrigins().includes(origin)) {
+      res.set("Access-Control-Allow-Origin", origin);
+      res.set("Vary", "Origin");
+    }
     res.set("Access-Control-Allow-Headers", "Content-Type");
     res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     // Without this, browser JS cannot READ our custom headers even though they
