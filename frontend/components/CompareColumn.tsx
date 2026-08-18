@@ -26,7 +26,10 @@ export function CompareColumn({
   onAddressChange: (address: string, placeId?: string) => void;
 }) {
   const [result, setResult] = useState<LoadedReport | null>(null);
-  const [errorState, setErrorState] = useState<{ address: string; message: string } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    address: string;
+    message: string;
+  } | null>(null);
   const address = initialAddress;
 
   useEffect(() => {
@@ -41,7 +44,10 @@ export function CompareColumn({
         setResult({ address, lat: coords.lat, lng: coords.lng, data });
       } catch (e) {
         if (cancelled) return;
-        setErrorState({ address, message: e instanceof Error ? e.message : "Something went wrong" });
+        setErrorState({
+          address,
+          message: e instanceof Error ? e.message : "Something went wrong",
+        });
       }
     })();
     return () => {
@@ -55,7 +61,7 @@ export function CompareColumn({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+        <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-(--text-muted)">
           {label}
         </p>
         <AddressSearch
@@ -67,7 +73,10 @@ export function CompareColumn({
       </div>
 
       {!address && (
-        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-[color:var(--text-muted)]" style={{ borderColor: "var(--border-hairline)" }}>
+        <p
+          className="rounded-xl border border-dashed p-6 text-center text-sm text-(--text-muted)"
+          style={{ borderColor: "var(--border-hairline)" }}
+        >
           Choose an address to see its scores.
         </p>
       )}
@@ -75,8 +84,11 @@ export function CompareColumn({
       {error && <p style={{ color: "var(--status-critical)" }}>{error}</p>}
 
       {address && !report && !error && (
-        <div className="flex h-96 items-center justify-center rounded-xl" style={{ background: "var(--gridline)" }}>
-          <SpinnerIcon className="h-8 w-8 text-[color:var(--brand)]" />
+        <div
+          className="flex h-96 items-center justify-center rounded-xl"
+          style={{ background: "var(--gridline)" }}
+        >
+          <SpinnerIcon className="h-8 w-8 text-(--brand)" />
         </div>
       )}
 

@@ -64,11 +64,12 @@ export function MapPanel({
   const [theme, setTheme] = useState<string>(() =>
     typeof document === "undefined"
       ? "light"
-      : (document.documentElement.getAttribute("data-theme") ?? "light")
+      : (document.documentElement.getAttribute("data-theme") ?? "light"),
   );
 
   useEffect(() => {
-    const read = () => setTheme(document.documentElement.getAttribute("data-theme") ?? "light");
+    const read = () =>
+      setTheme(document.documentElement.getAttribute("data-theme") ?? "light");
     read();
     const observer = new MutationObserver(read);
     observer.observe(document.documentElement, {
@@ -92,16 +93,17 @@ export function MapPanel({
           // search box above can be working fine off GOOGLE_MAPS_API_KEY while
           // this panel is blank.
           throw new Error(
-            "Google Maps API not loaded. Set GOOGLE_MAPS_CLIENT_KEY in frontend/.env.local."
+            "Google Maps API not loaded. Set GOOGLE_MAPS_CLIENT_KEY in frontend/.env.local.",
           );
         }
 
         const { Map } = (await maps.maps.importLibrary(
-          "maps"
+          "maps",
         )) as google.maps.MapsLibrary;
-        const { AdvancedMarkerElement, PinElement } = (await maps.maps.importLibrary(
-          "marker"
-        )) as google.maps.MarkerLibrary;
+        const { AdvancedMarkerElement, PinElement } =
+          (await maps.maps.importLibrary(
+            "marker",
+          )) as google.maps.MarkerLibrary;
 
         if (cancelled || !mapContainerRef.current) return;
 
@@ -111,7 +113,9 @@ export function MapPanel({
           mapId: mapId(),
           disableDefaultUI: false,
           colorScheme:
-            theme === "dark" ? maps.maps.ColorScheme.DARK : maps.maps.ColorScheme.LIGHT,
+            theme === "dark"
+              ? maps.maps.ColorScheme.DARK
+              : maps.maps.ColorScheme.LIGHT,
         });
         mapRef.current = map;
 
@@ -123,7 +127,8 @@ export function MapPanel({
         // since the container can still be mid-layout on the first pass)
         // reliably kicks the texture into painting.
         const panorama = map.getStreetView();
-        const kickPanoramaResize = () => maps.maps.event.trigger(panorama, "resize");
+        const kickPanoramaResize = () =>
+          maps.maps.event.trigger(panorama, "resize");
         maps.maps.event.addListener(panorama, "visible_changed", () => {
           if (!panorama.getVisible()) return;
           kickPanoramaResize();
@@ -138,7 +143,9 @@ export function MapPanel({
         // that way the pin and radius rings re-color with the theme and stay
         // in step with the legend below the map.
         const token = (name: string, fallback: string) =>
-          getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+          getComputedStyle(document.documentElement)
+            .getPropertyValue(name)
+            .trim() || fallback;
 
         const pin = new PinElement({
           background: token("--status-critical", "#dc3f3f"),
@@ -178,7 +185,11 @@ export function MapPanel({
       } catch (error) {
         console.error("Error initializing map:", error);
         if (!cancelled) {
-          setMapInitError(error instanceof Error ? error.message : "Failed to load Google Maps");
+          setMapInitError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load Google Maps",
+          );
           setIsLoading(false);
         }
       }
@@ -192,33 +203,48 @@ export function MapPanel({
 
   return (
     <div
-      className="overflow-hidden rounded-[var(--radius-lg)]"
-      style={{ boxShadow: "var(--shadow-md)", border: "1px solid var(--border-hairline)", background: "var(--surface-1)" }}
+      className="overflow-hidden rounded-lg"
+      style={{
+        boxShadow: "var(--shadow-md)",
+        border: "1px solid var(--border-hairline)",
+        background: "var(--surface-1)",
+      }}
     >
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5" style={{ borderColor: "var(--border-hairline)" }}>
-        <div className="flex min-w-0 items-center gap-2 text-xs text-[color:var(--text-muted)]">
+      <div
+        className="flex items-center justify-between gap-2 border-b px-4 py-2.5"
+        style={{ borderColor: "var(--border-hairline)" }}
+      >
+        <div className="flex min-w-0 items-center gap-2 text-xs text-(--text-muted)">
           <MapPinIcon className="h-3.5 w-3.5" />
           <span className="font-data truncate">
             {centerLat.toFixed(4)}, {centerLng.toFixed(4)}
           </span>
-          <span className="shrink-0">· {isLoading ? "Loading map…" : "Google Maps"}</span>
+          <span className="shrink-0">
+            · {isLoading ? "Loading map…" : "Google Maps"}
+          </span>
         </div>
       </div>
 
       {/* Shorter on a phone so the map does not eat the whole screen and hide
           the legend that explains the two rings. */}
-      <div ref={mapContainerRef} className="h-[280px] w-full sm:h-[380px]">
+      <div ref={mapContainerRef} className="h-70 w-full sm:h-95">
         {mapInitError && (
           <div className="flex h-full items-center justify-center p-4 text-center">
             <div>
-              <p className="text-sm font-medium" style={{ color: "var(--status-critical)" }}>
+              <p
+                className="text-sm font-medium"
+                style={{ color: "var(--status-critical)" }}
+              >
                 {mapInitError}
               </p>
-              <p className="mt-2 text-xs text-[color:var(--text-muted)]">
-                Add a <code className="rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">frontend/.env.local</code>{" "}
+              <p className="mt-2 text-xs text-(--text-muted)">
+                Add a{" "}
+                <code className="rounded bg-(--surface-2) px-1.5 py-0.5">
+                  frontend/.env.local
+                </code>{" "}
                 with a Maps JavaScript API key:
                 <br />
-                <code className="mt-2 inline-block rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">
+                <code className="mt-2 inline-block rounded bg-(--surface-2) px-1.5 py-0.5">
                   GOOGLE_MAPS_CLIENT_KEY=your_browser_key
                 </code>
               </p>
@@ -229,22 +255,30 @@ export function MapPanel({
 
       {/* flex-wrap: the two legend entries together run past 320px. */}
       <div
-        className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t px-4 py-2.5 text-xs text-[color:var(--text-secondary)]"
+        className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t px-4 py-2.5 text-xs text-(--text-secondary)"
         style={{ borderColor: "var(--border-hairline)" }}
       >
         {/* The label is one flex item, not three: as loose text plus a nested
             span, the parent's gap-1.5 was applied inside the parentheses and
             rendered as "( 25m )". */}
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--series-building)" }} />
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ background: "var(--series-building)" }}
+          />
           <span>
-            Building radius (<span className="font-data">{buildingRadiusMeters}m</span>)
+            Building radius (
+            <span className="font-data">{buildingRadiusMeters}m</span>)
           </span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--series-block)" }} />
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ background: "var(--series-block)" }}
+          />
           <span>
-            Block radius (<span className="font-data">{blockRadiusMeters}m</span>)
+            Block radius (
+            <span className="font-data">{blockRadiusMeters}m</span>)
           </span>
         </span>
       </div>

@@ -51,11 +51,11 @@ export function RecentComplaintsList({
   return (
     <>
       {complaints.length === 0 ? (
-        <p className="text-sm text-[color:var(--text-muted)]">
+        <p className="text-sm text-(--text-muted)">
           No complaints in the last {months} months.
         </p>
       ) : (
-        <ul className="flex flex-col divide-y divide-[color:var(--gridline)]">
+        <ul className="flex flex-col divide-y divide-(--gridline)">
           {visible.map((c) => (
             <li key={c.id}>
               <button
@@ -63,21 +63,26 @@ export function RecentComplaintsList({
                 onClick={() => setSelected(c)}
                 // min-h-11 gives the row a 44px touch target; at py-2.5 a
                 // single-line complaint was about 38px.
-                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md py-2.5 text-left text-sm transition-colors hover:bg-[color:var(--surface-2)]"
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md py-2.5 text-left text-sm transition-colors hover:bg-(--surface-2)"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-[color:var(--text-primary)]">{c.label}</p>
-                  <p className="font-data text-xs text-[color:var(--text-muted)]">{formatDate(c.date)}</p>
+                  <p className="truncate text-(--text-primary)">{c.label}</p>
+                  <p className="font-data text-xs text-(--text-muted)">
+                    {formatDate(c.date)}
+                  </p>
                 </div>
                 <span className="flex shrink-0 items-center gap-2">
                   <span
                     className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs"
                     style={{ color: `var(${STATUS_VAR[c.status]}-ink)` }}
                   >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: `var(${STATUS_VAR[c.status]})` }} />
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: `var(${STATUS_VAR[c.status]})` }}
+                    />
                     {STATUS_LABEL[c.status]}
                   </span>
-                  <ChevronRightIcon className="h-3.5 w-3.5 text-[color:var(--text-muted)]" />
+                  <ChevronRightIcon className="h-3.5 w-3.5 text-(--text-muted)" />
                 </span>
               </button>
             </li>
@@ -95,7 +100,7 @@ export function RecentComplaintsList({
           <button
             type="button"
             onClick={() => setBrowsing(true)}
-            className="min-h-11 text-xs font-semibold text-[color:var(--brand-ink)]"
+            className="min-h-11 text-xs font-semibold text-(--brand-ink)"
           >
             Show all {windowTotal !== null ? windowTotal.toLocaleString() : ""}
           </button>
@@ -103,7 +108,10 @@ export function RecentComplaintsList({
       )}
 
       {selected && (
-        <ComplaintDetailModal complaint={selected} onClose={() => setSelected(null)} />
+        <ComplaintDetailModal
+          complaint={selected}
+          onClose={() => setSelected(null)}
+        />
       )}
 
       {browsing && (

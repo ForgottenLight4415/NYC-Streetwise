@@ -1,6 +1,16 @@
-import { BAND_VAR, BAND_VERDICT, explainVerdict, overallBand } from "@/lib/score";
+import {
+  BAND_VAR,
+  BAND_VERDICT,
+  explainVerdict,
+  overallBand,
+} from "@/lib/score";
 import { StatusBadge } from "./StatusBadge";
-import type { BlockCounts, BuildingCounts, ExplanationSource, ScoreSection } from "@/lib/types";
+import type {
+  BlockCounts,
+  BuildingCounts,
+  ExplanationSource,
+  ScoreSection,
+} from "@/lib/types";
 
 /** One tier's explanation line, labeled so the two are told apart. */
 export interface TierExplanation {
@@ -45,7 +55,7 @@ export function VerdictBanner({
 
   return (
     <div
-      className="rounded-[var(--radius-lg)] p-5 sm:p-6"
+      className="rounded-lg p-5 sm:p-6"
       style={{
         boxShadow: "var(--shadow-md)",
         border: "1px solid var(--border-hairline)",
@@ -53,7 +63,7 @@ export function VerdictBanner({
         background: `color-mix(in srgb, ${color} 5%, var(--surface-1))`,
       }}
     >
-      <h1 className="font-display text-lg font-semibold leading-snug text-[color:var(--text-primary)] sm:text-xl">
+      <h1 className="font-display text-lg font-semibold leading-snug text-(--text-primary) sm:text-xl">
         {address}
       </h1>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -66,20 +76,24 @@ export function VerdictBanner({
         <StatusBadge band={band} />
       </div>
       {isReasoning ? (
-        <p className="mt-1.5 animate-pulse text-sm text-[color:var(--text-muted)]">Reasoning...</p>
+        <p className="mt-1.5 animate-pulse text-sm text-(--text-muted)">
+          Reasoning...
+        </p>
       ) : tiers.length > 0 ? (
         <dl className="mt-3 space-y-2.5">
           {tiers.map((tier) => (
             <div key={tier.label}>
-              <dt className="text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+              <dt className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
                 {tier.label}
               </dt>
-              <dd className="mt-0.5 text-sm text-[color:var(--text-secondary)]">{tier.text}</dd>
+              <dd className="mt-0.5 text-sm text-(--text-secondary)">
+                {tier.text}
+              </dd>
             </div>
           ))}
         </dl>
       ) : (
-        <p className="mt-1.5 text-sm text-[color:var(--text-muted)]">
+        <p className="mt-1.5 text-sm text-(--text-muted)">
           {explainVerdict(building, block, band, windowMonths)}
         </p>
       )}

@@ -5,6 +5,7 @@ import {
   resetTrendCacheIndexMemo,
   resetComplaintGroupsIndexMemo,
 } from "../../src/providers/cache.js";
+import { resetAddressLookupIndexMemo } from "../../src/providers/addressDirectory.js";
 
 /**
  * The memoized index promises, so a new mongod does not inherit an old one.
@@ -15,6 +16,7 @@ function resetIndexMemos() {
   resetCacheIndexMemo();
   resetTrendCacheIndexMemo();
   resetComplaintGroupsIndexMemo();
+  resetAddressLookupIndexMemo();
 }
 
 /**

@@ -58,19 +58,23 @@ export function ComplaintDetailModal({
         aria-label={`${complaint.label} complaint details`}
         // dvh, not vh: on mobile Safari, 80vh is measured against the *expanded*
         // viewport, so with the URL bar showing the dialog ran under it.
-        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-[var(--radius-lg)] p-5 outline-none sm:p-6"
-        style={{ background: "var(--surface-1)", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border-hairline)" }}
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-lg p-5 outline-none sm:p-6"
+        style={{
+          background: "var(--surface-1)",
+          boxShadow: "var(--shadow-lg)",
+          border: "1px solid var(--border-hairline)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-5 flex items-start justify-between gap-4">
-          <h2 className="min-w-0 text-lg font-semibold text-[color:var(--text-primary)]">
+          <h2 className="min-w-0 text-lg font-semibold text-(--text-primary)">
             {complaint.label}
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 rounded-full p-1 text-[color:var(--text-secondary)] transition-colors hover:bg-[color:var(--gridline)] hover:text-[color:var(--text-primary)]"
+            className="shrink-0 rounded-full p-1 text-(--text-secondary) transition-colors hover:bg-(--gridline) hover:text-(--text-primary)"
           >
             <CloseIcon className="h-5 w-5" />
           </button>
@@ -78,49 +82,54 @@ export function ComplaintDetailModal({
 
         <div
           className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm"
-          style={{ background: `color-mix(in srgb, var(${STATUS_VAR[complaint.status]}) 12%, transparent)` }}
+          style={{
+            background: `color-mix(in srgb, var(${STATUS_VAR[complaint.status]}) 12%, transparent)`,
+          }}
         >
           <span
             className="h-2 w-2 shrink-0 rounded-full"
             style={{ background: `var(${STATUS_VAR[complaint.status]})` }}
           />
-          <span className="font-medium" style={{ color: `var(${STATUS_VAR[complaint.status]}-ink)` }}>
+          <span
+            className="font-medium"
+            style={{ color: `var(${STATUS_VAR[complaint.status]}-ink)` }}
+          >
             {STATUS_LABEL[complaint.status]}
           </span>
         </div>
 
         <dl className="mt-5 flex flex-col gap-3">
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+            <dt className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
               Filed
             </dt>
-            <dd className="font-data text-sm text-[color:var(--text-primary)]">
+            <dd className="font-data text-sm text-(--text-primary)">
               {formatDate(complaint.date)}
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+            <dt className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
               Type
             </dt>
-            <dd className="min-w-0 text-right text-sm text-[color:var(--text-primary)]">
+            <dd className="min-w-0 text-right text-sm text-(--text-primary)">
               {complaint.label}
             </dd>
           </div>
           {complaint.referenceId && (
             <div className="flex items-baseline justify-between gap-4">
-              <dt className="text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+              <dt className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
                 311 case
               </dt>
-              <dd className="font-data text-sm text-[color:var(--text-primary)]">
+              <dd className="font-data text-sm text-(--text-primary)">
                 {complaint.referenceId}
               </dd>
             </div>
           )}
         </dl>
 
-        <p className="mt-5 text-[11px] leading-relaxed text-[color:var(--text-muted)]">
-          Case number, filing date and current status as recorded by NYC 311. The
-          city does not publish a change log, so there is no history to show
+        <p className="mt-5 text-[11px] leading-relaxed text-(--text-muted)">
+          Case number, filing date and current status as recorded by NYC 311.
+          The city does not publish a change log, so there is no history to show
           between the filing and where it stands now.
         </p>
       </div>

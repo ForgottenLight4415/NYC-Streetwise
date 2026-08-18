@@ -15,8 +15,16 @@ import type { ReportResponse } from "@/lib/types";
 /** The two tiers in display order, paired with the key /api/explanation wants. */
 function tiersOf(data: ReportResponse) {
   return [
-    { key: "building" as const, label: "Building Health", section: data.buildingHealth },
-    { key: "block" as const, label: "Block Quality", section: data.blockQuality },
+    {
+      key: "building" as const,
+      label: "Building Health",
+      section: data.buildingHealth,
+    },
+    {
+      key: "block" as const,
+      label: "Block Quality",
+      section: data.blockQuality,
+    },
   ];
 }
 
@@ -32,7 +40,10 @@ export function ReportView() {
   const address = searchParams.get("address") ?? "";
   const placeId = searchParams.get("placeId") ?? undefined;
   const [result, setResult] = useState<LoadedReport | null>(null);
-  const [errorState, setErrorState] = useState<{ address: string; message: string } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    address: string;
+    message: string;
+  } | null>(null);
   // Only the *fetched* result lives in state; the rest is derived below. One
   // entry per tier, in tiersOf() order, and keyed by address so a stale result
   // cannot leak onto the next report.
@@ -57,18 +68,27 @@ export function ReportView() {
             coords.lat,
             coords.lng,
             data.buildingHealth.radiusMeters,
-            "building"
+            "building",
           ),
-          fetchNearbyComplaints(coords.lat, coords.lng, data.blockQuality.radiusMeters, "block"),
+          fetchNearbyComplaints(
+            coords.lat,
+            coords.lng,
+            data.blockQuality.radiusMeters,
+            "block",
+          ),
         ]);
         data.buildingHealth.recentComplaints = buildingComplaints;
         data.blockQuality.recentComplaints = blockComplaints;
 
         if (cancelled) return;
         setResult({ address, lat: coords.lat, lng: coords.lng, data });
+
       } catch (e) {
         if (cancelled) return;
-        setErrorState({ address, message: e instanceof Error ? e.message : "Something went wrong" });
+        setErrorState({
+          address,
+          message: e instanceof Error ? e.message : "Something went wrong",
+        });
       }
     })();
     return () => {
@@ -94,8 +114,8 @@ export function ReportView() {
       tiers.map((t) =>
         t.section.explanationSource === "ai"
           ? Promise.resolve<string | null>(t.section.explanation)
-          : fetchExplanation(lat, lng, t.key)
-      )
+          : fetchExplanation(lat, lng, t.key),
+      ),
     ).then((texts) => {
       if (cancelled) return;
       // Kept per tier (null where the AI had nothing) rather than merged, so the
@@ -115,7 +135,8 @@ export function ReportView() {
     if (!report) return { loading: false, tiers: [] };
     const tiers = tiersOf(report.data);
     const allCached = tiers.every((t) => t.section.explanationSource === "ai");
-    const fetched = fetchedAi?.address === report.address ? fetchedAi.texts : null;
+    const fetched =
+      fetchedAi?.address === report.address ? fetchedAi.texts : null;
     // Fully cached upstream resolves immediately, with no "Reasoning..." flash.
     if (!allCached && !fetched) return { loading: true, tiers: [] };
 
@@ -124,7 +145,10 @@ export function ReportView() {
       tiers: tiers
         .map((t, i) => {
           const ai =
-            fetched?.[i] ?? (t.section.explanationSource === "ai" ? t.section.explanation : null);
+            fetched?.[i] ??
+            (t.section.explanationSource === "ai"
+              ? t.section.explanation
+              : null);
           // Falling back to the tier's own template text rather than dropping
           // the line: a tier with zero complaints legitimately has nothing for
           // the model to describe (see explain.js), and "no complaints were
@@ -142,7 +166,7 @@ export function ReportView() {
   if (!address) {
     return (
       <div className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6">
-        <p className="text-[color:var(--text-secondary)]">
+        <p className="text-(--text-secondary)">
           Enter an address to see its report.
         </p>
         <div className="mt-4">
@@ -156,7 +180,10 @@ export function ReportView() {
     return (
       <div className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6">
         <p style={{ color: "var(--status-critical)" }}>{error}</p>
-        <Link href="/" className="mt-3 inline-block text-sm underline text-[color:var(--text-secondary)]">
+        <Link
+          href="/"
+          className="mt-3 inline-block text-sm underline text-(--text-secondary)"
+        >
           Back to search
         </Link>
       </div>
@@ -172,12 +199,12 @@ export function ReportView() {
 
   return (
     <div id="main" className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <nav className="mb-5 flex items-center gap-1 text-xs text-[color:var(--text-muted)]">
-        <Link href="/" className="hover:text-[color:var(--text-primary)]">
+      <nav className="mb-5 flex items-center gap-1 text-xs text-(--text-muted)">
+        <Link href="/" className="hover:text-(--text-primary)">
           Search
         </Link>
         <ChevronRightIcon className="h-3 w-3" />
-        <span className="text-[color:var(--text-secondary)]">Report</span>
+        <span className="text-(--text-secondary)">Report</span>
       </nav>
 
       {/* Stacked on a phone: side by side, the field was squeezed to about
@@ -185,7 +212,11 @@ export function ReportView() {
           read a NYC address in. */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 sm:max-w-md">
-          <AddressSearch key={report.address} size="sm" initialValue={report.address} />
+          <AddressSearch
+            key={report.address}
+            size="sm"
+            initialValue={report.address}
+          />
         </div>
         <Link
           href={`/compare?a=${encodeURIComponent(report.address)}`}
@@ -238,7 +269,6 @@ export function ReportView() {
           blockRadiusMeters={report.data.blockQuality.radiusMeters}
         />
       </div>
-
     </div>
   );
 }

@@ -32,7 +32,8 @@ export function Header() {
         onPhoto
           ? { background: "transparent" }
           : {
-              background: "color-mix(in srgb, var(--surface-1) 88%, transparent)",
+              background:
+                "color-mix(in srgb, var(--surface-1) 88%, transparent)",
               backdropFilter: "blur(12px)",
               borderBottom: "1px solid var(--border-hairline)",
             }
@@ -54,7 +55,7 @@ export function Header() {
             alt=""
             width={226}
             height={281}
-            className="h-9 w-auto rounded-[8px]"
+            className="h-9 w-auto rounded-lg"
             priority
           />
           <span className="font-display">Streetwise</span>
@@ -65,7 +66,9 @@ export function Header() {
             href="/compare"
             aria-current={pathname === "/compare" ? "page" : undefined}
             className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-2 text-sm font-medium transition-colors sm:px-3"
-            style={{ color: onPhoto ? "var(--on-photo-dim)" : "var(--text-secondary)" }}
+            style={{
+              color: onPhoto ? "var(--on-photo-dim)" : "var(--text-secondary)",
+            }}
           >
             <ScaleIcon className="h-4 w-4 sm:hidden" />
             <span className="hidden sm:inline">Compare</span>

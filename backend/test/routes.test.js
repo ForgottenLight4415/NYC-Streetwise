@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { startTestServer } from "./helpers/testServer.js";
+import { resetRateLimits } from "../src/lib/rateLimit.js";
 import {
   RADIUS_TIERS,
   BUCKET_NAMES,
@@ -80,6 +81,9 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  // Per-process limits, one host, hundreds of requests: cleared so a limiter
+  // is never the reason a contract assertion fails.
+  resetRateLimits();
   countsSpy.mockReset();
   complaintsSpy.mockReset();
   aiSpy.mockReset();

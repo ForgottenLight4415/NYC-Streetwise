@@ -4,6 +4,7 @@ import {
   ensureTrendCacheIndexes,
   ensureComplaintGroupsIndexes,
 } from "./providers/cache.js";
+import { ensureAddressLookupIndexes } from "./providers/addressDirectory.js";
 import { closeMongo, isMongoConfigured } from "./providers/mongo.js";
 import { loadBaseline } from "./providers/baseline.js";
 import { isMockMode } from "./services/scoreService.js";
@@ -28,10 +29,20 @@ if (!isMongoConfigured()) {
   // Index creation is deliberately NOT awaited before listening. A slow Atlas
   // cluster must not stop the app from answering /health, which is what a host
   // uses to decide the deploy succeeded.
+  //
+  // This block is an OPTIMISATION, not the mechanism. Every provider function
+  // that touches a collection now awaits that collection's own memoized
+  // ensure*Indexes() before its first read or write, because this file does not
+  // run on Vercel at all — api/index.js only builds the app, and each request is
+  // its own short-lived invocation with no startup phase. Doing it here as well
+  // just moves the one round trip off the first request of a long-running
+  // process (docker, `npm run dev`). Deleting this block would cost latency, not
+  // correctness; deleting the calls in the providers would cost correctness.
   Promise.all([
     ensureCacheIndexes(),
     ensureTrendCacheIndexes(),
     ensureComplaintGroupsIndexes(),
+    ensureAddressLookupIndexes(),
   ])
     .then(() => console.log("[cache] indexes ready"))
     .catch((err) => console.warn("[cache] index setup failed:", err.message));

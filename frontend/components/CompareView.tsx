@@ -17,10 +17,10 @@ export function CompareView() {
 
   return (
     <div id="main" className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="font-display text-2xl font-semibold tracking-tight text-[color:var(--text-primary)]">
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-(--text-primary)">
         Compare two addresses
       </h1>
-      <p className="mt-1 text-sm text-[color:var(--text-secondary)]">
+      <p className="mt-1 text-sm text-(--text-secondary)">
         Side-by-side building and block scores to help you pick between options.
       </p>
 
@@ -29,8 +29,16 @@ export function CompareView() {
           comparison — the honest tradeoff, since a 160px-wide score panel
           would not be readable either. */}
       <div className="mt-6 grid gap-10 lg:grid-cols-2 lg:gap-8">
-        <CompareColumn label="Address A" initialAddress={a} onAddressChange={(v) => updateParam("a", v)} />
-        <CompareColumn label="Address B" initialAddress={b} onAddressChange={(v) => updateParam("b", v)} />
+        <CompareColumn
+          label="Address A"
+          initialAddress={a}
+          onAddressChange={(v) => updateParam("a", v)}
+        />
+        <CompareColumn
+          label="Address B"
+          initialAddress={b}
+          onAddressChange={(v) => updateParam("b", v)}
+        />
       </div>
     </div>
   );

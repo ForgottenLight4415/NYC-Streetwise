@@ -346,8 +346,96 @@ export const TREND_CACHE_COLLECTION = "trend_cache";
  * the next refresh.
  */
 export const COMPLAINT_GROUPS_COLLECTION = "complaint_groups_cache";
+
+/**
+ * Which address text names which coordinate.
+ *
+ * NOT a cache, and so deliberately WITHOUT a TTL index: the three collections
+ * above hold copies of city data that must expire, while this holds the mapping
+ * needed to name a coordinate at all. Nothing else in the system stores an
+ * address — /api/score is coordinate-only and answers with `address: null` — so
+ * if this expired alongside the counts there would be no way to re-warm an
+ * address, or to label a cached score on the homepage.
+ *
+ * Holds public address text and a lookup counter. No caller identity, no
+ * session, nothing tying a row to a person.
+ */
+export const ADDRESS_LOOKUPS_COLLECTION = "address_lookups";
 export const BASELINE_COLLECTION = "baseline";
 export const BASELINE_ID = "v1";
+
+/** Longest address string accepted by POST /api/lookups. */
+export const ADDRESS_MAX_LENGTH = 200;
+
+/** Cap on GET /api/showcase's `limit`, and its default. */
+export const SHOWCASE_MAX_LIMIT = 12;
+export const SHOWCASE_DEFAULT_LIMIT = 6;
+
+/**
+ * How many directory rows to consider per requested showcase item.
+ *
+ * The directory outlives the 24h counts cache, so a row is only usable if its
+ * counts are still there. Over-fetching means a run of expired rows does not
+ * empty the homepage; 3x was picked to cover a mostly-cold cache without
+ * scoring the whole directory on every request.
+ */
+export const SHOWCASE_CANDIDATE_FACTOR = 3;
+
+/** Showcase read modes. Closed set — each is a different sort, not a filter. */
+export const SHOWCASE_MODES = ["top", "recent", "random"];
+
+// ---------------------------------------------------------------------------
+// Rate limits
+// ---------------------------------------------------------------------------
+//
+// Ceilings per caller per minute, sized against what ONE person browsing the app
+// actually does, then given generous headroom. Opening a report fires /api/score
+// plus two /api/complaints plus a /api/trend plus up to two /api/explanation —
+// roughly six upstream-capable calls per address viewed. The limits below let a
+// person open a new address every few seconds and never notice them; a script
+// looping over coordinates hits them immediately.
+//
+// Tiered by what a call COSTS us, not by how the request looks:
+
+/** Anything that can reach Socrata on a miss: /api/score, /api/trend, drill-ins. */
+export const RATE_LIMIT_UPSTREAM = { limit: 60, windowMs: 60_000 };
+
+/**
+ * The grouped complaint fill (`complete=1`), measured 2.3-74.3s per cold
+ * address. The single most expensive thing an anonymous caller can trigger, so
+ * it is priced separately from the cheap default mode of the same endpoint.
+ */
+export const RATE_LIMIT_FILL = { limit: 10, windowMs: 60_000 };
+
+/**
+ * /api/explanation. Tighter than the Socrata tier because this one spends money
+ * on a metered API key rather than quota on a free public dataset, and because
+ * a cached explanation costs nothing to re-serve — a caller legitimately needs
+ * this at most twice per address.
+ */
+export const RATE_LIMIT_AI = { limit: 30, windowMs: 60_000 };
+
+/**
+ * POST /api/lookups, which is secret-gated and server-to-server only.
+ *
+ * A circuit breaker rather than per-user fairness: every legitimate call arrives
+ * from ONE caller (our frontend server), so a per-IP budget sized for a person
+ * would throttle every visitor of the site at once. Generous enough that real
+ * traffic never sees it, small enough to stop a runaway loop on our own side.
+ */
+export const RATE_LIMIT_INTERNAL = { limit: 600, windowMs: 60_000 };
+
+/** Cache-only reads (/api/showcase). Cheap, but not free to hammer. */
+export const RATE_LIMIT_READ = { limit: 240, windowMs: 60_000 };
+
+/**
+ * Distinct caller keys held in memory before the whole table is dropped.
+ *
+ * The limiter's own bookkeeping must not become the memory exhaustion it exists
+ * to prevent: one entry per caller, uncollected, is unbounded growth driven by
+ * anyone who can vary an address or spoof a forwarding header.
+ */
+export const RATE_LIMIT_MAX_KEYS = 20_000;
 
 // ---------------------------------------------------------------------------
 // Baseline sampling (scripts/buildBaseline.js)

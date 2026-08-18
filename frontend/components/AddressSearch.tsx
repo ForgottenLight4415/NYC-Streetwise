@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import { fetchSuggestions } from "@/lib/api";
 import { SearchIcon, ClockIcon, MapPinIcon } from "./icons";
@@ -14,7 +20,9 @@ export function getRecentSearches(): string[] {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((v) => typeof v === "string")
+      : [];
   } catch {
     return [];
   }
@@ -91,14 +99,17 @@ export function AddressSearch({
   // filtered out below rather than cleared by an extra effect. Without the
   // pairing, clearing the field and typing again showed the previous query's
   // suggestions for the length of the debounce.
-  const [fetched, setFetched] = useState<{ q: string; items: AutocompleteSuggestion[] }>({
+  const [fetched, setFetched] = useState<{
+    q: string;
+    items: AutocompleteSuggestion[];
+  }>({
     q: "",
     items: [],
   });
   const recents = useSyncExternalStore(
     subscribeRecents,
     getRecentsSnapshot,
-    getRecentsServerSnapshot
+    getRecentsServerSnapshot,
   );
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -126,7 +137,10 @@ export function AddressSearch({
 
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -138,7 +152,11 @@ export function AddressSearch({
 
   const showingRecents = !trimmed && recents.length > 0;
   const options: { key: string; label: string; placeId?: string }[] = trimmed
-    ? suggestions.map((s) => ({ key: s.id, label: s.description, placeId: s.id || undefined }))
+    ? suggestions.map((s) => ({
+        key: s.id,
+        label: s.description,
+        placeId: s.id || undefined,
+      }))
     : recents.map((a) => ({ key: a, label: a }));
 
   function go(address: string, placeId?: string) {
@@ -157,6 +175,22 @@ export function AddressSearch({
     }
   }
 
+  /**
+   * What the search button does, and what Enter falls back to.
+   *
+   * Prefers a real suggestion over the typed text, for the same reason Enter
+   * does: picking one yields a placeId, which is what makes the resolved address
+   * Google's own canonical string rather than something a person typed. Raw text
+   * still works — it has to, or the box would be unusable whenever Places is
+   * unreachable and the seed fallback is empty — it just resolves through plain
+   * geocoding and is deliberately never recorded on the homepage.
+   */
+  function submit() {
+    const active = activeIdx >= 0 ? options[activeIdx] : options[0];
+    if (trimmed && active) return go(active.label, active.placeId);
+    go(query);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       setOpen(false);
@@ -164,7 +198,7 @@ export function AddressSearch({
       return;
     }
     if (!open || options.length === 0) {
-      if (e.key === "Enter") go(query);
+      if (e.key === "Enter") submit();
       if (e.key === "ArrowDown") setOpen(true);
       return;
     }
@@ -176,7 +210,12 @@ export function AddressSearch({
       setActiveIdx((i) => (i <= 0 ? options.length - 1 : i - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const active = activeIdx >= 0 ? options[activeIdx] : null;
+      // Falls back to the FIRST suggestion, not to the raw text, when nothing is
+      // highlighted. Someone who types "456 park" and hits Enter means the
+      // building at the top of the list; sending the fragment instead makes
+      // Google guess, and only a picked suggestion carries the placeId that lets
+      // the homepage record a canonical address (see app/api/geocode/route.ts).
+      const active = activeIdx >= 0 ? options[activeIdx] : options[0];
       go(active?.label ?? query, active?.placeId);
     }
   }
@@ -185,10 +224,13 @@ export function AddressSearch({
   const showPanel = open && (trimmed.length > 0 || recents.length > 0);
 
   return (
-    <div ref={containerRef} className={`relative w-full ${hero ? "on-photo" : ""}`}>
+    <div
+      ref={containerRef}
+      className={`relative w-full ${hero ? "on-photo" : ""}`}
+    >
       <div className="relative">
         <SearchIcon
-          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[color:var(--text-muted)] ${
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-(--text-muted) ${
             hero ? "left-5 h-5 w-5" : "left-4 h-4 w-4"
           }`}
         />
@@ -210,13 +252,15 @@ export function AddressSearch({
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={
-            showPanel && activeIdx >= 0 ? `${listboxId}-opt-${activeIdx}` : undefined
+            showPanel && activeIdx >= 0
+              ? `${listboxId}-opt-${activeIdx}`
+              : undefined
           }
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
           enterKeyHint="search"
-          className={`search-field w-full rounded-full border bg-[color:var(--surface-1)] text-[color:var(--text-primary)] placeholder:text-[color:var(--text-muted)] ${
+          className={`search-field w-full rounded-full border bg-(--surface-1) text-(--text-primary) placeholder:text-(--text-muted) ${
             hero
               ? "search-field--hero h-14 pl-12 pr-15 text-[15px] sm:h-16 sm:pl-14 sm:pr-18 sm:text-base"
               : "h-11 pl-10 pr-12 text-sm"
@@ -229,7 +273,7 @@ export function AddressSearch({
             visible target matters when the field is pre-filled. */}
         <button
           type="button"
-          onClick={() => go(query)}
+          onClick={() => submit()}
           aria-label="Search"
           className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded-full transition-colors ${
             hero ? "right-2 h-11 w-11 sm:h-12 sm:w-12" : "right-1.5 h-8 w-8"
@@ -245,7 +289,7 @@ export function AddressSearch({
           // z-50 puts the panel above the sticky header (z-40). At z-30 the
           // header intercepted taps on any suggestion that scrolled beneath it,
           // which on a phone is the top one or two.
-          className="absolute z-50 mt-2 w-full overflow-hidden rounded-[var(--radius-lg)] border"
+          className="absolute z-50 mt-2 w-full overflow-hidden rounded-lg border"
           style={{
             borderColor: "var(--border-hairline)",
             background: "var(--surface-1)",
@@ -253,7 +297,7 @@ export function AddressSearch({
           }}
         >
           {showingRecents && (
-            <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--text-muted)]">
+            <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-(--text-muted)">
               Recent
             </p>
           )}
@@ -261,7 +305,9 @@ export function AddressSearch({
             <ul
               id={listboxId}
               role="listbox"
-              aria-label={showingRecents ? "Recent searches" : "Address suggestions"}
+              aria-label={
+                showingRecents ? "Recent searches" : "Address suggestions"
+              }
               // Capped so a long list can't run off a short phone viewport.
               className="max-h-[min(20rem,50vh)] overflow-y-auto overscroll-contain"
             >
@@ -283,11 +329,12 @@ export function AddressSearch({
                     // 44px minimum target — this is the primary control on a phone.
                     className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors"
                     style={{
-                      background: i === activeIdx ? "var(--surface-2)" : "transparent",
+                      background:
+                        i === activeIdx ? "var(--surface-2)" : "transparent",
                       color: "var(--text-primary)",
                     }}
                   >
-                    <Icon className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" />
+                    <Icon className="h-4 w-4 shrink-0 text-(--text-muted)" />
                     <span className="min-w-0 flex-1">{opt.label}</span>
                   </li>
                 );
@@ -300,9 +347,9 @@ export function AddressSearch({
                 e.preventDefault();
                 go(query);
               }}
-              className="flex min-h-11 w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-[color:var(--text-primary)]"
+              className="flex min-h-11 w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-(--text-primary)"
             >
-              <SearchIcon className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]" />
+              <SearchIcon className="h-4 w-4 shrink-0 text-(--text-muted)" />
               Search &ldquo;{query}&rdquo;
             </button>
           )}

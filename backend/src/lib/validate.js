@@ -3,6 +3,8 @@ import {
   RADIUS_TIERS,
   STATUS_BUCKET_NAMES,
   ALL_COMPLAINT_TYPES,
+  ADDRESS_MAX_LENGTH,
+  SHOWCASE_MODES,
 } from "../config/constants.js";
 
 /**
@@ -179,6 +181,71 @@ export function validateComplaintType(value) {
   }
   if (!ALL_COMPLAINT_TYPES.includes(value)) {
     throw new BadRequestError("invalid_type", "type is not a recognised complaint type");
+  }
+  return value;
+}
+
+/**
+ * Characters that have no place in an address and every place in a defacement:
+ * markup, braces, backslashes, pipes, and any C0/C1 control character —
+ * including the zero-width and direction-override tricks that make one string
+ * render as another.
+ */
+const ADDRESS_FORBIDDEN = /[<>{}\\|`\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e]/;
+
+/**
+ * The display address for POST /api/lookups.
+ *
+ * HYGIENE, NOT JUDGEMENT. This deliberately does not try to decide whether a
+ * string is a real address, because that question is settled before it gets
+ * here: the endpoint requires INTERNAL_API_SECRET, so the only caller is our own
+ * Next.js geocode route, and the only string it sends is the `formattedAddress`
+ * Google returned for a Places suggestion the user picked. The address is
+ * trustworthy by provenance.
+ *
+ * An earlier version of this function guessed instead — house-number prefixes,
+ * domain patterns, a "must name New York" rule — because the endpoint was then
+ * public. That is a blocklist by another name: it only ever stops the phrasings
+ * you thought of, and the first cut let "BUY CRYPTO AT evil.example" through.
+ * The gates below are the ones worth keeping even when the source is trusted:
+ * a bound on document size, and characters that would corrupt rendering
+ * regardless of who sent them.
+ */
+export function validateAddress(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BadRequestError("missing_address", "address is required");
+  }
+  const trimmed = value.trim().replace(/\s+/g, " ");
+
+  if (trimmed.length > ADDRESS_MAX_LENGTH) {
+    throw new BadRequestError(
+      "invalid_address",
+      `address must be ${ADDRESS_MAX_LENGTH} characters or fewer`
+    );
+  }
+  if (ADDRESS_FORBIDDEN.test(trimmed)) {
+    throw new BadRequestError(
+      "invalid_address",
+      "address contains characters that are not part of an address"
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * Optional showcase read mode.
+ *
+ * A closed set rather than a free sort parameter: each mode is a specific query
+ * with an index behind it, and one caller must not be able to ask Mongo to sort
+ * the directory by an arbitrary field.
+ */
+export function validateShowcaseMode(value, { fallback = SHOWCASE_MODES[0] } = {}) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (!SHOWCASE_MODES.includes(value)) {
+    throw new BadRequestError(
+      "invalid_mode",
+      `mode must be one of: ${SHOWCASE_MODES.join(", ")}`
+    );
   }
   return value;
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findSuggestions } from "@/lib/mock-data";
+import { findSuggestions } from "@/lib/seed-addresses";
 import { serverMapsKey } from "@/lib/maps-keys";
 
 // Tight bounding box around the outer edges of the five boroughs (Staten
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ suggestions: [] });
   }
 
-  const mockFallback = () =>
+  const seedFallback = () =>
     NextResponse.json({
       suggestions: findSuggestions(q).map((s) => ({ id: s.id, description: s.description })),
     });
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
   // browser's client key is not a valid substitute.
   const apiKey = serverMapsKey();
   if (!apiKey) {
-    return mockFallback();
+    return seedFallback();
   }
 
   try {
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Google Places API error:", response.status, errorText);
-      return mockFallback();
+      return seedFallback();
     }
 
     const data: PlacesAutocompleteResponse = await response.json();
@@ -91,6 +91,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ suggestions });
   } catch (error) {
     console.error("Autocomplete error:", error);
-    return mockFallback();
+    return seedFallback();
   }
 }

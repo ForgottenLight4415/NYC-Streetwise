@@ -1,26 +1,48 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AddressSearch } from "@/components/AddressSearch";
+import { CitywideBaselinePanel } from "@/components/CitywideBaselinePanel";
 import { FeaturedCarousel } from "@/components/FeaturedCarousel";
+import { HeroSampleCard } from "@/components/HeroSampleCard";
 import { ArrowRightIcon, BuildingIcon, BlockIcon, MapPinIcon } from "@/components/icons";
-import { buildFeaturedReport } from "@/lib/mock-data";
-import { BAND_VAR, BAND_VERDICT, overallBand } from "@/lib/score";
+import { fetchShowcase } from "@/lib/api";
 
-const FEATURED_ADDRESSES = [
-  "456 Park Ave, New York, NY 10022",
-  "123 Ludlow St, New York, NY 10002",
-  "88 Bedford Ave, Brooklyn, NY 11249",
-  "37-11 74th St, Jackson Heights, NY 11372",
-  "1 Grand Army Plaza, Brooklyn, NY 11238",
-  "980 Anderson Ave, Bronx, NY 10452",
-];
+/**
+ * Statically rendered, revalidated every five minutes.
+ *
+ * The showcase endpoint is cache-only on the backend — it never calls Socrata —
+ * so this costs a few milliseconds, and ISR means no visitor ever waits on it at
+ * all. Five minutes is short enough that an address someone looks up shows up on
+ * the homepage while they are still in the session, and long enough that the
+ * page is served from the static cache almost every time.
+ */
+export const revalidate = 300;
 
+/**
+ * How many addresses to ask for: one for the hero card, the rest for the
+ * carousel, plus headroom so a couple of expired entries don't empty the row.
+ */
+const SHOWCASE_LIMIT = 12;
+
+/** Below this the carousel reads as an accident rather than a selection. */
+const MIN_CAROUSEL_ITEMS = 3;
+
+/**
+ * The chips under the search box, for when the cache has nothing to offer.
+ *
+ * Real addresses, but presets: they say "here is the shape of a query", which is
+ * all a chip has ever claimed. They are also the addresses the backend pre-warms
+ * (backend/src/config/showcase.js), so on a warm deploy the cached versions of
+ * these are exactly what replaces them.
+ */
 const EXAMPLE_ADDRESSES = [
   "123 Ludlow St, New York, NY 10002",
   "456 Park Ave, New York, NY 10022",
   "88 Bedford Ave, Brooklyn, NY 11249",
   "37-11 74th St, Jackson Heights, NY 11372",
 ];
+
+const CHIP_COUNT = 4;
 
 /**
  * The hero rail. These are the real scoring parameters from the backend
@@ -33,7 +55,7 @@ const RADII = [
     value: "25",
     unit: "m",
     label: "Building radius",
-    body: "Complaints filed at the address itself — heat, hot water, plumbing.",
+    body: "Complaints filed at the address itself: heat, hot water, plumbing.",
   },
   {
     value: "350",
@@ -47,7 +69,7 @@ const FEATURES = [
   {
     icon: BuildingIcon,
     title: "Building Health Score",
-    body: "Heat and hot water outages, unsanitary conditions, and plumbing failures tied to the specific address — the record nobody reads before signing a lease.",
+    body: "Heat and hot water outages, unsanitary conditions, and plumbing failures tied to the specific address - the record nobody reads before signing a lease.",
     colorVar: "--series-building",
     inkVar: "--series-building-ink",
   },
@@ -61,7 +83,7 @@ const FEATURES = [
   {
     icon: MapPinIcon,
     title: "Grounded in public records",
-    body: "Every score traces back to NYC 311 Service Requests — no reviews, no rumors, just the complaint history.",
+    body: "Every score traces back to NYC 311 Service Requests - no reviews, no rumors, just the complaint history.",
     colorVar: "--status-good",
     inkVar: "--status-good-ink",
   },
@@ -70,11 +92,11 @@ const FEATURES = [
 const STEPS = [
   {
     title: "Enter an address",
-    body: "Type any NYC address — we geocode it and pull the 311 history filed around it.",
+    body: "Type any NYC address and we pull the 311 history filed around it.",
   },
   {
-    title: "Two radii, two scores",
-    body: "A tight radius scores the building itself; a wider one scores the block.",
+    title: "The building and the block",
+    body: "One score covers the building itself; another covers the surrounding block.",
   },
   {
     title: "Decide with confidence",
@@ -82,44 +104,29 @@ const STEPS = [
   },
 ];
 
-/** One score in the data face — the readout this product exists to produce. */
-function ScoreReadout({
-  label,
-  score,
-  radius,
-  inkVar,
-}: {
-  label: string;
-  score: number;
-  radius: string;
-  inkVar: string;
-}) {
-  return (
-    <div className="flex items-baseline gap-2.5">
-      <span
-        className="font-data text-3xl font-semibold leading-none"
-        style={{ color: `var(${inkVar})` }}
-      >
-        {score}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-xs font-semibold text-[color:var(--text-primary)]">
-          {label}
-        </span>
-        <span className="font-data block text-[11px] text-[color:var(--text-muted)]">
-          {radius}
-        </span>
-      </span>
-    </div>
-  );
-}
+export default async function Home() {
+  // One call feeds all three address sections. Returns [] on any failure, and
+  // fewer items than asked for whenever the 24h counts cache has thinned out —
+  // every section below is written to render whatever it is handed.
+  const { items, fallback } = await fetchShowcase("top", SHOWCASE_LIMIT, {
+    next: { revalidate },
+  });
 
-export default function Home() {
-  const featuredReports = FEATURED_ADDRESSES.map(buildFeaturedReport);
-  // The card straddling the hero's bottom edge shows a real generated report
-  // rather than a promo graphic — the output is the argument.
-  const sample = featuredReports[0];
-  const sampleBand = overallBand(sample.data.buildingHealth.band, sample.data.blockQuality.band);
+  // The chips take the most-looked-up addresses and top up from the presets, so
+  // there are always exactly four and they never shift under the cursor.
+  const chips = [...items.map((item) => item.address), ...EXAMPLE_ADDRESSES]
+    .filter((address, i, all) => all.indexOf(address) === i)
+    .slice(0, CHIP_COUNT);
+
+  // The hero card gets the most-looked-up address; the carousel gets the rest,
+  // so the same report is never on screen twice. With nothing cached it gets the
+  // backend's randomly-chosen curated address instead and scores it live —
+  // no address is hardcoded here, and none is privileged over the others.
+  const [heroItem, ...carouselItems] = items;
+
+  // Below the threshold the carousel would be a one- or two-card loop repeating
+  // itself, which reads as a bug. The citywide baseline panel takes the slot.
+  const showCarousel = carouselItems.length >= MIN_CAROUSEL_ITEMS;
 
   return (
     <main id="main" className="flex-1">
@@ -169,7 +176,7 @@ export default function Home() {
                 style={{ color: "var(--on-photo-dim)", ["--delay" as string]: "160ms" }}
               >
                 Search any NYC address for a Building Health Score and a Block Quality
-                Score — the landlord&rsquo;s complaint history and the block&rsquo;s, read
+                Score - the landlord&rsquo;s complaint history and the block&rsquo;s, read
                 straight off the city&rsquo;s own 311 filings.
               </p>
 
@@ -192,7 +199,7 @@ export default function Home() {
                 <span className="hidden text-sm sm:inline" style={{ color: "var(--on-photo-faint)" }}>
                   Try:
                 </span>
-                {EXAMPLE_ADDRESSES.map((a) => (
+                {chips.map((a) => (
                   <Link
                     key={a}
                     href={`/report?address=${encodeURIComponent(a)}`}
@@ -264,63 +271,20 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ---------- sample report, straddling the hero's bottom edge ----------
+        {/* ---------- live report, straddling the hero's bottom edge ----------
             The negative margin pulls the card below the section, so the photo
             ends behind its upper half. The next section carries matching top
-            padding to clear it. */}
-        <div className="mx-auto -mb-16 max-w-6xl px-4 sm:px-6 lg:-mb-20">
-          <Link
-            href={`/report?address=${encodeURIComponent(sample.address)}`}
-            className="card-pop group flex flex-col gap-5 rounded-[var(--radius-xl)] p-5 sm:flex-row sm:items-center sm:gap-8 sm:p-6 lg:max-w-3xl"
-            style={{ background: "var(--surface-1)", border: "1px solid var(--border-hairline)" }}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="font-data text-[11px] uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                Sample report · {sample.borough}
-              </p>
-              <p className="font-display mt-1.5 truncate text-xl font-semibold text-[color:var(--text-primary)]">
-                {sample.address.split(",")[0]}
-              </p>
-              <p
-                className="mt-0.5 text-sm font-medium"
-                style={{ color: `var(${BAND_VAR[sampleBand]}-ink)` }}
-              >
-                {BAND_VERDICT[sampleBand]}
-              </p>
-            </div>
+            padding to clear it.
 
-            <div className="flex shrink-0 gap-6 sm:gap-8">
-              <ScoreReadout
-                label="Building"
-                score={sample.data.buildingHealth.score}
-                radius="25m"
-                inkVar="--series-building-ink"
-              />
-              <ScoreReadout
-                label="Block"
-                score={sample.data.blockQuality.score}
-                radius="350m"
-                inkVar="--series-block-ink"
-              />
-            </div>
-
-            <span
-              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full sm:flex"
-              style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
-              aria-hidden
-            >
-              <ArrowRightIcon className="h-4.5 w-4.5" />
-            </span>
-            <span className="text-sm font-semibold text-[color:var(--brand-ink)] sm:hidden">
-              See the full report →
-            </span>
-          </Link>
-        </div>
+            A client component because it may have to fetch: it renders the
+            server-fetched cached item when there is one, and otherwise pulls a
+            real score for the fallback address without holding up the page. */}
+        <HeroSampleCard item={heroItem ?? null} fallback={fallback} />
       </section>
 
       {/* ===================== How it works ===================== */}
       <section className="mx-auto max-w-6xl px-4 pt-28 sm:px-6 lg:pt-36">
-        <h2 className="font-data text-[11px] font-medium uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
+        <h2 className="font-data text-[11px] font-medium uppercase tracking-[0.18em] text-(--text-muted)">
           How it works
         </h2>
         {/* Numbered because these three are a real sequence — you cannot read a
@@ -332,11 +296,11 @@ export default function Home() {
               className="border-t pt-4"
               style={{ borderColor: "var(--border-hairline)" }}
             >
-              <span className="font-data text-sm font-medium text-[color:var(--brand-ink)]">
+              <span className="font-data text-sm font-medium text-(--brand-ink)">
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <h3 className="mt-2 font-semibold text-[color:var(--text-primary)]">{s.title}</h3>
-              <p className="mt-1 text-sm leading-relaxed text-[color:var(--text-secondary)]">
+              <h3 className="mt-2 font-semibold text-(--text-primary)">{s.title}</h3>
+              <p className="mt-1 text-sm leading-relaxed text-(--text-secondary)">
                 {s.body}
               </p>
             </li>
@@ -349,11 +313,11 @@ export default function Home() {
         {FEATURES.map((f) => (
           <div
             key={f.title}
-            className="rounded-[var(--radius-lg)] bg-[color:var(--surface-1)] p-6"
+            className="rounded-lg bg-(--surface-1) p-6"
             style={{ boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-hairline)" }}
           >
             <span
-              className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)]"
+              className="flex h-10 w-10 items-center justify-center rounded-md"
               style={{
                 color: `var(${f.inkVar})`,
                 background: `color-mix(in srgb, var(${f.colorVar}) 14%, transparent)`,
@@ -361,36 +325,54 @@ export default function Home() {
             >
               <f.icon className="h-5 w-5" />
             </span>
-            <h3 className="mt-4 font-semibold text-[color:var(--text-primary)]">{f.title}</h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-[color:var(--text-secondary)]">
+            <h3 className="mt-4 font-semibold text-(--text-primary)">{f.title}</h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-(--text-secondary)">
               {f.body}
             </p>
           </div>
         ))}
       </section>
 
-      {/* ===================== Featured ===================== */}
+      {/* ===================== Recently checked / citywide baseline =====================
+          Two different sections sharing one slot, chosen by what the backend
+          actually holds. There is no third branch that fills the gap with
+          invented reports — that is what this section used to be.
+
+          Below MIN_CAROUSEL_ITEMS the carousel would be a duplicated one- or
+          two-card loop, which reads as a bug. The baseline panel takes the slot
+          instead: real measured citywide data, always available, and it answers
+          what a score of 62 actually means. */}
       <section className="py-12">
         <div className="mx-auto mb-1 flex max-w-6xl flex-wrap items-end justify-between gap-x-6 gap-y-2 px-4 sm:px-6">
           <div>
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-[color:var(--text-primary)]">
-              Featured NYC addresses
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-(--text-primary)">
+              {showCarousel ? "Recently checked addresses" : "The citywide baseline"}
             </h2>
-            <p className="mt-0.5 text-sm text-[color:var(--text-muted)]">
-              Sample reports — open any one for the full breakdown.
+            <p className="mt-0.5 text-sm text-(--text-muted)">
+              {showCarousel
+                ? "Real 311 records, cached in the last 24 hours — open any one for the full breakdown."
+                : "What an ordinary NYC address looks like, and what every score here is measured against."}
             </p>
           </div>
           <Link
             href="/compare"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-[color:var(--brand-ink)]"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-(--brand-ink)"
           >
             Compare addresses
             <ArrowRightIcon className="h-4 w-4" />
           </Link>
         </div>
-        <div className="px-4 sm:px-6">
-          <FeaturedCarousel reports={featuredReports} />
-        </div>
+
+        {showCarousel ? (
+          // Full-bleed: the carousel scrolls past the page gutters by design.
+          <div className="px-4 sm:px-6">
+            <FeaturedCarousel reports={carouselItems} />
+          </div>
+        ) : (
+          <div className="mx-auto mt-4 max-w-6xl px-4 sm:px-6">
+            <CitywideBaselinePanel />
+          </div>
+        )}
       </section>
 
       {/* ===================== Footer ===================== */}
@@ -401,17 +383,16 @@ export default function Home() {
             alt="Streetwise — Rent smart in NYC"
             width={907}
             height={301}
-            className="mx-auto mb-6 h-auto w-[220px] sm:w-[260px]"
+            className="mx-auto mb-6 h-auto w-55 sm:w-65"
           />
-          <p className="mx-auto max-w-2xl text-xs leading-relaxed text-[color:var(--text-muted)]">
-            Data source: NYC 311 Service Requests (Socrata, dataset erm2-nwe9). This
-            preview uses generated sample data — live backend integration is next.
+          <p className="mx-auto max-w-2xl text-xs leading-relaxed text-(--text-muted)">
+            Data source: NYC 311 Service Requests (Socrata, dataset erm2-nwe9).
           </p>
-          <p className="mt-1.5 text-xs text-[color:var(--text-muted)]">
+          <p className="mt-1.5 text-xs text-(--text-muted)">
             Hero photo by{" "}
             <a
               href="https://unsplash.com/photos/manhattan-skyline-at-night-ZXBPMnNVtlE"
-              className="underline underline-offset-2 hover:text-[color:var(--text-secondary)]"
+              className="underline underline-offset-2 hover:text-(--text-secondary)"
             >
               Jan Folwarczny
             </a>{" "}
