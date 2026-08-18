@@ -10,7 +10,6 @@ import {
   type TrendWindow,
 } from "@/lib/api";
 import { CATEGORY_LABEL, STATUS_LABEL, STATUS_VAR } from "@/lib/score";
-import { buildComplaintTimeline } from "@/lib/mock-data";
 import { useDialog } from "@/lib/useDialog";
 import type { Complaint, ComplaintGroup, ComplaintStatus } from "@/lib/types";
 import { ChevronRightIcon, CloseIcon } from "./icons";
@@ -153,7 +152,13 @@ export function ComplaintsBrowserModal({
     })
       .then((page) => {
         if (cancelled) return;
-        setDrill((d) => (d ? { ...d, items: page.items } : d));
+        // Prefer the total this response states over the group row's cached
+        // count. Socrata answers from replicas of differing freshness, so the
+        // cached count and this list can genuinely describe different data —
+        // and a header saying 4 above a list of 8 is the worst of both. Falls
+        // back to the group's count when the page is not the last one, where
+        // the exact total is not knowable from this response alone.
+        setDrill((d) => (d ? { ...d, items: page.items, total: page.total ?? d.total } : d));
       })
       .catch(() => {
         if (cancelled) return;
@@ -204,7 +209,7 @@ export function ComplaintsBrowserModal({
             </h2>
             <p className="text-xs text-[color:var(--text-muted)]">
               {drill
-                ? `${formatDay(drill.group.day)} · ${drill.group.total.toLocaleString()} ${drill.group.total === 1 ? "complaint" : "complaints"}`
+                ? `${formatDay(drill.group.day)} · ${drill.total.toLocaleString()} ${drill.total === 1 ? "complaint" : "complaints"}`
                 : `Within ${radiusMeters}m · grouped by day`}
             </p>
           </div>
@@ -317,11 +322,7 @@ export function ComplaintsBrowserModal({
       </div>
 
       {selected && (
-        <ComplaintDetailModal
-          complaint={selected}
-          timeline={buildComplaintTimeline(selected)}
-          onClose={() => setSelected(null)}
-        />
+        <ComplaintDetailModal complaint={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );

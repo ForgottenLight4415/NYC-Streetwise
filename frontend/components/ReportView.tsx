@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { fetchExplanation, fetchNearbyComplaints, fetchReport, getLatLng } from "@/lib/api";
 import { AddressSearch } from "./AddressSearch";
 import { MapPanel } from "./MapPanel";
-import { ReportSkeleton } from "./ReportSkeleton";
+import { ReportLoading } from "./ReportLoading";
 import { ScorePanelCard } from "./ScorePanelCard";
 import { VerdictBanner, type AiExplanationState } from "./VerdictBanner";
 import { BuildingIcon, BlockIcon, ChevronRightIcon } from "./icons";
@@ -164,7 +164,10 @@ export function ReportView() {
   }
 
   if (!report) {
-    return <ReportSkeleton />;
+    // The same view the Suspense boundary above already rendered, so the two
+    // back-to-back waits read as one. This one covers a geocode, /api/score and
+    // both complaint fetches, all awaited before anything can be shown.
+    return <ReportLoading />;
   }
 
   return (

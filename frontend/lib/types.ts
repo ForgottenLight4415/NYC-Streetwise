@@ -4,7 +4,18 @@ export type Confidence = "normal" | "low";
 export type ComplaintStatus = "open" | "in-progress" | "closed";
 
 export interface Complaint {
+  /** React key. The 311 unique_key when we have one, else a synthetic fallback. */
   id: string;
+  /**
+   * The dataset's own primary key — the number a renter could quote to 311.
+   *
+   * Optional, and only ever set from real data: mock complaints leave it unset
+   * so nothing invented is displayed as a case number. The UI must therefore
+   * treat "absent" as "show nothing", never as "fall back to `id`" — `id` can
+   * be our own synthetic string, which is what used to be shown as a
+   * "Complaint #" while being an artifact of pagination.
+   */
+  referenceId?: string;
   label: string;
   date: string; // YYYY-MM-DD
   status: ComplaintStatus;
@@ -89,13 +100,8 @@ export interface ComplaintPage<T> {
   truncated: boolean;
 }
 
-export interface TimelineEvent {
-  status: ComplaintStatus;
-  date: string; // YYYY-MM-DD
-  note?: string;
-}
-
-export interface ComplaintTimeline {
-  complaintId: string;
-  events: TimelineEvent[];
-}
+// TimelineEvent / ComplaintTimeline lived here. Removed with the "progress
+// timeline" they described: 311 publishes a complaint's CURRENT status and no
+// change log, so every intermediate event was synthesised client-side — and for
+// anything filed recently it synthesised dates in the future. The detail modal
+// now shows the filing date and the current status, which is all there is.

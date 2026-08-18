@@ -362,6 +362,15 @@ describe("fetchComplaintPoints", () => {
     expect(result.truncated).toBe(true);
   });
 
+  // Every other read on the report describes the rounded circle. When this one
+  // used the raw coordinate, "Recent complaints" could list a complaint the
+  // grouped browser beside it did not have.
+  it("queries the rounded coordinate, like the rest of the report", async () => {
+    complaintsSpy.mockResolvedValue([]);
+    await fetchComplaintPoints(40.74839999, -73.98571234, 350, { limit: 100 });
+    expect(complaintsSpy).toHaveBeenCalledWith(40.7484, -73.9857, 350, expect.any(Object));
+  });
+
   it("is not cached — the cache holds counts, never rows", async () => {
     complaintsSpy.mockResolvedValue([]);
     await fetchComplaintPoints(40.7484, -73.9857, 350);
@@ -416,6 +425,14 @@ describe("fetchComplaintGroupList", () => {
       status: "open",
     });
     expect(rows.map((r) => r.type)).not.toContain("Illegal Parking");
+  });
+
+  // The cache keys on the rounded coordinate; filling it from the raw one let a
+  // hit and a miss describe different circles, and left the drill-in describing
+  // a third.
+  it("fills the cache from the same rounded coordinate it keys on", async () => {
+    await fetchComplaintGroupList(40.74839999, -73.98571234, 350, { tier: "block" });
+    expect(groupsSpy).toHaveBeenCalledWith(40.7484, -73.9857, 350, expect.any(Object));
   });
 
   it("fills at the cache limit rather than the caller's page size", async () => {
@@ -489,6 +506,54 @@ describe("fetchComplaintGroupDetail", () => {
     });
     expect(result.points).toHaveLength(3);
     expect(result.hasMore).toBe(true);
+  });
+
+  // The regression this endpoint was fixed for: the status used to narrow the
+  // page AFTER it was sliced, so a day whose complaints were mostly of another
+  // status came back short — or empty — under a header stating the real count.
+  it("filters by status upstream rather than narrowing the page it fetched", async () => {
+    groupDetailSpy.mockResolvedValue([]);
+    await fetchComplaintGroupDetail(40.7484, -73.9857, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+      status: "open",
+      limit: 25,
+    });
+    expect(groupDetailSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      350,
+      expect.objectContaining({ status: "open" })
+    );
+  });
+
+  it("returns a full page under a status filter instead of a filtered remnant", async () => {
+    // Upstream has already applied the filter, so every row comes back matching.
+    groupDetailSpy.mockResolvedValue(
+      Array.from({ length: 26 }, () => ({ type: "Noise - Residential", statusBucket: "open" }))
+    );
+    const result = await fetchComplaintGroupDetail(40.7484, -73.9857, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+      status: "open",
+      limit: 25,
+    });
+    expect(result.points).toHaveLength(25);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it("queries the rounded coordinate, so a drill-in matches the group it came from", async () => {
+    groupDetailSpy.mockResolvedValue([]);
+    await fetchComplaintGroupDetail(40.74839999, -73.98571234, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+    });
+    expect(groupDetailSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      350,
+      expect.any(Object)
+    );
   });
 });
 

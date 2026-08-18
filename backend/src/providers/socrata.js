@@ -9,6 +9,8 @@ import {
   SOCRATA_ROW_LIMIT,
   COMPLAINT_FILL_TIMEOUT_MS,
   COMPLAINT_FILL_RETRIES,
+  KNOWN_STATUSES,
+  rawStatusesForBucket,
   statusBucket,
   windowCutoffISO,
 } from "../config/constants.js";
@@ -32,6 +34,25 @@ function soqlString(value) {
 
 function typeInClause(types) {
   return `complaint_type in (${types.map(soqlString).join(",")})`;
+}
+
+/**
+ * A SoQL predicate matching exactly the rows statusBucket() would file under
+ * `bucket`.
+ *
+ * "open" is the catch-all and cannot be expressed as a simple `in` list:
+ * statusBucket() maps NULL and every unrecognised value there too, so filtering
+ * on the known open strings alone would silently drop rows that the grouped
+ * counts DID include — which is the disagreement this whole predicate exists to
+ * prevent. Matching the complement instead keeps the two paths total in the same
+ * way, including for a ninth status value the dataset has not shown us yet.
+ */
+function statusClause(bucket) {
+  const inBucket = rawStatusesForBucket(bucket).map(soqlString).join(",");
+  if (bucket !== "open") return `status in (${inBucket})`;
+
+  const known = KNOWN_STATUSES.map(soqlString).join(",");
+  return `(status in (${inBucket}) OR status IS NULL OR status not in (${known}))`;
 }
 
 /**
@@ -169,7 +190,7 @@ export async function fetchComplaints(lat, lng, radiusMeters, { now, limit = 100
   const types = tiers.flatMap(({ buckets }) => Object.values(buckets).flat());
 
   const rows = await query({
-    $select: "complaint_type, latitude, longitude, created_date, status",
+    $select: "unique_key, complaint_type, latitude, longitude, created_date, status",
     $where: [
       `within_circle(${LOCATION_FIELD}, ${lat}, ${lng}, ${radiusMeters})`,
       typeInClause(types),
@@ -180,6 +201,10 @@ export async function fetchComplaints(lat, lng, radiusMeters, { now, limit = 100
   });
 
   return rows.map((row) => ({
+    // The dataset's own primary key — the number a renter could quote to 311.
+    // Everything else about a row is descriptive; this is the only field that
+    // identifies it, so it is the one thing worth surfacing verbatim.
+    unique_key: row.unique_key ?? null,
     type: row.complaint_type,
     lat: Number(row.latitude),
     lng: Number(row.longitude),
@@ -247,27 +272,37 @@ export async function fetchComplaintGroups(lat, lng, radiusMeters, { tier, month
  * Left uncached on purpose — measured 5.6s for a 17-row day, so the cost here
  * is the spatial filter, not the rows, and a day+type cache would buy little
  * for the maintenance of another collection.
+ *
+ * `status` filters UPSTREAM, and must: it is what makes $offset/$limit address
+ * the same set of rows the caller is paging through. Filtering the returned page
+ * instead — which this did — silently dropped rows, because the page was drawn
+ * from every status and only then narrowed, so a day with 100 complaints of
+ * which 3 were open could return none of them.
  */
 export async function fetchComplaintsForGroup(
   lat,
   lng,
   radiusMeters,
-  { type, day, offset = 0, limit = 50 } = {}
+  { type, day, status, offset = 0, limit = 50 } = {}
 ) {
+  const where = [
+    `within_circle(${LOCATION_FIELD}, ${lat}, ${lng}, ${radiusMeters})`,
+    `complaint_type = ${soqlString(type)}`,
+    `created_date >= ${soqlString(`${day}T00:00:00`)}`,
+    `created_date < ${soqlString(`${day}T23:59:59.999`)}`,
+  ];
+  if (status) where.push(statusClause(status));
+
   const rows = await query({
-    $select: "complaint_type, latitude, longitude, created_date, status",
-    $where: [
-      `within_circle(${LOCATION_FIELD}, ${lat}, ${lng}, ${radiusMeters})`,
-      `complaint_type = ${soqlString(type)}`,
-      `created_date >= ${soqlString(`${day}T00:00:00`)}`,
-      `created_date < ${soqlString(`${day}T23:59:59.999`)}`,
-    ].join(" AND "),
+    $select: "unique_key, complaint_type, latitude, longitude, created_date, status",
+    $where: where.join(" AND "),
     $order: "created_date DESC",
     $offset: String(offset),
     $limit: String(limit),
   });
 
   return rows.map((row) => ({
+    unique_key: row.unique_key ?? null,
     type: row.complaint_type,
     lat: Number(row.latitude),
     lng: Number(row.longitude),

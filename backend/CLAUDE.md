@@ -129,8 +129,17 @@ GET /api/explanation?lat=&lng=&tier=building|block
   skips this call entirely.
 
 GET /api/complaints?lat=&lng=&radius=&limit=&tier=building|block
-  returns: [ { type, lat, lng, created_date, status }, ... ]   // for frontend heatmap
+  returns: [ { unique_key, type, lat, lng, created_date, status }, ... ]
   headers: X-Complaints-Truncated, X-Complaints-Limit
+
+  **CONTRACT CHANGE (post-freeze): `unique_key` added to the row shape, on this
+  endpoint and on /api/complaints/group. Flag to Person 2.** Additive; existing
+  callers ignoring it are unaffected. It is the dataset's own primary key -- the
+  number a renter can quote to 311 -- and it is the ONLY field that identifies a
+  row. The frontend previously displayed a "Complaint #" it had built itself
+  from type + timestamp + row index, which read as a 311 reference but was an
+  artifact of paging. Null on the mock path, where no real record exists; the
+  frontend shows nothing rather than falling back to the synthetic id.
 
   **CONTRACT CHANGE (post-freeze): optional `tier` param added. Flag to Person 2.**
   Additive and backward-compatible — omitted, the query spans every type in both
@@ -186,8 +195,9 @@ GET /api/complaints?lat=&lng=&radius=&limit=&tier=building|block
   radius dimension.
 
 GET /api/complaints/group?lat=&lng=&tier=&type=&day=&status=&offset=&limit=
-  returns: [ { type, lat, lng, created_date, status, statusBucket }, ... ]
-  headers: X-Complaints-Limit, X-Complaints-Offset, X-Complaints-Has-More
+  returns: [ { unique_key, type, lat, lng, created_date, status, statusBucket }, ... ]
+  headers: X-Complaints-Limit, X-Complaints-Offset, X-Complaints-Has-More,
+           X-Complaints-Total (only on the last page, where it is exact)
 
   **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
   The individual complaints behind one (day, type) row of the grouped browser.
@@ -196,6 +206,22 @@ GET /api/complaints/group?lat=&lng=&tier=&type=&day=&status=&offset=&limit=
   day, so the cost is the spatial filter rather than the rows, and a day+type
   cache would buy little. `radius` comes from the tier, not the caller, so a
   drill-in always describes the same circle as the group it came from.
+
+  **BUGFIX (no contract change): `status` now filters in SoQL.** It used to
+  narrow the page AFTER $offset/$limit had been applied, so the rows were drawn
+  from every status and only then filtered -- a day with 100 complaints of which
+  3 were open returned an empty list under a header correctly stating 3, and
+  paging out of it was impossible. The bucket is expanded to raw statuses via
+  rawStatusesForBucket() in constants.js, so the enum is still not duplicated.
+  Note "open" is NOT a plain in-list: statusBucket() maps NULL and every
+  unrecognised value there too, so the predicate matches the complement as well,
+  keeping the filtered page total in the same way the grouped counts are.
+
+  **BUGFIX: both grouped paths now query the ROUNDED coordinate**, as getCounts()
+  already did. complaint_groups_cache keys on the rounded coord but the fill used
+  the caller's raw one, so a hit and a miss described measurably different
+  circles -- and the drill-in described a third. Worst at the 25m building tier,
+  where 4dp (~11m) is a large fraction of the radius.
 
 ## status strings -- CONFIRMED against live API 2026-08-17
 

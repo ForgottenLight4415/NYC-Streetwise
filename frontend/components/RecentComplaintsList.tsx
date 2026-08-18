@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { STATUS_LABEL, STATUS_VAR } from "@/lib/score";
-import { buildComplaintTimeline } from "@/lib/mock-data";
 import type { Complaint } from "@/lib/types";
 import type { TrendWindow } from "@/lib/api";
 import { ChevronRightIcon } from "./icons";
@@ -22,9 +21,6 @@ const COLLAPSED_COUNT = 5;
 
 export function RecentComplaintsList({
   complaints,
-  /** The feed hit its row cap, so this list is the most recent slice rather
-   *  than the whole window. */
-  truncated = false,
   months,
   /** Exact count for the window, from the aggregated trend series — the
    *  `complaints` array is row-capped and cannot be counted from. */
@@ -36,7 +32,6 @@ export function RecentComplaintsList({
   panelLabel,
 }: {
   complaints: Complaint[];
-  truncated?: boolean;
   months: TrendWindow;
   windowTotal: number | null;
   tier: "building" | "block";
@@ -91,7 +86,12 @@ export function RecentComplaintsList({
       )}
 
       {hasMore && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="mt-2">
+          {/* No truncation caveat here. The rows above are the newest 5 of a
+              newest-first list, so they are right even when the 200-row feed
+              behind them was capped, and this button opens the grouped browser
+              — a different, far larger dataset that carries its own notice when
+              it genuinely runs out of history. */}
           <button
             type="button"
             onClick={() => setBrowsing(true)}
@@ -99,20 +99,11 @@ export function RecentComplaintsList({
           >
             Show all {windowTotal !== null ? windowTotal.toLocaleString() : ""}
           </button>
-          {truncated && (
-            <span className="text-[11px] text-[color:var(--text-muted)]">
-              most recent only — older records not loaded
-            </span>
-          )}
         </div>
       )}
 
       {selected && (
-        <ComplaintDetailModal
-          complaint={selected}
-          timeline={buildComplaintTimeline(selected)}
-          onClose={() => setSelected(null)}
-        />
+        <ComplaintDetailModal complaint={selected} onClose={() => setSelected(null)} />
       )}
 
       {browsing && (

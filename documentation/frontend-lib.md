@@ -138,13 +138,11 @@ which are *always* mock regardless of backend status.
 - **`buildReport(query)` / `buildFeaturedReport(query)`** — generate a full
   `ReportResponse` (or, for the homepage, one with an address attached too,
   since the real API never returns one).
-- **`buildComplaintTimeline(complaint)`** — the status-history stub. Always
-  starts with an `"open"` event at the complaint's submission date; if the
-  complaint's current status is `in-progress` or `closed`, adds a
-  deterministically-timed `"in-progress"` event (2–10 days later), and if
-  `closed`, a further `"closed"` event (2–14 days after that), each with a
-  plausible note. Explicitly a stand-in for a real per-complaint history NYC
-  311 doesn't expose — see
+- **`buildComplaintTimeline(complaint)`** — REMOVED. It synthesised an
+  Open → In Progress → Closed sequence from the filing date and current status.
+  311 publishes no change log, so every intermediate event was invented, and for
+  recently-filed complaints the generated dates landed in the future. The detail
+  modal now shows the filing date and current status only — see
   [`frontend-components.md`](./frontend-components.md#complaint-detail-modal).
 
 ---
@@ -189,7 +187,6 @@ silently disappears unless something is added to populate it (e.g. wiring up
 - **`Complaint`** — `{ id, label, date, status }`. No `category` field — the
   `label` string itself doubles as the display category name.
 - **`TrendPoint`** — `{ month: "YYYY-MM", count }`.
-- **`TimelineEvent`** / **`ComplaintTimeline`** — `{ status, date, note? }` /
-  `{ complaintId, events }`. This is the exact stub shape the timeline
-  feature was scoped around, ready to swap in a real data source later
-  without changing any component.
+- **`TimelineEvent`** / **`ComplaintTimeline`** — REMOVED alongside
+  `buildComplaintTimeline`. They described a per-complaint status history that
+  311 does not publish.

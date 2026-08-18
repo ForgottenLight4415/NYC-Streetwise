@@ -82,6 +82,8 @@ function pageMeta(res: Response, fallbackTotal: number) {
 }
 
 interface RawPoint {
+  /** The 311 primary key. Null on the mock path, which has no real records. */
+  unique_key?: string | null;
   type: string;
   lat: number;
   lng: number;
@@ -92,10 +94,14 @@ interface RawPoint {
 
 function toComplaint(p: RawPoint, index: number, offset = 0): Complaint {
   return {
-    // The offset is part of the id, not just the index: without it, page 2's
-    // first row collides with page 1's first row and React reuses the wrong
-    // node.
-    id: `${p.type}-${p.created_date}-${offset + index}`,
+    // Prefer the dataset's own key. The fallback stays for the mock path, which
+    // has no real records: the offset is part of it, not just the index, because
+    // without it page 2's first row collides with page 1's and React reuses the
+    // wrong node.
+    id: p.unique_key ?? `${p.type}-${p.created_date}-${offset + index}`,
+    // Left undefined rather than defaulted, so the UI shows a case number only
+    // when there is a real one to show.
+    referenceId: p.unique_key ?? undefined,
     label: p.type,
     date: p.created_date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     // Straight from the backend. The eight raw 311 status values are mapped in
@@ -113,8 +119,10 @@ function toComplaint(p: RawPoint, index: number, offset = 0): Complaint {
  * inside a 25m circle, the building types get crowded out — the Building Health
  * panel would list noise complaints that contribute nothing to its score.
  *
- * A tier can still exceed the cap on a dense block, which is why the caller
- * labels the list as "most recent only" rather than implying completeness.
+ * A tier can still exceed the cap on a dense block. The caller does not warn
+ * about it: it renders only the newest 5 of this newest-first list, which are
+ * correct regardless, and sends anyone wanting the rest to the grouped browser
+ * (fetchComplaintGroups) — a separate, far larger dataset with its own notice.
  */
 export async function fetchNearbyComplaints(
   lat: number,
@@ -200,7 +208,28 @@ export async function fetchComplaintGroups(
   return { items, ...pageMeta(res, items.length) };
 }
 
-/** The individual complaints behind one group. Paginated: the largest measured group is 4,978. */
+/**
+ * A drill-in page. Unlike ComplaintPage, `total` is nullable — see below.
+ */
+export interface GroupDetailPage {
+  items: Complaint[];
+  /** Exact count when the backend could state it, else null (unknown). */
+  total: number | null;
+  hasMore: boolean;
+  truncated: boolean;
+}
+
+/**
+ * The individual complaints behind one group. Paginated: the largest measured
+ * group is 4,978.
+ *
+ * `total` is null unless the backend could state it exactly (i.e. this is the
+ * last page). That distinction matters: the caller's other number for this — the
+ * group row's count — comes from a 24h cache filled from a DIFFERENT Socrata
+ * snapshot, and Socrata's replicas disagree with each other about both row
+ * counts and statuses. When the backend does send a total, it describes the rows
+ * in this very response, so preferring it keeps the drill-in self-consistent.
+ */
 export async function fetchGroupDetail(
   lat: number,
   lng: number,
@@ -212,7 +241,7 @@ export async function fetchGroupDetail(
     offset?: number;
     limit?: number;
   }
-): Promise<ComplaintPage<Complaint>> {
+): Promise<GroupDetailPage> {
   const params = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
@@ -233,7 +262,17 @@ export async function fetchGroupDetail(
   if (!res.ok) throw new Error("Couldn't load these complaints.");
   const points: RawPoint[] = await res.json();
   const items = points.map((p, i) => toComplaint(p, i, offset));
-  return { items, ...pageMeta(res, items.length) };
+
+  // Read directly rather than via pageMeta(), which substitutes the page length
+  // for a missing total — exactly the guess this caller must not make, since a
+  // mid-list page would then report itself as the whole group.
+  const header = Number(res.headers.get("X-Complaints-Total"));
+  return {
+    items,
+    total: Number.isFinite(header) && header > 0 ? header : null,
+    hasMore: res.headers.get("X-Complaints-Has-More") === "true",
+    truncated: res.headers.get("X-Complaints-Truncated") === "true",
+  };
 }
 
 /** Windows the trend chart offers, mirroring TREND_WINDOW_OPTIONS on the backend. */

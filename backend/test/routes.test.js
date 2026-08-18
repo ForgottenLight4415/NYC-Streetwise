@@ -496,6 +496,31 @@ describe("GET /api/complaints/group (drill-in)", () => {
     expect(headers.get("x-complaints-has-more")).toBe("false");
   });
 
+  // Socrata answers from replicas of differing freshness, so the cached group
+  // count the client already holds can describe a different row set than this
+  // response. Stating the total FROM these rows is what lets the drill-in show a
+  // count that matches its own list instead of one that contradicts it.
+  it("states the exact total, counted from the rows it returned, on the last page", async () => {
+    groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1), complaintRow(2)]);
+    const { body, headers } = await server.request(`${BASE}&limit=50`);
+    expect(body).toHaveLength(3);
+    expect(headers.get("x-complaints-total")).toBe("3");
+  });
+
+  it("counts the total from the offset, so a last page deep in a group is right", async () => {
+    groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1)]);
+    const { headers } = await server.request(`${BASE}&limit=50&offset=100`);
+    expect(headers.get("x-complaints-total")).toBe("102");
+  });
+
+  // Mid-list the total is genuinely unknown from one page, and guessing it would
+  // report a 50-row page as a 50-row group.
+  it("omits the total when there are further pages", async () => {
+    const { headers } = await server.request(`${BASE}&limit=50`);
+    expect(headers.get("x-complaints-has-more")).toBe("true");
+    expect(headers.get("x-complaints-total")).toBeNull();
+  });
+
   it.each([
     ["missing tier", "/api/complaints/group?lat=40.7484&lng=-73.9857&type=PLUMBING&day=2026-08-14"],
     ["missing day", "/api/complaints/group?lat=40.7484&lng=-73.9857&tier=block&type=PLUMBING"],

@@ -96,9 +96,14 @@ Two implementation details worth preserving:
   themed color.
 - **`ComplaintBreakdownBars.tsx`** — the "By category" list (name + count per
   bucket, no bar visualization — removed by design so only the numbers show).
-  For the Block Quality panel specifically, also renders a hover tooltip
-  ("Why this score?") explaining which category is driving the score at the
-  current score level.
+  Also renders an inline "Why this score?" disclosure — a button that expands
+  a sentence naming the category driving the score at the current score level.
+  On BOTH panels, keyed on `tier` (`"building" | "block"`) for the wording; it
+  was previously Block Quality only, gated on the display label. It picks the
+  category from `bucketScores` where the API supplied them, falling back to the
+  largest raw count — the same rule as `dominantBucket()` in the backend's
+  `templateExplanation.js`, so the two never disagree. Was a hover tooltip once;
+  replaced because it was unreachable on touch and overflowed the viewport.
 - **`TrendSparkline.tsx`** — the "12-month trend" **bar chart**. Renders
   gridlines with rounded reference numbers, a "Complaints per month" caption,
   and a hover tooltip with the exact month + count. Takes `TrendPoint[]`
@@ -116,20 +121,25 @@ Two implementation details worth preserving:
   `visible_changed`/`pano_changed` events and force-triggers a `resize` event
   (twice, since the container can still be mid-layout on the first pass) to
   kick the WebGL viewport into actually painting.
-- **`ReportSkeleton.tsx`** — the loading placeholder (pulsing gray blocks)
-  shown while the report is being fetched.
+- **`ReportLoading.tsx`** — the report's loading view: `FactRotator` in the
+  loaded report's container. Used for BOTH the `useSearchParams` Suspense
+  boundary and `ReportView`'s own fetch, since they run back to back — two
+  different placeholders made one wait look like two.
 
 ## Complaint detail modal
 
 - **`ComplaintDetailModal.tsx`** — opens when a complaint in
-  `RecentComplaintsList` is clicked. Shows the complaint's current status and
-  a visual timeline (connected dots, one per status change) with dates and
-  notes. Closes on Escape or backdrop click.
-  - **The timeline data is a labeled stub**, not real — 311 doesn't expose
-    per-complaint status-change history at all. `lib/mock-data.ts#buildComplaintTimeline()`
-    deterministically synthesizes a plausible Open → In Progress → Closed
-    sequence from the complaint's submission date and current status. See
-    [`frontend-lib.md`](./frontend-lib.md).
+  `RecentComplaintsList` or the complaints browser is clicked. Shows only what
+  311 records: the complaint type, its filing date, and its current status.
+  Closes on Escape or backdrop click.
+  - **It used to render a "progress timeline"** — connected dots for
+    Open → In Progress → Closed with dates and agency notes. That was entirely
+    synthesised (311 exposes no per-complaint change log) and generated future
+    dates for recent filings, so it was removed rather than patched. It also
+    showed a "Complaint #" built client-side in `toComplaint()` from type +
+    timestamp + row index, which read as a 311 reference number but was an
+    artifact of our paging; that is gone too. The dataset's real identifier
+    (`unique_key`) is not currently requested from Socrata.
 
 ## Compare page
 

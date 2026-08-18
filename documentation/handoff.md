@@ -117,8 +117,11 @@ never empty and never shows an error.
 
 ### Deliberately not done
 
-`lib/mock-data.ts` still backs three live UI features with no backend
-equivalent — the homepage featured carousel (`buildFeaturedReport`), the
-autocomplete no-key fallback (`findSuggestions`), and the complaint timeline
-(`buildComplaintTimeline`). Removing the file means deleting those features.
-Left in place by decision.
+`lib/mock-data.ts` still backs two live UI features with no backend
+equivalent — the homepage featured carousel (`buildFeaturedReport`) and the
+autocomplete no-key fallback (`findSuggestions`). Removing the file means
+deleting those features. Left in place by decision.
+
+The third, the complaint timeline (`buildComplaintTimeline`), has since been
+deleted: unlike the other two it presented invented data as a record of what the
+city did, and it dated that record into the future.

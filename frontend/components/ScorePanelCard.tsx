@@ -7,7 +7,7 @@ import { ScoreMeter } from "./ScoreMeter";
 import { StatusBadge } from "./StatusBadge";
 import { TrendSection } from "./TrendSection";
 import { CONFIDENCE_MESSAGE } from "@/lib/score";
-import { COMPLAINTS_FETCH_LIMIT, TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
+import { TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
 import type { Complaint, Confidence, ScoreBand, TrendPoint } from "@/lib/types";
 
 /** "YYYY-MM-DD" for `months` months ago, for comparing against Complaint.date. */
@@ -36,6 +36,10 @@ export function ScorePanelCard({
     counts: Record<string, number>;
     confidence: Confidence;
     confidenceReason: string | null;
+    // Per-category scores. /api/score always sends these; they are what lets the
+    // "Why this score?" disclosure name the category that actually drove the
+    // rating rather than just the largest raw count.
+    bucketScores?: Record<string, number | undefined>;
     recentComplaints?: Complaint[];
   };
   colorVar: string;
@@ -65,11 +69,6 @@ export function ScorePanelCard({
   // server-side and exact, while the list stops at a row cap.
   const windowTotal = series?.reduce((sum, p) => sum + p.count, 0) ?? null;
 
-  // Applies to the complaint LIST only. The trend chart is aggregated
-  // server-side by /api/trend and cannot be truncated.
-  const isTruncated =
-    panel.recentComplaints !== undefined &&
-    panel.recentComplaints.length >= COMPLAINTS_FETCH_LIMIT;
   const confidenceMessage =
     panel.confidence === "low" && panel.confidenceReason
       ? CONFIDENCE_MESSAGE[panel.confidenceReason]
@@ -134,8 +133,9 @@ export function ScorePanelCard({
         <ComplaintBreakdownBars
           counts={panel.counts}
           colorVar={colorVar}
-          panelLabel={title}
+          tier={tier}
           score={panel.score}
+          bucketScores={panel.bucketScores}
         />
       </div>
 
@@ -159,7 +159,6 @@ export function ScorePanelCard({
           </p>
           <RecentComplaintsList
             complaints={windowed}
-            truncated={isTruncated}
             months={months}
             windowTotal={windowTotal}
             tier={tier}
