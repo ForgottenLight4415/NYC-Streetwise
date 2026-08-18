@@ -149,7 +149,10 @@ export default async function Home() {
             className="object-cover object-center"
           />
         </div>
-        <div className="absolute inset-0 -z-10" style={{ background: "var(--hero-scrim)" }} />
+        <div
+          className="absolute inset-0 -z-10"
+          style={{ background: "var(--hero-scrim)" }}
+        />
 
         <div className="on-photo mx-auto max-w-6xl px-4 pb-32 pt-12 sm:px-6 sm:pt-16 lg:pb-40 lg:pt-24">
           <div className="lg:grid lg:grid-cols-12 lg:gap-10">
@@ -157,14 +160,20 @@ export default async function Home() {
             <div className="lg:col-span-8">
               <p
                 className="rise font-data text-center text-[11px] font-medium uppercase tracking-[0.18em] lg:text-left"
-                style={{ color: "var(--on-photo-faint)", ["--delay" as string]: "0ms" }}
+                style={{
+                  color: "var(--on-photo-faint)",
+                  ["--delay" as string]: "0ms",
+                }}
               >
                 NYC 311 Service Requests · 24-month window
               </p>
 
               <h1
                 className="rise font-display mt-4 text-center text-[2.75rem] font-semibold leading-[0.98] tracking-[-0.035em] sm:text-6xl lg:text-left lg:text-7xl"
-                style={{ color: "var(--on-photo)", ["--delay" as string]: "80ms" }}
+                style={{
+                  color: "var(--on-photo)",
+                  ["--delay" as string]: "80ms",
+                }}
               >
                 Every address
                 <br />
@@ -173,11 +182,15 @@ export default async function Home() {
 
               <p
                 className="rise mx-auto mt-5 max-w-xl text-center text-base leading-relaxed sm:text-lg lg:mx-0 lg:text-left"
-                style={{ color: "var(--on-photo-dim)", ["--delay" as string]: "160ms" }}
+                style={{
+                  color: "var(--on-photo-dim)",
+                  ["--delay" as string]: "160ms",
+                }}
               >
-                Search any NYC address for a Building Health Score and a Block Quality
-                Score - the landlord&rsquo;s complaint history and the block&rsquo;s, read
-                straight off the city&rsquo;s own 311 filings.
+                Search any NYC address for a Building Health Score and a Block
+                Quality Score - the landlord&rsquo;s complaint history and the
+                block&rsquo;s, read straight off the city&rsquo;s own 311
+                filings.
               </p>
 
               {/* relative z-20: the `rise` entrance animates opacity and
@@ -196,7 +209,10 @@ export default async function Home() {
                 className="rise mt-5 flex flex-wrap items-center justify-center gap-2 lg:justify-start"
                 style={{ ["--delay" as string]: "320ms" }}
               >
-                <span className="hidden text-sm sm:inline" style={{ color: "var(--on-photo-faint)" }}>
+                <span
+                  className="hidden text-sm sm:inline"
+                  style={{ color: "var(--on-photo-faint)" }}
+                >
                   Try:
                 </span>
                 {chips.map((a) => (
@@ -223,7 +239,10 @@ export default async function Home() {
                 method rather than as decoration. */}
             <aside
               className="rise mt-12 lg:col-span-4 lg:mt-0 lg:border-l lg:pl-10"
-              style={{ borderColor: "var(--photo-rule)", ["--delay" as string]: "400ms" }}
+              style={{
+                borderColor: "var(--photo-rule)",
+                ["--delay" as string]: "400ms",
+              }}
             >
               <div className="flex h-full flex-col justify-between gap-10">
                 <div className="flex flex-row gap-8 sm:gap-10 lg:flex-col lg:gap-9">
@@ -236,7 +255,10 @@ export default async function Home() {
                         {r.value}
                         <span className="text-xl sm:text-2xl">{r.unit}</span>
                       </p>
-                      <p className="mt-2 text-sm font-semibold" style={{ color: "var(--on-photo)" }}>
+                      <p
+                        className="mt-2 text-sm font-semibold"
+                        style={{ color: "var(--on-photo)" }}
+                      >
                         {r.label}
                       </p>
                       <p
@@ -262,7 +284,10 @@ export default async function Home() {
                   >
                     NYC Open Data
                   </p>
-                  <p className="font-data text-[13px]" style={{ color: "var(--on-photo-dim)" }}>
+                  <p
+                    className="font-data text-[13px]"
+                    style={{ color: "var(--on-photo-dim)" }}
+                  >
                     311 Service Requests · erm2-nwe9
                   </p>
                 </div>
@@ -299,7 +324,9 @@ export default async function Home() {
               <span className="font-data text-sm font-medium text-(--brand-ink)">
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <h3 className="mt-2 font-semibold text-(--text-primary)">{s.title}</h3>
+              <h3 className="mt-2 font-semibold text-(--text-primary)">
+                {s.title}
+              </h3>
               <p className="mt-1 text-sm leading-relaxed text-(--text-secondary)">
                 {s.body}
               </p>
@@ -314,7 +341,10 @@ export default async function Home() {
           <div
             key={f.title}
             className="rounded-lg bg-(--surface-1) p-6"
-            style={{ boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-hairline)" }}
+            style={{
+              boxShadow: "var(--shadow-sm)",
+              border: "1px solid var(--border-hairline)",
+            }}
           >
             <span
               className="flex h-10 w-10 items-center justify-center rounded-md"
@@ -325,7 +355,9 @@ export default async function Home() {
             >
               <f.icon className="h-5 w-5" />
             </span>
-            <h3 className="mt-4 font-semibold text-(--text-primary)">{f.title}</h3>
+            <h3 className="mt-4 font-semibold text-(--text-primary)">
+              {f.title}
+            </h3>
             <p className="mt-1.5 text-sm leading-relaxed text-(--text-secondary)">
               {f.body}
             </p>
@@ -346,11 +378,13 @@ export default async function Home() {
         <div className="mx-auto mb-1 flex max-w-6xl flex-wrap items-end justify-between gap-x-6 gap-y-2 px-4 sm:px-6">
           <div>
             <h2 className="font-display text-2xl font-semibold tracking-tight text-(--text-primary)">
-              {showCarousel ? "Recently checked addresses" : "The citywide baseline"}
+              {showCarousel
+                ? "Uptown, downtown, and everywhere between"
+                : "The citywide baseline"}
             </h2>
             <p className="mt-0.5 text-sm text-(--text-muted)">
               {showCarousel
-                ? "Real 311 records, cached in the last 24 hours — open any one for the full breakdown."
+                ? "What's living rent-free in the minds of current and future New Yorkers"
                 : "What an ordinary NYC address looks like, and what every score here is measured against."}
             </p>
           </div>
@@ -376,7 +410,10 @@ export default async function Home() {
       </section>
 
       {/* ===================== Footer ===================== */}
-      <footer className="mt-4 border-t" style={{ borderColor: "var(--border-hairline)" }}>
+      <footer
+        className="mt-4 border-t"
+        style={{ borderColor: "var(--border-hairline)" }}
+      >
         <div className="mx-auto max-w-6xl px-4 py-12 text-center sm:px-6">
           <Image
             src="/logo-full.png"

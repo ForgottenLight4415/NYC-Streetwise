@@ -241,7 +241,7 @@ export function ComplaintsBrowserModal({
             <p className="text-xs text-(--text-muted)">
               {drill
                 ? `${formatDay(drill.group.day)} · ${drill.total.toLocaleString()} ${drill.total === 1 ? "complaint" : "complaints"}`
-                : `Within ${radiusMeters}m · grouped by day`}
+                : `Within ${radiusMeters}m`}
             </p>
           </div>
           <button
@@ -443,7 +443,7 @@ function FallbackList({
             "color-mix(in srgb, var(--status-warning) 14%, transparent)",
         }}
       >
-        {error} Showing the most recent complaints instead — filters and full
+        {error} Showing the most recent complaints instead. Filters and full
         history are unavailable.
       </p>
 

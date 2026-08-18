@@ -106,19 +106,6 @@ export function ScorePanelCard({
         <StatusBadge band={panel.band} />
       </div>
 
-      {confidenceMessage && (
-        <p
-          className="rounded-lg px-3 py-2 text-xs"
-          style={{
-            color: "var(--status-warning-ink)",
-            background:
-              "color-mix(in srgb, var(--status-warning) 14%, transparent)",
-          }}
-        >
-          {confidenceMessage}
-        </p>
-      )}
-
       <div className="flex items-center gap-4 sm:gap-5">
         <ScoreMeter score={panel.score} band={panel.band} size={96} />
         <div className="min-w-0 flex-1 text-sm text-(--text-secondary)">
@@ -132,6 +119,18 @@ export function ScorePanelCard({
             </span>
             .
           </p>
+          {confidenceMessage && (
+            <p
+              className="rounded-lg my-1 px-3 py-2 text-xs"
+              style={{
+                color: "var(--status-warning-ink)",
+                background:
+                  "color-mix(in srgb, var(--status-warning) 14%, transparent)",
+              }}
+            >
+              {confidenceMessage}
+            </p>
+          )}
         </div>
       </div>
 

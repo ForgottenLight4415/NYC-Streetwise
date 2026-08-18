@@ -76,7 +76,7 @@ function explain(
 
   if (total === 0) {
     return tier === "building"
-      ? "Nothing was filed against this building in the window — no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
+      ? "Nothing was filed against this building in the window - no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
       : "Nothing was filed on this block in the window — no noise, parking, or street-condition complaints. That is a real clean record, not missing data.";
   }
 
