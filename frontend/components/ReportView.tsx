@@ -53,8 +53,13 @@ export function ReportView() {
         // Fetch recent complaint points for both panels in parallel so the
         // "Recent Complaints" section is populated.
         const [buildingComplaints, blockComplaints] = await Promise.all([
-          fetchNearbyComplaints(coords.lat, coords.lng, data.buildingHealth.radiusMeters),
-          fetchNearbyComplaints(coords.lat, coords.lng, data.blockQuality.radiusMeters),
+          fetchNearbyComplaints(
+            coords.lat,
+            coords.lng,
+            data.buildingHealth.radiusMeters,
+            "building"
+          ),
+          fetchNearbyComplaints(coords.lat, coords.lng, data.blockQuality.radiusMeters, "block"),
         ]);
         data.buildingHealth.recentComplaints = buildingComplaints;
         data.blockQuality.recentComplaints = blockComplaints;
@@ -163,7 +168,7 @@ export function ReportView() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div id="main" className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <nav className="mb-5 flex items-center gap-1 text-xs text-[color:var(--text-muted)]">
         <Link href="/" className="hover:text-[color:var(--text-primary)]">
           Search
@@ -172,15 +177,19 @@ export function ReportView() {
         <span className="text-[color:var(--text-secondary)]">Report</span>
       </nav>
 
-      <div className="mb-6 flex items-center gap-3">
-        <div className="min-w-0 flex-1 max-w-md">
+      {/* Stacked on a phone: side by side, the field was squeezed to about
+          140px once the Compare button took its width, which is too narrow to
+          read a NYC address in. */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1 sm:max-w-md">
           <AddressSearch key={report.address} size="sm" initialValue={report.address} />
         </div>
         <Link
           href={`/compare?a=${encodeURIComponent(report.address)}`}
-          className="shrink-0 rounded-full bg-[color:var(--brand)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[color:var(--brand-strong)]"
+          className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-sm font-semibold transition-colors"
+          style={{ background: "var(--brand)", color: "#ffffff" }}
         >
-          Compare →
+          Compare with another
         </Link>
       </div>
 
@@ -192,13 +201,19 @@ export function ReportView() {
         aiExplanation={aiExplanation}
       />
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      {/* lg, not sm: at 640px two of these panels — meter, category list,
+          sparkline and complaint list each — are about 290px wide, and the
+          sparkline axis labels collide. */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <ScorePanelCard
           icon={<BuildingIcon className="h-4.5 w-4.5" />}
           title="Building Health"
           panel={report.data.buildingHealth}
           colorVar="--series-building"
           description="Complaints tied to this building"
+          tier="building"
+          lat={report.lat}
+          lng={report.lng}
         />
         <ScorePanelCard
           icon={<BlockIcon className="h-4.5 w-4.5" />}
@@ -206,6 +221,9 @@ export function ReportView() {
           panel={report.data.blockQuality}
           colorVar="--series-block"
           description="Complaints on the surrounding block"
+          tier="block"
+          lat={report.lat}
+          lng={report.lng}
         />
       </div>
 

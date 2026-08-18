@@ -1,4 +1,4 @@
-import type { Complaint, ComplaintStatus, ScoreBand, ScoreSection, TrendPoint } from "./types";
+import type { ComplaintStatus, ScoreBand, ScoreSection } from "./types";
 
 export function bandForScore(score: number): ScoreBand {
   if (score >= 70) return "good";
@@ -100,27 +100,13 @@ export function explainVerdict(
   return `Rated ${label} ${connector} ${contributorsText} ${complaintWord} in the last ${windowMonths} months${unresolvedClause}.`;
 }
 
-// Buckets a panel's complaints into a monthly count for the last N months
-// (oldest to newest), so the trend chart doesn't need its own backend field
-// — it's derived from the same `recentComplaints` list already in the
-// response.
-export function buildMonthlyTrend(
-  complaints: Complaint[] = [],
-  months = 12,
-  reference: Date = new Date()
-): TrendPoint[] {
-  const buckets: TrendPoint[] = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(reference.getFullYear(), reference.getMonth() - i, 1);
-    buckets.push({ month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, count: 0 });
-  }
-  const indexByMonth = new Map(buckets.map((b, i) => [b.month, i]));
-  for (const complaint of complaints) {
-    const idx = indexByMonth.get(complaint.date.slice(0, 7));
-    if (idx !== undefined) buckets[idx].count += 1;
-  }
-  return buckets;
-}
+// buildMonthlyTrend() lived here: it bucketed `recentComplaints` by month on the
+// client. Removed rather than kept, because that list is capped at a row limit
+// and on a dense block the most recent 200 records span days — bucketing them
+// produced a cliff that read as "complaints started recently". /api/trend now
+// aggregates by month in Socrata, which is truncation-proof and returns the
+// same shape. Keeping this as a fallback would have meant two implementations
+// of one chart, free to disagree.
 
 // Suggested UI copy per confidenceReason — see API reference §Confidence.
 // "stale_baseline_radius" is a backend misconfiguration and intentionally

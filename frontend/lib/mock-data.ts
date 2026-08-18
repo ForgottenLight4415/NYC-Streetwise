@@ -220,10 +220,15 @@ function buildComplaints(
 ): Complaint[] {
   const STATUSES: ComplaintStatus[] = ["closed", "closed", "closed", "in-progress", "open"];
   const REF_MS = new Date("2026-08-15").getTime();
+  // Spread across the full 24-month scoring window (WINDOW_MONTHS in the
+  // backend's constants), not 12. At 365 days the sample reports left the right
+  // half of the trend chart populated and the left half flat at zero, which
+  // read as a real drop in complaints rather than as the edge of the data.
+  const WINDOW_DAYS = 730;
   const complaints: Complaint[] = [];
   for (const cat of Object.keys(counts)) {
     for (let i = 0; i < counts[cat]; i++) {
-      const daysAgo = Math.floor(rand() * 365);
+      const daysAgo = Math.floor(rand() * WINDOW_DAYS);
       const date = new Date(REF_MS - daysAgo * 86400000).toISOString().slice(0, 10);
       const status = STATUSES[Math.floor(rand() * STATUSES.length)];
       complaints.push({ id: `${prefix}-${cat}-${i}`, label: CATEGORY_LABEL[cat] ?? cat, date, status });

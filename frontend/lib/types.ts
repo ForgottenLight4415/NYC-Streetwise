@@ -67,6 +67,28 @@ export interface TrendPoint {
   count: number;
 }
 
+/**
+ * One day's complaints of a single type, as the complaints browser lists them.
+ *
+ * Grouped server-side, which is the only way the densest addresses are
+ * listable at all — one Bronx address has 190,205 raw complaints in the
+ * 24-month window but only 1,848 of these.
+ */
+export interface ComplaintGroup {
+  day: string; // YYYY-MM-DD
+  type: string;
+  counts: Record<ComplaintStatus, number>;
+  total: number;
+}
+
+/** A page of results plus what the caller needs to page through the rest. */
+export interface ComplaintPage<T> {
+  items: T[];
+  total: number;
+  hasMore: boolean;
+  truncated: boolean;
+}
+
 export interface TimelineEvent {
   status: ComplaintStatus;
   date: string; // YYYY-MM-DD

@@ -18,6 +18,14 @@ function monthShort(month: string) {
   return MONTH_SHORT[Number(m)];
 }
 
+/** "Sep '24" — over a 24-month span the bare month name is ambiguous, since
+ *  each one appears twice on the axis. */
+function monthWithYear(month: string | undefined) {
+  if (!month) return "";
+  const [y] = month.split("-");
+  return `${monthShort(month)} '${y.slice(2)}`;
+}
+
 export function TrendSparkline({
   data,
   colorVar,
@@ -75,7 +83,7 @@ export function TrendSparkline({
         className="w-full touch-none"
         role="img"
         aria-label={`Complaints per month over the last ${data.length} months, ranging from 0 to ${rawMax}. ${
-          hovered ? `Currently showing ${hovered.count} complaints in ${monthShort(hovered.month)} ${hovered.month.slice(0, 4)}.` : ""
+          hovered ? `Currently showing ${hovered.count} complaints in ${monthWithYear(hovered.month)}.` : ""
         }`}
         onPointerMove={handleMove}
         onPointerLeave={() => setHoverIdx(null)}
@@ -129,16 +137,18 @@ export function TrendSparkline({
         )}
       </svg>
 
-      <div className="mt-1 flex justify-between pl-[22px] text-[10px] text-[color:var(--text-muted)]">
-        <span>{monthShort(data[0]?.month)}</span>
-        <span>{monthShort(data[data.length - 1]?.month)}</span>
+      <div className="font-data mt-1 flex justify-between pl-[22px] text-[10px] text-[color:var(--text-muted)]">
+        <span>{monthWithYear(data[0]?.month)}</span>
+        <span>{monthWithYear(data[data.length - 1]?.month)}</span>
       </div>
 
       {hovered && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full rounded-md border px-2 py-1 text-xs shadow-sm"
+          className="font-data pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border px-2 py-1 text-xs shadow-sm"
           style={{
-            left: `${(hovered.centerX / W) * 100}%`,
+            // Clamped away from the edges: the tooltip is centred on the bar,
+            // so at the first and last month half of it hung outside the card.
+            left: `${Math.min(82, Math.max(18, (hovered.centerX / W) * 100))}%`,
             top: `${(hovered.y / H) * 100 - 4}%`,
             background: "var(--surface-1)",
             borderColor: "var(--border-hairline)",
@@ -147,7 +157,7 @@ export function TrendSparkline({
         >
           <span className="font-medium">{hovered.count}</span>{" "}
           <span className="text-[color:var(--text-muted)]">
-            {hovered.count === 1 ? "complaint" : "complaints"} · {monthShort(hovered.month)} {hovered.month.slice(0, 4)}
+            {hovered.count === 1 ? "complaint" : "complaints"} · {monthWithYear(hovered.month)}
           </span>
         </div>
       )}

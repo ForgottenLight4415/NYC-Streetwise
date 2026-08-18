@@ -11,6 +11,22 @@ const NYC_BOUNDS = {
   high: { latitude: 40.9153, longitude: -73.7002 }, // NE: edge of the Bronx / eastern Queens
 };
 
+/**
+ * The slice of the Places Autocomplete (New) response this route reads. Only
+ * the fields actually used are declared, and every one is optional — the
+ * previous `any` was hiding that `placePrediction` genuinely can be absent for
+ * a suggestion (Google returns `queryPrediction` instead for non-place
+ * matches), which is why the reads below are all optional-chained.
+ */
+interface PlacesAutocompleteResponse {
+  suggestions?: {
+    placePrediction?: {
+      placeId?: string;
+      text?: { text?: string };
+    };
+  }[];
+}
+
 // Boroughs share the Hudson/harbor waterfront with NJ, so a lat/lng box
 // alone still lets a sliver of Jersey City/Bayonne through near Staten
 // Island. Google's predictions always end in ", <state abbr>, USA", so this
@@ -63,9 +79,9 @@ export async function GET(request: NextRequest) {
       return mockFallback();
     }
 
-    const data = await response.json();
+    const data: PlacesAutocompleteResponse = await response.json();
     const suggestions = (data.suggestions ?? [])
-      .map((s: any) => ({
+      .map((s) => ({
         id: s.placePrediction?.placeId ?? "",
         description: s.placePrediction?.text?.text ?? "",
       }))

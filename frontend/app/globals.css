@@ -1,29 +1,53 @@
 @import "tailwindcss";
 
+/* Theme is driven by an explicit `data-theme` on <html>, resolved before paint
+   by the inline script in app/layout.tsx. The user's *preference*
+   (system/light/dark) lives in localStorage; this attribute is always the
+   *resolved* value, so CSS never has to care about "system". */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ===========================================================================
+   Color system
+
+   Two rules govern every value below:
+     - Text tokens clear 4.5:1 against the surface they sit on (WCAG AA).
+     - Graphic tokens (bar fills, meter arcs, dots) clear 3:1, which is the
+       AA bar for non-text, and are free to be more saturated as a result.
+
+   That split is why status colors come in pairs: `--status-warning` is the
+   amber you see in a chart, `--status-warning-ink` is the darker amber that
+   is legible as words. The `-ink` value doubles as the fill behind white text,
+   since contrast is symmetric.
+   =========================================================================== */
+
 :root {
   /* --- surfaces & text ------------------------------------------------ */
-  --background: #f5f6f8; /* page canvas */
-  --foreground: #1f2329; /* default text */
+  --background: #f4f6f9; /* page canvas */
+  --foreground: #10151f; /* default text */
 
   --surface-1: #ffffff; /* cards, inputs, popovers */
-  --surface-2: #eef1f5; /* subtle fills, track backgrounds */
+  --surface-2: #edf1f6; /* subtle fills, track backgrounds */
 
-  --text-primary: #1f2329;
-  --text-secondary: #5a626e;
-  --text-muted: #8a929e;
+  --text-primary: #10151f; /* 17.9:1 on surface-1 */
+  --text-secondary: #4a5364; /*  7.7:1 on surface-1 */
+  --text-muted: #626b77; /*  5.4:1 on surface-1 — was #8a929e (2.9:1) */
 
-  --gridline: #e6e9ee; /* chart tracks, dividers */
-  --baseline: #d3d8e0; /* chart axis */
-  --border-hairline: #e2e6ec; /* crisp 1px borders */
+  --gridline: #e4e8ee; /* chart tracks, dividers */
+  --baseline: #ced5df; /* chart axis */
+  --border-hairline: #dfe4eb; /* crisp 1px borders, decorative */
+  --border-strong: #838d9c; /* input borders — 3.4:1, meets WCAG 1.4.11 */
 
   /* --- brand ---------------------------------------------------------- */
-  --brand: #006aff; /* Zillow-style primary blue */
-  --brand-strong: #0355cc;
-  --brand-tint: #e6f0ff; /* 8–12% blue wash for chips/icon wells */
+  --brand: #0a5bd3; /* 6.1:1 on white — safe as link text AND as a fill */
+  --brand-strong: #084bad;
+  --brand-tint: #e8f0fd; /* wash for chips / icon wells */
+  --brand-ink: #0a5bd3; /* brand as text */
 
-  /* categorical data-viz slots (kept for charts) */
-  --series-building: #006aff; /* slot 1 — brand blue */
-  --series-block: #7a5af5; /* slot 2 — violet (was orange) */
+  /* --- categorical data-viz slots ------------------------------------- */
+  --series-building: #2f6fe0; /* graphic fill */
+  --series-building-ink: #14509f; /* same hue, legible as text */
+  --series-block: #7a5af5; /* graphic fill */
+  --series-block-ink: #5b34d6; /* same hue, legible as text */
 
   --seq-100: #cde2fb;
   --seq-250: #86b6ef;
@@ -31,51 +55,261 @@
   --seq-500: #256abf;
   --seq-650: #104281;
 
-  /* --- status (score bands) ------------------------------------------ */
-  --status-good: #1a9e5f; /* green */
-  --status-warning: #d98a00; /* amber */
-  --status-serious: #e0662e; /* orange */
-  --status-critical: #d63a3a; /* red */
+  /* --- status (score bands) ------------------------------------------- */
+  --status-good: #179b60;
+  --status-good-ink: #0f7a47; /* 5.4:1 on white */
+  --status-warning: #c07f06;
+  --status-warning-ink: #9a6206; /* 5.1:1 on white */
+  --status-serious: #e0662e;
+  --status-serious-ink: #a8410f;
+  --status-critical: #dc3f3f;
+  --status-critical-ink: #b32020; /* 5.3:1 on white */
+
+  /* --- hero (photographic surface) ------------------------------------ */
+  /* Fixed across themes: the hero scrim is dark in both, so its foreground
+     colors are anchored to the photo, not to the page. */
+  --on-photo: #ffffff;
+  --on-photo-dim: rgba(255, 255, 255, 0.88);
+  --on-photo-faint: rgba(255, 255, 255, 0.72);
+  --photo-veil: rgba(255, 255, 255, 0.14);
+  --photo-veil-strong: rgba(255, 255, 255, 0.24);
+  --photo-rule: rgba(255, 255, 255, 0.22);
+  /* The hero photograph is a dense, high-contrast dusk skyline, so the scrim
+     has to do real work rather than tint. Two layers: a vertical ramp that
+     anchors the headline at the top and the straddling card at the bottom,
+     plus a left-weighted wash that quiets the busiest part of the image
+     underneath the text column. */
+  --hero-scrim: linear-gradient(
+      100deg,
+      rgba(8, 14, 26, 0.62) 0%,
+      rgba(8, 14, 26, 0.34) 55%,
+      rgba(8, 14, 26, 0.16) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(8, 14, 26, 0.72) 0%,
+      rgba(8, 14, 26, 0.5) 40%,
+      rgba(8, 14, 26, 0.62) 74%,
+      rgba(8, 14, 26, 0.88) 100%
+    );
 
   /* --- elevation ------------------------------------------------------ */
-  --shadow-sm: 0 1px 2px rgba(23, 35, 56, 0.06), 0 1px 3px rgba(23, 35, 56, 0.08);
-  --shadow-md: 0 2px 6px rgba(23, 35, 56, 0.06), 0 8px 24px rgba(23, 35, 56, 0.08);
-  --shadow-lg: 0 12px 32px rgba(23, 35, 56, 0.14);
+  --shadow-sm: 0 1px 2px rgba(16, 21, 31, 0.06), 0 1px 3px rgba(16, 21, 31, 0.08);
+  --shadow-md: 0 2px 6px rgba(16, 21, 31, 0.06), 0 8px 24px rgba(16, 21, 31, 0.08);
+  --shadow-lg: 0 12px 32px rgba(16, 21, 31, 0.14);
 
   /* --- radius scale --------------------------------------------------- */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  color-scheme: light;
+}
+
+/* No-JS / pre-hydration fallback. Once the inline script runs, `data-theme` is
+   always present and the blocks below take over. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #0b1220; /* same ink as the hero scrim — the page reads as
+                            one continuous surface behind the photo */
+  --foreground: #eef2f8;
+
+  --surface-1: #131c2e;
+  --surface-2: #1c2739;
+
+  --text-primary: #eef2f8; /* 15.1:1 on surface-1 */
+  --text-secondary: #a8b3c4; /*  8.4:1 on surface-1 */
+  --text-muted: #8492a6; /*  5.6:1 on surface-1 */
+
+  --gridline: #253147;
+  --baseline: #35435c;
+  --border-hairline: #253147;
+  --border-strong: #5c6d92; /* 3.3:1 on surface-1 */
+
+  --brand: #6ba6ff; /* 7.3:1 on surface-1 */
+  --brand-strong: #9cc4ff;
+  --brand-tint: #17253f;
+  --brand-ink: #6ba6ff;
+
+  --series-building: #5f9dfa;
+  --series-building-ink: #8ab8fc;
+  --series-block: #a98bff;
+  --series-block-ink: #bfa8ff;
+
+  --seq-100: #16294a;
+  --seq-250: #1f3f70;
+  --seq-400: #2f6fe0;
+  --seq-500: #6ba6ff;
+  --seq-650: #b7d4ff;
+
+  --status-good: #2bbd7c;
+  --status-good-ink: #4dd79a;
+  --status-warning: #e5a52a;
+  --status-warning-ink: #f0bc51;
+  --status-serious: #f07b45;
+  --status-serious-ink: #f79a6d;
+  --status-critical: #ef5c5c;
+  --status-critical-ink: #ff8080;
+
+  /* Elevation reads as light in the dark theme, not as a darker drop shadow. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.36), 0 8px 24px rgba(0, 0, 0, 0.44);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.56);
+
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-data);
 }
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body), system-ui, -apple-system, sans-serif;
+  /* Long addresses and complaint labels are the main overflow risk on a
+     360px phone; this keeps them inside their container instead of pushing
+     the page sideways. */
+  overflow-wrap: break-word;
 }
 
-/* Hide scrollbar for carousel while keeping it scrollable */
+/* The display face is set tight and optically dark — it only works at size,
+   so it is applied deliberately rather than inherited. */
+.font-display {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-feature-settings: "ss01";
+}
+
+/* Scores, counts, radii, dates, complaint IDs. These are record fields, and
+   tabular figures keep them from shifting as values change. */
+.font-data {
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+   Focus
+
+   One visible ring everywhere, built from the brand token so it re-colors with
+   the theme. `:focus-visible` keeps it off mouse clicks.
+   =========================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* On the photographic hero the brand blue is too low-contrast against the
+   image, so focus switches to white there. */
+.on-photo :focus-visible {
+  outline-color: var(--on-photo);
+}
+
+/* The search field is the exception: it is a white pill sitting on a dark
+   photograph, so an outline is wrong from both sides — a white ring vanishes
+   into the field, and any ring drawn at the default 2px offset lets the photo
+   show through the gap, which reads as a heavy dark border. It gets a brand
+   ring drawn tight against the edge instead.
+
+   Elevation lives here rather than in an inline style so that this rule can
+   replace it on focus; an inline box-shadow would win over any class. */
+.search-field {
+  transition: box-shadow 180ms ease;
+}
+
+.search-field--hero {
+  box-shadow: var(--shadow-lg);
+}
+
+.search-field:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent);
+}
+
+.search-field--hero:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent);
+}
+
+/* ===========================================================================
+   Utilities
+   =========================================================================== */
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
-/* Card pop-forward hover effect */
+/* Card pop-forward hover. Gated to devices that actually hover — on a
+   touchscreen the transform sticks after a tap and the card sits raised. */
 .card-pop {
   box-shadow: var(--shadow-md);
   transform: translateY(0) scale(1);
   transition:
     transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
     box-shadow 280ms ease;
-  will-change: transform;
 }
-.card-pop:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-8px) scale(1.025);
+
+@media (hover: hover) and (pointer: fine) {
+  .card-pop {
+    will-change: transform;
+  }
+  .card-pop:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-8px) scale(1.025);
+  }
+}
+
+/* Entrance for the hero, staggered by --delay on each child. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* ===========================================================================
+   Reduced motion
+
+   Covers the carousel's rAF loop too — FeaturedCarousel reads this same query
+   in JS and parks itself rather than just animating faster.
+   =========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card-pop:hover {
+    transform: none;
+  }
 }

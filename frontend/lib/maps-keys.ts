@@ -49,11 +49,18 @@ export function clientMapsKey(): string | undefined {
   );
 }
 
-/** The `<script>` URL for the Maps JS SDK, or `null` when no client key is set. */
+/**
+ * The `<script>` URL for the Maps JS SDK, or `null` when no client key is set.
+ *
+ * `loading=async` opts into Google's non-blocking bootstrap and silences the
+ * console warning about direct loading. It means the SDK is not guaranteed to
+ * exist by the time React hydrates, so `MapPanel` waits for `window.google`
+ * rather than assuming it — see `whenMapsReady` there.
+ */
 export function mapsScriptSrc(): string | null {
   const key = clientMapsKey();
   return key
-    ? `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=maps,marker,places`
+    ? `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=maps,marker,places&loading=async`
     : null;
 }
 

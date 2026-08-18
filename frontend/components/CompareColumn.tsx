@@ -94,6 +94,9 @@ export function CompareColumn({
             panel={report.data.buildingHealth}
             colorVar="--series-building"
             description="Complaints tied to this building"
+            tier="building"
+            lat={report.lat}
+            lng={report.lng}
           />
           <ScorePanelCard
             icon={<BlockIcon className="h-4.5 w-4.5" />}
@@ -101,6 +104,9 @@ export function CompareColumn({
             panel={report.data.blockQuality}
             colorVar="--series-block"
             description="Complaints on the surrounding block"
+            tier="block"
+            lat={report.lat}
+            lng={report.lng}
           />
           <MapPanel
             centerLat={report.lat}

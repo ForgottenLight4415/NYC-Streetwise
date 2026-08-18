@@ -3,6 +3,11 @@ import {
   validateCoords,
   validateRadius,
   validateLimit,
+  validateOffset,
+  validateBucket,
+  validateStatus,
+  validateDay,
+  validateComplaintType,
   BadRequestError,
 } from "../src/lib/validate.js";
 import { NYC_BOUNDS } from "../src/config/constants.js";
@@ -114,5 +119,103 @@ describe("validateLimit", () => {
     ["non-numeric", "lots"],
   ])("rejects %s", (_label, value) => {
     expect(() => validateLimit(value, opts)).toThrowError(/invalid_limit/);
+  });
+});
+
+describe("validateOffset", () => {
+  const opts = { max: 10000 };
+
+  it("defaults to the first page when absent", () => {
+    for (const absent of [undefined, null, ""]) {
+      expect(validateOffset(absent, opts)).toBe(0);
+    }
+  });
+
+  // The reason this is not validateLimit with different bounds: that rejects 0,
+  // and 0 is the first page of every paginated response.
+  it("accepts zero", () => {
+    expect(validateOffset("0", opts)).toBe(0);
+  });
+
+  it.each([
+    ["negative", "-1"],
+    ["above the cap", "10001"],
+    ["fractional", "1.5"],
+    ["non-numeric", "lots"],
+  ])("rejects %s", (_label, value) => {
+    expect(() => validateOffset(value, opts)).toThrowError(/invalid_offset/);
+  });
+});
+
+describe("validateBucket", () => {
+  it("returns undefined when absent", () => {
+    expect(validateBucket(undefined, "block")).toBeUndefined();
+  });
+
+  it("accepts a bucket belonging to the tier", () => {
+    expect(validateBucket("noise", "block")).toBe("noise");
+    expect(validateBucket("plumbing", "building")).toBe("plumbing");
+  });
+
+  // "noise" is real, but not for this tier. Silently returning zero rows would
+  // read as "no complaints" rather than as a bad request.
+  it("rejects a bucket from the other tier", () => {
+    expect(() => validateBucket("noise", "building")).toThrowError(/invalid_bucket/);
+  });
+
+  it("requires a tier to scope against", () => {
+    expect(() => validateBucket("noise", undefined)).toThrowError(/missing_tier/);
+  });
+});
+
+describe("validateStatus", () => {
+  it("returns undefined when absent", () => {
+    expect(validateStatus("")).toBeUndefined();
+  });
+
+  it.each(["open", "in-progress", "closed"])("accepts the %s bucket", (value) => {
+    expect(validateStatus(value)).toBe(value);
+  });
+
+  // Callers pass our three-way bucket, never a raw Socrata status.
+  it.each(["Pending", "Assigned", "Closed", "nonsense"])("rejects %s", (value) => {
+    expect(() => validateStatus(value)).toThrowError(/invalid_status/);
+  });
+});
+
+describe("validateDay", () => {
+  it("accepts a real calendar date", () => {
+    expect(validateDay("2026-08-14")).toBe("2026-08-14");
+  });
+
+  it("requires a value", () => {
+    expect(() => validateDay(undefined)).toThrowError(/missing_day/);
+  });
+
+  it.each([
+    ["month 13", "2026-13-01"],
+    ["day 30 of February", "2026-02-30"],
+    ["day 32", "2026-01-32"],
+    ["reversed", "14-08-2026"],
+    ["a timestamp", "2026-08-14T00:00:00"],
+    ["nonsense", "yesterday"],
+  ])("rejects %s", (_label, value) => {
+    expect(() => validateDay(value)).toThrowError(/invalid_day/);
+  });
+});
+
+describe("validateComplaintType", () => {
+  it("accepts a known type", () => {
+    expect(validateComplaintType("Noise - Residential")).toBe("Noise - Residential");
+  });
+
+  it("requires a value", () => {
+    expect(() => validateComplaintType("")).toThrowError(/missing_type/);
+  });
+
+  // Whitelisted rather than escaped: this value reaches a SoQL where-clause and
+  // the legal set is small, closed and already defined in constants.js.
+  it.each(["Dragons", "Noise", "' OR 1=1 --"])("rejects %s", (value) => {
+    expect(() => validateComplaintType(value)).toThrowError(/invalid_type/);
   });
 });

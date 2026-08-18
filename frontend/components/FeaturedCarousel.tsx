@@ -24,6 +24,11 @@ export function FeaturedCarousel({ reports }: { reports: FeaturedReport[] }) {
     const el = containerRef.current;
     if (!el) return;
 
+    // Respected in JS, not just CSS: this is a requestAnimationFrame loop, so
+    // the reduced-motion rules in globals.css cannot reach it. Anyone who has
+    // asked for less motion gets a plain, manually scrollable row.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
     function tick() {
       if (!paused.current && el) {
         scrollPos.current += SCROLL_SPEED;
@@ -83,7 +88,11 @@ export function FeaturedCarousel({ reports }: { reports: FeaturedReport[] }) {
       {looped.map((report, i) => (
         <div
           key={`${report.address}-${i}`}
-          className="w-[340px] flex-shrink-0"
+          // A fixed 340px overflowed a 360px phone once the page gutters were
+          // taken out. The min() keeps the desktop width and lets the card sit
+          // inside the viewport on a phone, with a sliver of the next one
+          // showing so the row reads as scrollable.
+          className="w-[min(340px,82vw)] flex-shrink-0"
         >
           <FeaturedCard address={report.address} borough={report.borough} data={report.data} />
         </div>

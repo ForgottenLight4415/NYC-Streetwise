@@ -5,8 +5,11 @@ import type { ReportResponse } from "@/lib/types";
 function ScoreBlob({ score, colorVar }: { score: number; colorVar: string }) {
   return (
     <span
-      className="inline-flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold tabular-nums text-white"
-      style={{ background: `var(${colorVar})` }}
+      // Filled with the `-ink` value, not the graphic one: white on
+      // --series-block was 3.1:1, and on the old amber it was 2.4:1. The ink
+      // variants are picked so white clears 4.5:1 on every band.
+      className="font-data inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+      style={{ background: `var(${colorVar}-ink)`, color: "#ffffff" }}
     >
       {score}
     </span>
@@ -38,7 +41,7 @@ function PanelRow({
         </div>
       </div>
       <span className="shrink-0 text-xs text-[color:var(--text-muted)]">
-        {total} complaint{total !== 1 ? "s" : ""}
+        <span className="font-data">{total}</span> complaint{total !== 1 ? "s" : ""}
       </span>
     </div>
   );
@@ -56,7 +59,10 @@ export function FeaturedCard({
   const { buildingHealth, blockQuality } = data;
 
   const band = overallBand(buildingHealth.band, blockQuality.band);
+  // The stripe is a graphic and can use the saturated value; the verdict and
+  // the borough chip are words and use the ink one.
   const accentColor = `var(${BAND_VAR[band]})`;
+  const accentInk = `var(${BAND_VAR[band]}-ink)`;
 
   const topBuildingCat = Object.entries(buildingHealth.counts).sort(([, a], [, b]) => b - a)[0]?.[0];
   const topBlockCat = Object.entries(blockQuality.counts).sort(([, a], [, b]) => b - a)[0]?.[0];
@@ -78,7 +84,10 @@ export function FeaturedCard({
       <div className="flex flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-lg font-bold leading-tight tracking-tight" style={{ color: accentColor }}>
+            <p
+              className="font-display text-lg font-semibold leading-tight tracking-tight"
+              style={{ color: accentInk }}
+            >
               {BAND_VERDICT[band]}
             </p>
             <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-[color:var(--text-muted)]">
@@ -88,8 +97,8 @@ export function FeaturedCard({
           <span
             className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
             style={{
-              color: accentColor,
-              background: `color-mix(in srgb, ${accentColor} 12%, transparent)`,
+              color: accentInk,
+              background: `color-mix(in srgb, ${accentColor} 14%, transparent)`,
             }}
           >
             {borough}
@@ -119,7 +128,7 @@ export function FeaturedCard({
         </div>
 
         <div
-          className="border-t pt-3 text-xs font-semibold text-[color:var(--brand)] transition-colors group-hover:text-[color:var(--brand-strong)]"
+          className="border-t pt-3 text-xs font-semibold text-[color:var(--brand-ink)] transition-colors group-hover:text-[color:var(--brand-strong)]"
           style={{ borderColor: "var(--gridline)" }}
         >
           View full report →

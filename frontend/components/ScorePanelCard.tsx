@@ -1,10 +1,21 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import { ComplaintBreakdownBars } from "./ComplaintBreakdownBars";
 import { RecentComplaintsList } from "./RecentComplaintsList";
 import { ScoreMeter } from "./ScoreMeter";
 import { StatusBadge } from "./StatusBadge";
-import { TrendSparkline } from "./TrendSparkline";
-import { buildMonthlyTrend, CONFIDENCE_MESSAGE } from "@/lib/score";
-import type { Complaint, Confidence, ScoreBand } from "@/lib/types";
+import { TrendSection } from "./TrendSection";
+import { CONFIDENCE_MESSAGE } from "@/lib/score";
+import { COMPLAINTS_FETCH_LIMIT, TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
+import type { Complaint, Confidence, ScoreBand, TrendPoint } from "@/lib/types";
+
+/** "YYYY-MM-DD" for `months` months ago, for comparing against Complaint.date. */
+function monthsAgoISO(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
 
 export function ScorePanelCard({
   icon,
@@ -12,6 +23,9 @@ export function ScorePanelCard({
   panel,
   colorVar,
   description,
+  tier,
+  lat,
+  lng,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -26,8 +40,36 @@ export function ScorePanelCard({
   };
   colorVar: string;
   description: string;
+  /** Which tier's history the trend chart should request. */
+  tier: "building" | "block";
+  lat: number;
+  lng: number;
 }) {
+  // The window lives here, not inside TrendSection, so it scopes the chart AND
+  // the complaint list below it. Split between the two, a panel filtered to 3
+  // months still listed complaints from 2024.
+  const [months, setMonths] = useState<TrendWindow>(TREND_DEFAULT_MONTHS as TrendWindow);
+  const [series, setSeries] = useState<TrendPoint[] | null>(null);
+
   const totalComplaints = Object.values(panel.counts).reduce((sum, n) => sum + n, 0);
+
+  // Filtered client-side, costing no request. The list is newest-first, so its
+  // first N are the first N of any window it covers, and narrowing by date is a
+  // prefix operation — correct even when the underlying feed was row-capped.
+  const windowed = useMemo(() => {
+    const cutoff = monthsAgoISO(months);
+    return (panel.recentComplaints ?? []).filter((c) => c.date >= cutoff);
+  }, [panel.recentComplaints, months]);
+
+  // From the trend series, not from the list above: the series is aggregated
+  // server-side and exact, while the list stops at a row cap.
+  const windowTotal = series?.reduce((sum, p) => sum + p.count, 0) ?? null;
+
+  // Applies to the complaint LIST only. The trend chart is aggregated
+  // server-side by /api/trend and cannot be truncated.
+  const isTruncated =
+    panel.recentComplaints !== undefined &&
+    panel.recentComplaints.length >= COMPLAINTS_FETCH_LIMIT;
   const confidenceMessage =
     panel.confidence === "low" && panel.confidenceReason
       ? CONFIDENCE_MESSAGE[panel.confidenceReason]
@@ -35,21 +77,21 @@ export function ScorePanelCard({
 
   return (
     <div
-      className="flex flex-col gap-5 rounded-[var(--radius-lg)] bg-[color:var(--surface-1)] p-6"
+      className="flex flex-col gap-5 rounded-[var(--radius-lg)] bg-[color:var(--surface-1)] p-5 sm:p-6"
       style={{ boxShadow: "var(--shadow-md)", border: "1px solid var(--border-hairline)" }}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <span
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
             style={{
-              color: `var(${colorVar})`,
+              color: `var(${colorVar}-ink)`,
               background: `color-mix(in srgb, var(${colorVar}) 14%, transparent)`,
             }}
           >
             {icon}
           </span>
-          <div>
+          <div className="min-w-0">
             <h2 className="font-semibold text-[color:var(--text-primary)]">{title}</h2>
             <p className="text-xs text-[color:var(--text-muted)]">{description}</p>
           </div>
@@ -61,23 +103,23 @@ export function ScorePanelCard({
         <p
           className="rounded-lg px-3 py-2 text-xs"
           style={{
-            color: "var(--status-warning)",
-            background: "color-mix(in srgb, var(--status-warning) 12%, transparent)",
+            color: "var(--status-warning-ink)",
+            background: "color-mix(in srgb, var(--status-warning) 14%, transparent)",
           }}
         >
           {confidenceMessage}
         </p>
       )}
 
-      <div className="flex items-center gap-5">
-        <ScoreMeter score={panel.score} band={panel.band} size={104} />
-        <div className="flex-1 text-sm text-[color:var(--text-secondary)]">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <ScoreMeter score={panel.score} band={panel.band} size={96} />
+        <div className="min-w-0 flex-1 text-sm text-[color:var(--text-secondary)]">
           <p>
-            <span className="font-medium text-[color:var(--text-primary)]">
+            <span className="font-data font-medium text-[color:var(--text-primary)]">
               {totalComplaints}
             </span>{" "}
             complaints within{" "}
-            <span className="font-medium text-[color:var(--text-primary)]">
+            <span className="font-data font-medium text-[color:var(--text-primary)]">
               {panel.radiusMeters}m
             </span>
             .
@@ -97,21 +139,35 @@ export function ScorePanelCard({
         />
       </div>
 
-      {panel.recentComplaints !== undefined && (
-        <div>
-          <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
-            12-month trend
-          </p>
-          <TrendSparkline data={buildMonthlyTrend(panel.recentComplaints)} colorVar={colorVar} />
-        </div>
-      )}
+      {/* Both sections below are scoped to this panel's own tier and to the
+          window selected above, so they cover the same complaints as each
+          other and as the category breakdown. */}
+      <TrendSection
+        lat={lat}
+        lng={lng}
+        tier={tier}
+        colorVar={colorVar}
+        months={months}
+        onMonthsChange={setMonths}
+        onSeriesChange={setSeries}
+      />
 
       {panel.recentComplaints !== undefined && (
         <div>
           <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
             Recent complaints
           </p>
-          <RecentComplaintsList complaints={panel.recentComplaints} />
+          <RecentComplaintsList
+            complaints={windowed}
+            truncated={isTruncated}
+            months={months}
+            windowTotal={windowTotal}
+            tier={tier}
+            lat={lat}
+            lng={lng}
+            radiusMeters={panel.radiusMeters}
+            panelLabel={title}
+          />
         </div>
       )}
     </div>

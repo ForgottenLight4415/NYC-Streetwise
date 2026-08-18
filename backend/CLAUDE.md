@@ -128,8 +128,126 @@ GET /api/explanation?lat=&lng=&tier=building|block
   it resolves; if /api/score already returned explanationSource: "ai", frontend
   skips this call entirely.
 
-GET /api/complaints?lat=&lng=&radius=
+GET /api/complaints?lat=&lng=&radius=&limit=&tier=building|block
   returns: [ { type, lat, lng, created_date, status }, ... ]   // for frontend heatmap
+  headers: X-Complaints-Truncated, X-Complaints-Limit
+
+  **CONTRACT CHANGE (post-freeze): optional `tier` param added. Flag to Person 2.**
+  Additive and backward-compatible — omitted, the query spans every type in both
+  tiers exactly as before. Added because the frontend's per-tier report panels
+  were showing the wrong complaints: within 25m of a dense Manhattan address
+  there are 200+ noise records, so the untiered query exhausted the row limit on
+  Block Quality types and the three Building Health types were crowded out of
+  the result entirely. The panel then charted noise complaints under a "Building
+  Health" heading whose own category counts said 12.
+
+  Filtering client-side was rejected: it would mean re-deriving the
+  complaint_type strings outside constants.js, which this file forbids.
+
+  **CONTRACT CHANGE (post-freeze): grouped mode + months/bucket/status/offset
+  params, four new headers, and a `statusBucket` field. Flag to Person 2.**
+
+  All additive; the body is still a bare array and the default mode is byte-for-
+  byte what it was. Two modes now:
+
+    default        raw rows, newest first, exactly as before. Never fills the
+                   grouped cache -- the fill was measured at 2.3-74.3s and must
+                   not sit on the path to a page load.
+    complete=1     one row per (day, complaint_type) with a status breakdown:
+                   { day: "YYYY-MM-DD", type, counts: {open, in-progress,
+                   closed}, total }. Filters: months (3|6|9|12|18|24, default
+                   24), bucket (scoped to the tier), status (open|in-progress|
+                   closed), offset, limit.
+
+  New headers: X-Complaints-Total (GROUPS matching the filters, before paging --
+  not the complaints inside them), X-Complaints-Offset, X-Complaints-Has-More,
+  X-Complaints-Cached.
+
+  WHY GROUPED. Socrata caps $limit at 50,000, and 655 E 230 St in the Bronx has
+  190,205 block-tier rows inside a 350m/24mo window -- so no raw-row cache could
+  ever hold that address. Grouping upstream via date_trunc_ymd collapses it to
+  1,848 rows (102.9x). Measured over 12 locations 2026-08-17; the densest is
+  Ludlow St at 2,929 grouped rows, which is what COMPLAINT_GROUPS_CACHE_LIMIT is
+  sized against. Note the maximum is NOT the extreme address: volume
+  concentrated in one type/status compresses hardest, so type DIVERSITY drives
+  the group count.
+
+  That address is not a geocoding artifact -- verified, address_type=ADDRESS on
+  a real consistent address, with filings ~70s apart. It is serial repeat-
+  filing. No coordinate-exclusion logic was added, and the verification argues
+  against adding it: the records are genuine, so suppressing the coordinate
+  would erase real signal. (Its 187,800 stacked noise records DO distort the
+  score for nearby addresses. Open item, separate from this change.)
+
+  Cached in its own `complaint_groups_cache` collection, keyed {lat, lng,
+  radiusTier} with a 24h TTL, and NO months in the key -- rows are stored
+  newest-day-first, so every window is a prefix of the one entry. Cache is read
+  and written only when the radius matches the tier's own, since the key has no
+  radius dimension.
+
+GET /api/complaints/group?lat=&lng=&tier=&type=&day=&status=&offset=&limit=
+  returns: [ { type, lat, lng, created_date, status, statusBucket }, ... ]
+  headers: X-Complaints-Limit, X-Complaints-Offset, X-Complaints-Has-More
+
+  **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
+  The individual complaints behind one (day, type) row of the grouped browser.
+  PAGINATED, not merely capped: the largest single group measured is 4,978 rows
+  (655 E 230 St, 2025-01-05). Live and uncached -- 5.6s measured for a 17-row
+  day, so the cost is the spatial filter rather than the rows, and a day+type
+  cache would buy little. `radius` comes from the tier, not the caller, so a
+  drill-in always describes the same circle as the group it came from.
+
+## status strings -- CONFIRMED against live API 2026-08-17
+
+$select=status,count(*)&$group=status returns EIGHT values, not three:
+
+    Closed 21,705,379 | In Progress 269,249 | Open 95,898 | Pending 63,068
+    Assigned 24,412   | Started 5,318       | Unspecified 2,794 | Cancel 1
+
+STATUS_TO_BUCKET in constants.js maps them onto the three the UI shows. The
+buckets encode two questions at once -- is it resolved, and has anyone acted --
+so Assigned/Started/Pending sit with In Progress, and Cancel with Closed.
+Unspecified -> open, deliberately NOT in-progress: it carries no evidence anyone
+acted, and claiming progress we cannot evidence is the worse error for someone
+deciding on a lease. Unknown future values default the same way, so a ninth
+value can never silently drop a row from a filtered list.
+
+Do not re-derive these strings elsewhere -- import from constants.js, same rule
+as complaint_type. The frontend's old mapStatus() was a second copy and had
+already drifted, filing Assigned and Started under open.
+
+GET /api/trend?lat=&lng=&tier=building|block&months=3|6|9|12|18|24
+  returns: { tier, months, radiusMeters, points: [{ month: "YYYY-MM", count }], total }
+  months defaults to 9. points is oldest-first and ZERO-FILLED — one entry per
+  month in the window, always exactly `months` long.
+
+  **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
+
+  Why this exists rather than reusing /api/complaints: that endpoint returns
+  individual records capped by `limit`, and on a dense block the most recent 200
+  records span about two weeks. Bucketing them client-side drew a cliff that
+  read as "complaints started recently" — measured, 350m around Ludlow St has
+  10,903 complaints over 24 months, of which a 200-row page covers ~4 months at
+  best. Here Socrata does the bucketing ($group on date_trunc_ym), so the
+  response is one row per month whether the location has 12 complaints or
+  12,000, and there is nothing to truncate.
+
+  Cost: ~1.1KB and 25 rows vs ~1.7MB and 10,903 rows for the equivalent
+  row-listing query. Latency is NOT the win — a cold within_circle query runs
+  1-6s either way, since the spatial filter dominates, not the row count.
+  That is why results are cached (see below); an uncached block-tier call was
+  measured at 13s, which fits inside the Socrata retry budget but NOT inside a
+  serverless function's execution cap.
+
+  Cached in Mongo collection `trend_cache`, keyed {lat, lng, radiusTier, months}
+  with the same 24h TTL as complaint_cache. Deliberately a SEPARATE collection:
+  writeCounts() uses replaceOne, so a counts refresh would silently drop trends
+  stored on that document, and unlike an explanation a trend is not invalidated
+  by new counts. Measured 6.4s cold -> 3ms warm.
+
+  The window set is closed, not an arbitrary integer: each value is its own
+  cache key and its own upstream query, so an open parameter would let one
+  caller spray 24 near-identical variants for no user benefit.
 
 GET /health
   returns: 200 OK   // for deploy checks + keep-warm pings
@@ -287,7 +405,7 @@ depending on environment.
 ## Repo shape
 
 /src
-  /routes      score.js, complaints.js, health.js, explanation.js
+  /routes      score.js, complaints.js, health.js, explanation.js, trend.js
   /services    scoreService.js, scoring.js (pure), explain.js, templateExplanation.js,
                mockData.js
   /providers   socrata.js, cache.js, mongo.js, baseline.js

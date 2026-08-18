@@ -2,6 +2,8 @@ import {
   CACHE_COLLECTION,
   CACHE_COORD_PRECISION,
   CACHE_TTL_SECONDS,
+  TREND_CACHE_COLLECTION,
+  COMPLAINT_GROUPS_COLLECTION,
   BUCKET_NAMES,
 } from "../config/constants.js";
 import { getDb, isMongoConfigured } from "./mongo.js";
@@ -199,6 +201,176 @@ export async function writeExplanation(lat, lng, radiusTier, explanation, source
     return result.matchedCount > 0;
   } catch (err) {
     console.warn("[cache] explanation write failed:", err.message);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trend cache
+// ---------------------------------------------------------------------------
+//
+// Separate collection, same degrade-to-miss contract as everything above.
+// Worth caching specifically: the block-tier aggregation is the slowest call in
+// the app — measured 13s cold on a dense block, against a 5s Socrata timeout
+// with two retries. That is inside the retry budget but outside a serverless
+// function's, so an uncached hit is the one that fails in production.
+
+let trendIndexPromise = null;
+
+export async function ensureTrendCacheIndexes() {
+  if (!trendIndexPromise) {
+    trendIndexPromise = (async () => {
+      const db = await getDb();
+      if (!db) return false;
+      await db.collection(TREND_CACHE_COLLECTION).createIndexes([
+        {
+          key: { lat: 1, lng: 1, radiusTier: 1, months: 1 },
+          name: "coord_tier_months",
+          unique: true,
+        },
+        {
+          key: { createdAt: 1 },
+          name: "createdAt_ttl",
+          expireAfterSeconds: CACHE_TTL_SECONDS,
+        },
+      ]);
+      return true;
+    })().catch((err) => {
+      trendIndexPromise = null;
+      throw err;
+    });
+  }
+  return trendIndexPromise;
+}
+
+/** Test seam, mirroring resetCacheIndexMemo. */
+export function resetTrendCacheIndexMemo() {
+  trendIndexPromise = null;
+}
+
+/** The exact-match key for one point, tier and window. */
+export function trendCacheKey(lat, lng, radiusTier, months) {
+  return { lat: roundCoord(lat), lng: roundCoord(lng), radiusTier, months };
+}
+
+/**
+ * @returns {Promise<Array<{month: string, count: number}>|null>} null on miss.
+ */
+export async function readTrend(lat, lng, radiusTier, months) {
+  if (!isMongoConfigured()) return null;
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const doc = await db
+      .collection(TREND_CACHE_COLLECTION)
+      .findOne(trendCacheKey(lat, lng, radiusTier, months));
+    // A stored series must have exactly one entry per month, or the chart would
+    // silently compress its own time axis. A short doc is a schema change or an
+    // interrupted write; treat it as a miss.
+    if (!doc || !Array.isArray(doc.points) || doc.points.length !== months) return null;
+    return doc.points;
+  } catch (err) {
+    console.warn("[cache] trend read failed, treating as miss:", err.message);
+    return null;
+  }
+}
+
+/** Never throws. A failed write costs one repeat query, not a request. */
+export async function writeTrend(lat, lng, radiusTier, months, points, { now } = {}) {
+  if (!isMongoConfigured()) return false;
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const key = trendCacheKey(lat, lng, radiusTier, months);
+    await db
+      .collection(TREND_CACHE_COLLECTION)
+      .replaceOne(key, { ...key, points, createdAt: now ?? new Date() }, { upsert: true });
+    return true;
+  } catch (err) {
+    console.warn("[cache] trend write failed, continuing uncached:", err.message);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grouped complaint cache (`complaint_groups_cache`)
+// ---------------------------------------------------------------------------
+//
+// Separate collection again, and for the same reason as the trend cache:
+// writeCounts() REPLACES the counts document.
+//
+// One entry holds the full 24-month grouped set for an address+tier, so every
+// window, type filter, status filter and page is answered from it without
+// touching Socrata. There is no `months` in the key — unlike the trend cache —
+// because the rows are stored newest-day-first and every window is a prefix.
+
+let groupsIndexPromise = null;
+
+export async function ensureComplaintGroupsIndexes() {
+  if (!groupsIndexPromise) {
+    groupsIndexPromise = (async () => {
+      const db = await getDb();
+      if (!db) return false;
+      await db.collection(COMPLAINT_GROUPS_COLLECTION).createIndexes([
+        {
+          key: { lat: 1, lng: 1, radiusTier: 1 },
+          name: "coord_tier",
+          unique: true,
+        },
+        {
+          key: { createdAt: 1 },
+          name: "createdAt_ttl",
+          expireAfterSeconds: CACHE_TTL_SECONDS,
+        },
+      ]);
+      return true;
+    })().catch((err) => {
+      groupsIndexPromise = null;
+      throw err;
+    });
+  }
+  return groupsIndexPromise;
+}
+
+/** Test seam, mirroring resetCacheIndexMemo. */
+export function resetComplaintGroupsIndexMemo() {
+  groupsIndexPromise = null;
+}
+
+/**
+ * @returns {Promise<{groups: Array, truncated: boolean}|null>} null on miss.
+ */
+export async function readComplaintGroups(lat, lng, radiusTier) {
+  if (!isMongoConfigured()) return null;
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const doc = await db
+      .collection(COMPLAINT_GROUPS_COLLECTION)
+      .findOne(cacheKey(lat, lng, radiusTier));
+    if (!doc || !Array.isArray(doc.groups)) return null;
+    return { groups: doc.groups, truncated: Boolean(doc.truncated) };
+  } catch (err) {
+    console.warn("[cache] groups read failed, treating as miss:", err.message);
+    return null;
+  }
+}
+
+/** Never throws. A failed write costs one repeat fill, not a request. */
+export async function writeComplaintGroups(lat, lng, radiusTier, groups, truncated, { now } = {}) {
+  if (!isMongoConfigured()) return false;
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const key = cacheKey(lat, lng, radiusTier);
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).replaceOne(
+      key,
+      { ...key, groups, truncated, createdAt: now ?? new Date() },
+      { upsert: true }
+    );
+    return true;
+  } catch (err) {
+    console.warn("[cache] groups write failed, continuing uncached:", err.message);
     return false;
   }
 }

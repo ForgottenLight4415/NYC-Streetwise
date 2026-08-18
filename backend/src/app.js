@@ -3,10 +3,18 @@ import { healthRouter } from "./routes/health.js";
 import { scoreRouter } from "./routes/score.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { explanationRouter } from "./routes/explanation.js";
+import { trendRouter } from "./routes/trend.js";
 import { BadRequestError } from "./lib/validate.js";
 
 /** Custom response headers the browser must be allowed to read cross-origin. */
-const COMPLAINTS_HEADERS = ["X-Complaints-Truncated", "X-Complaints-Limit"];
+const COMPLAINTS_HEADERS = [
+  "X-Complaints-Truncated",
+  "X-Complaints-Limit",
+  "X-Complaints-Total",
+  "X-Complaints-Offset",
+  "X-Complaints-Has-More",
+  "X-Complaints-Cached",
+];
 
 // Comma-separated list of origins allowed to read responses from a browser.
 // Read at request time (not module load) so it can be set after the module
@@ -58,6 +66,7 @@ export function createApp() {
   app.use(scoreRouter);
   app.use(complaintsRouter);
   app.use(explanationRouter);
+  app.use(trendRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

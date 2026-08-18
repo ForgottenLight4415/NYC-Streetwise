@@ -12,7 +12,7 @@ export function ComplaintBreakdownBars({
   score?: number;
 }) {
   const entries = Object.entries(counts);
-  const [isHovered, setIsHovered] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const explanation = useMemo(() => {
     if (!panelLabel || panelLabel !== "Block Quality" || typeof score !== "number") {
@@ -49,36 +49,42 @@ export function ComplaintBreakdownBars({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div
-        className="relative rounded-lg transition-colors"
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        onFocus={() => setIsHovered(true)}
-        onBlur={() => setIsHovered(false)}
-        tabIndex={0}
-      >
+      <div>
         {entries.map(([cat, count]) => (
           <div key={cat} className="flex items-center justify-between gap-3 py-1 text-sm">
-            <span className="truncate text-[color:var(--text-secondary)]">{CATEGORY_LABEL[cat]}</span>
-            <span className="shrink-0 tabular-nums text-[color:var(--text-primary)]">{count}</span>
+            <span className="min-w-0 truncate text-[color:var(--text-secondary)]">
+              {CATEGORY_LABEL[cat]}
+            </span>
+            <span className="font-data shrink-0 text-[color:var(--text-primary)]">{count}</span>
           </div>
         ))}
-
-        {explanation && isHovered && (
-          <div
-            className="pointer-events-none absolute left-1/2 top-[calc(100%-0.25rem)] z-20 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 rounded-[var(--radius-md)] border border-[color:var(--border-hairline)] bg-[color:var(--surface-1)] p-4 text-sm leading-6 text-[color:var(--text-primary)]"
-            style={{
-              boxShadow: "var(--shadow-lg)",
-              transform: "translateX(-50%)",
-            }}
-          >
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-[color:var(--text-muted)]">
-              Why this score?
-            </p>
-            <p>{explanation}</p>
-          </div>
-        )}
       </div>
+
+      {/* An inline disclosure rather than the hover tooltip this used to be.
+          The tooltip was unreachable on a touchscreen, and because it was
+          centered on the card at up to 30rem wide, the right-hand panel's copy
+          ran off the side of the viewport. Expanding in place has neither
+          problem and needs no positioning. */}
+      {explanation && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="text-xs font-semibold text-[color:var(--brand-ink)]"
+          >
+            {expanded ? "Hide why" : "Why this score?"}
+          </button>
+          {expanded && (
+            <p
+              className="mt-2 rounded-[var(--radius-md)] p-3 text-sm leading-6 text-[color:var(--text-secondary)]"
+              style={{ background: "var(--surface-2)" }}
+            >
+              {explanation}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

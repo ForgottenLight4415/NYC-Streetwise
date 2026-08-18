@@ -11,6 +11,9 @@ import {
   windowCutoffISO,
   NYC_BOUNDS,
   CACHE_COORD_PRECISION,
+  STATUS_TO_BUCKET,
+  STATUS_BUCKET_NAMES,
+  statusBucket,
 } from "../src/config/constants.js";
 
 // These tests guard the decisions recorded in CLAUDE.md. A failure here usually
@@ -150,5 +153,61 @@ describe("misc config", () => {
   it("rounds cache coords finely enough not to merge neighbouring buildings", () => {
     // 4dp is ~11m, comfortably under the 25m building radius.
     expect(CACHE_COORD_PRECISION).toBe(4);
+  });
+});
+
+describe("status buckets", () => {
+  // The eight values confirmed against the live dataset 2026-08-17. If a query
+  // ever returns a ninth, statusBucket's fallback is what keeps it visible.
+  const CONFIRMED = [
+    "Closed",
+    "In Progress",
+    "Open",
+    "Pending",
+    "Assigned",
+    "Started",
+    "Unspecified",
+    "Cancel",
+  ];
+
+  it("maps every status the live dataset returns", () => {
+    for (const status of CONFIRMED) {
+      expect(STATUS_BUCKET_NAMES).toContain(statusBucket(status));
+    }
+  });
+
+  it("files Assigned and Started under in-progress, not open", () => {
+    // The frontend's old mapStatus() got this wrong, which is why the mapping
+    // now lives here and has exactly one definition.
+    expect(statusBucket("Assigned")).toBe("in-progress");
+    expect(statusBucket("Started")).toBe("in-progress");
+    expect(statusBucket("Pending")).toBe("in-progress");
+  });
+
+  it("treats Cancel as terminal", () => {
+    expect(statusBucket("Cancel")).toBe("closed");
+    expect(statusBucket("Closed")).toBe("closed");
+  });
+
+  // Unspecified carries no evidence anyone acted. Claiming progress we cannot
+  // evidence is the worse error for someone deciding on a lease.
+  it("treats Unspecified as open rather than in-progress", () => {
+    expect(statusBucket("Unspecified")).toBe("open");
+  });
+
+  it("defaults an unknown or missing status to open instead of dropping it", () => {
+    expect(statusBucket("Some Future Status")).toBe("open");
+    expect(statusBucket(undefined)).toBe("open");
+    expect(statusBucket(null)).toBe("open");
+  });
+
+  it("offers exactly the three buckets the UI filters on", () => {
+    expect(STATUS_BUCKET_NAMES).toEqual(["open", "in-progress", "closed"]);
+  });
+
+  it("maps only into those three buckets", () => {
+    for (const bucket of Object.values(STATUS_TO_BUCKET)) {
+      expect(STATUS_BUCKET_NAMES).toContain(bucket);
+    }
   });
 });

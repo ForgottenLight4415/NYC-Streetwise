@@ -42,12 +42,12 @@ export function ScoreMeter({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span
-          className="font-semibold tabular-nums text-[color:var(--text-primary)]"
+          className="font-data font-semibold text-[color:var(--text-primary)]"
           style={{ fontSize: size * 0.28 }}
         >
           {score}
         </span>
-        <span className="text-[10px] uppercase tracking-wide text-[color:var(--text-muted)]">
+        <span className="font-data text-[10px] tracking-wide text-[color:var(--text-muted)]">
           / 100
         </span>
       </div>

@@ -1,5 +1,9 @@
 import { createApp } from "./app.js";
-import { ensureCacheIndexes } from "./providers/cache.js";
+import {
+  ensureCacheIndexes,
+  ensureTrendCacheIndexes,
+  ensureComplaintGroupsIndexes,
+} from "./providers/cache.js";
 import { closeMongo, isMongoConfigured } from "./providers/mongo.js";
 import { loadBaseline } from "./providers/baseline.js";
 import { isMockMode } from "./services/scoreService.js";
@@ -24,7 +28,11 @@ if (!isMongoConfigured()) {
   // Index creation is deliberately NOT awaited before listening. A slow Atlas
   // cluster must not stop the app from answering /health, which is what a host
   // uses to decide the deploy succeeded.
-  ensureCacheIndexes()
+  Promise.all([
+    ensureCacheIndexes(),
+    ensureTrendCacheIndexes(),
+    ensureComplaintGroupsIndexes(),
+  ])
     .then(() => console.log("[cache] indexes ready"))
     .catch((err) => console.warn("[cache] index setup failed:", err.message));
 }
