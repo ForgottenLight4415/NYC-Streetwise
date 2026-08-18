@@ -29,7 +29,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Streetwise — Check a landlord and block before you sign",
+  title: "Streetwise NYC: Building Health & Block Quality Scores",
   description:
     "Search any NYC address for a Building Health Score and Block Quality Score built from public 311 complaint data.",
 };
