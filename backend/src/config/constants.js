@@ -75,6 +75,52 @@ export const TYPE_TO_BUCKET = Object.fromEntries(
 export const ALL_COMPLAINT_TYPES = Object.keys(TYPE_TO_BUCKET);
 
 // ---------------------------------------------------------------------------
+// Status buckets — CONFIRMED against live API
+// ---------------------------------------------------------------------------
+
+/**
+ * Raw `status` string -> one of three user-facing buckets.
+ *
+ * Confirmed against the live dataset 2026-08-17 via $select=status,count(*)
+ * &$group=status. EIGHT distinct values exist, not three:
+ *   Closed 21,705,379 | In Progress 269,249 | Open 95,898 | Pending 63,068
+ *   Assigned 24,412   | Started 5,318       | Unspecified 2,794 | Cancel 1
+ *
+ * The buckets encode two questions at once: is it resolved, and has anyone
+ * acted on it? So Assigned/Started/Pending sit with In Progress — work has
+ * begun — and Cancel sits with Closed as a terminal state.
+ *
+ * "Unspecified" -> open, deliberately NOT in-progress. It carries no evidence
+ * that anyone acted, and for someone deciding on a lease, claiming progress we
+ * cannot evidence is the worse error. Unknown future values default the same
+ * way; see statusBucket().
+ *
+ * Do not re-derive these strings elsewhere — import from here, exactly as with
+ * TYPE_TO_BUCKET above.
+ */
+export const STATUS_TO_BUCKET = {
+  Closed: "closed",
+  Cancel: "closed",
+  "In Progress": "in-progress",
+  Pending: "in-progress",
+  Assigned: "in-progress",
+  Started: "in-progress",
+  Open: "open",
+  Unspecified: "open",
+};
+
+/** The three buckets, in the order the UI offers them. */
+export const STATUS_BUCKET_NAMES = ["open", "in-progress", "closed"];
+
+/**
+ * Total by construction: an unrecognised status must never drop a row from a
+ * filtered list, so it falls back to "open" rather than to undefined.
+ */
+export function statusBucket(raw) {
+  return STATUS_TO_BUCKET[raw] ?? "open";
+}
+
+// ---------------------------------------------------------------------------
 // Time window
 // ---------------------------------------------------------------------------
 
@@ -173,8 +219,19 @@ export const CONFIDENCE_REASONS = {
 // Socrata client
 // ---------------------------------------------------------------------------
 
-export const SOCRATA_TIMEOUT_MS = 5000;
+/**
+ * 25s, not the 5s this used to be.
+ *
+ * Measured 2026-08-17 across 12 locations: a cold `within_circle` query ranges
+ * 0.4s to 33.1s with no stable correlation to row count, to warmth, or to
+ * location — re-running the same query immediately after was sometimes SLOWER.
+ * At 5s a large share of legitimate queries exhausted the retry budget and 503'd.
+ * Vercel Fluid Compute allows 300s, so 25s x 3 attempts is comfortably inside it.
+ */
+export const SOCRATA_TIMEOUT_MS = 25000;
 export const SOCRATA_MAX_RETRIES = 2;
+
+/** Socrata's own hard ceiling on $limit for a single SODA 2.0 request. */
 export const SOCRATA_ROW_LIMIT = 50000;
 
 /**
@@ -188,10 +245,90 @@ export const COMPLAINTS_DEFAULT_LIMIT = 1000;
 export const COMPLAINTS_MAX_LIMIT = 5000;
 
 // ---------------------------------------------------------------------------
+// Grouped complaint cache (/api/complaints?complete=1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Grouped (day, complaint_type, status) rows stored per address+tier.
+ *
+ * Sized from 12 measured locations (2026-08-17). The densest is Ludlow St at
+ * 2,929 grouped rows over 24 months, so 10,000 is ~3.4x headroom. At ~100B per
+ * grouped row (measured) that is ~1MB, far under Mongo's 16MB document cap and
+ * far under SOCRATA_ROW_LIMIT.
+ *
+ * Grouping is what makes the extreme case tractable at all. 655 E 230 St in the
+ * Bronx carries 190,205 raw rows inside a 350m/24mo window — past Socrata's own
+ * $limit, so NO raw-row cache size could ever have held it — but only 1,848
+ * grouped rows, a 102.9x collapse. Note the maximum is not that address:
+ * volume concentrated in one type/status compresses hardest, so it is type
+ * DIVERSITY that drives the group count, not volume.
+ *
+ * A theoretical ceiling of 730 days x 9 block types x 8 statuses = 52,560 does
+ * exist and would exceed SOCRATA_ROW_LIMIT, but nothing measured came within
+ * 17x of it. Truncation stays possible, and stays reported in a header.
+ */
+export const COMPLAINT_GROUPS_CACHE_LIMIT = 10000;
+
+/** Deep $offset paging is slow upstream; bound it to what we actually store. */
+export const COMPLAINTS_MAX_OFFSET = COMPLAINT_GROUPS_CACHE_LIMIT;
+
+/** Page sizes the complaints browser offers. */
+export const COMPLAINTS_PAGE_SIZES = [25, 50, 100, 200];
+
+/**
+ * The grouped fill gets its own budget, well above SOCRATA_TIMEOUT_MS.
+ *
+ * Measured 2.3-74.3s: server-side aggregation costs MORE than the raw fetch it
+ * replaces, even though it returns ~100x less data at the extreme address. 120s
+ * covers the observed worst case with margin, and retries drop to 1 so the
+ * ceiling (2 x 120s + backoff) stays inside Vercel's 300s limit.
+ */
+export const COMPLAINT_FILL_TIMEOUT_MS = 120000;
+export const COMPLAINT_FILL_RETRIES = 1;
+
+// ---------------------------------------------------------------------------
+// Trend windows (/api/trend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Selectable windows for the trend chart, in months.
+ *
+ * A closed set rather than any integer: each value is a distinct cache key and
+ * a distinct upstream query, so leaving it open would let a caller spray the
+ * cache and Socrata with 24 near-identical variants for no user benefit.
+ * Capped at WINDOW_MONTHS because nothing above it is scored.
+ */
+export const TREND_WINDOW_OPTIONS = [3, 6, 9, 12, 18, 24];
+
+/**
+ * Nine months is the default because the audience is someone deciding on a
+ * lease in the next few weeks: it spans a full heating season (the dominant
+ * Building Health signal) plus a summer (the dominant noise signal) without
+ * dragging in history from two tenants ago. It is also the fastest window
+ * measured — median ~1.0s cold, against ~1.6s for 24 months.
+ */
+export const TREND_DEFAULT_MONTHS = 9;
+
+// ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
 
 export const CACHE_COLLECTION = "complaint_cache";
+
+/**
+ * Trends live in their own collection rather than on the counts document,
+ * because writeCounts() REPLACES that document — a counts refresh would drop
+ * the trends with it, and unlike an explanation a trend is not invalidated by
+ * new counts arriving.
+ */
+export const TREND_CACHE_COLLECTION = "trend_cache";
+
+/**
+ * Grouped complaint rows, same reasoning as the trend cache: writeCounts()
+ * REPLACES the counts document, so anything stored alongside it is dropped on
+ * the next refresh.
+ */
+export const COMPLAINT_GROUPS_COLLECTION = "complaint_groups_cache";
 export const BASELINE_COLLECTION = "baseline";
 export const BASELINE_ID = "v1";
 

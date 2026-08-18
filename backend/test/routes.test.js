@@ -4,6 +4,7 @@ import {
   RADIUS_TIERS,
   BUCKET_NAMES,
   COMPLAINTS_DEFAULT_LIMIT,
+  COMPLAINT_GROUPS_CACHE_LIMIT,
   CONFIDENCE,
   CONFIDENCE_REASONS,
 } from "../src/config/constants.js";
@@ -17,9 +18,11 @@ import {
 // That is deliberate — this file's job is to prove the wiring produces the
 // contract shape from real code, not to re-test the client.
 
-const { countsSpy, complaintsSpy, aiSpy } = vi.hoisted(() => ({
+const { countsSpy, complaintsSpy, groupsSpy, groupDetailSpy, aiSpy } = vi.hoisted(() => ({
   countsSpy: vi.fn(),
   complaintsSpy: vi.fn(),
+  groupsSpy: vi.fn(),
+  groupDetailSpy: vi.fn(),
   aiSpy: vi.fn(),
 }));
 
@@ -29,6 +32,8 @@ vi.mock("../src/providers/socrata.js", async (importOriginal) => {
     ...actual,
     fetchCountsForTier: countsSpy,
     fetchComplaints: complaintsSpy,
+    fetchComplaintGroups: groupsSpy,
+    fetchComplaintsForGroup: groupDetailSpy,
   };
 });
 
@@ -55,7 +60,13 @@ function complaintRow(index) {
     lng: -73.9857,
     created_date: "2026-01-01T00:00:00.000",
     status: "Closed",
+    statusBucket: "closed",
   };
+}
+
+/** One (day, type, status) tuple as fetchComplaintGroups returns it. */
+function groupTuple(day, type, statusBucket, count) {
+  return { day, type, statusBucket, count };
 }
 
 let server;
@@ -248,8 +259,25 @@ describe("GET /api/complaints", () => {
       "lat",
       "lng",
       "status",
+      "statusBucket",
       "type",
     ]);
+  });
+
+  it("passes the tier through so a panel only sees its own complaint types", async () => {
+    await server.request("/api/complaints?lat=40.7484&lng=-73.9857&radius=25&tier=building");
+    expect(complaintsSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      25,
+      expect.objectContaining({ tier: "building" })
+    );
+  });
+
+  it("never triggers the grouped fill without complete=1", async () => {
+    // The fill was measured at 2.3-74.3s. Report load must not pay for it.
+    await server.request("/api/complaints?lat=40.7484&lng=-73.9857&tier=block");
+    expect(groupsSpy).not.toHaveBeenCalled();
   });
 
   it("defaults to the block radius when none is given", async () => {
@@ -302,6 +330,182 @@ describe("GET /api/complaints", () => {
     ["oversized radius", "/api/complaints?lat=40.7484&lng=-73.9857&radius=99999"],
     ["oversized limit", "/api/complaints?lat=40.7484&lng=-73.9857&limit=999999"],
     ["fractional limit", "/api/complaints?lat=40.7484&lng=-73.9857&limit=1.5"],
+  ])("400s on %s", async (_label, path) => {
+    const { status, body } = await server.request(path);
+    expect(status).toBe(400);
+    expect(body.error).toBeTypeOf("string");
+  });
+});
+
+describe("GET /api/complaints?complete=1 (grouped browser)", () => {
+  const BASE = "/api/complaints?lat=40.7484&lng=-73.9857&radius=350&tier=block&complete=1";
+
+  beforeEach(() => {
+    // Two types on one day plus an older day, with a status split inside the
+    // first, so collapsing and status filtering are both observable.
+    groupsSpy.mockResolvedValue([
+      groupTuple("2026-08-14", "Noise - Residential", "closed", 7),
+      groupTuple("2026-08-14", "Noise - Residential", "open", 3),
+      groupTuple("2026-08-14", "Illegal Parking", "closed", 2),
+      groupTuple("2024-11-02", "Street Condition", "open", 5),
+    ]);
+  });
+
+  it("returns one row per (day, type) with a status breakdown inside", async () => {
+    const { status, body } = await server.request(BASE);
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body[0]).toEqual({
+      day: "2026-08-14",
+      type: "Illegal Parking",
+      counts: { open: 0, "in-progress": 0, closed: 2 },
+      total: 2,
+    });
+    const noise = body.find((r) => r.type === "Noise - Residential");
+    expect(noise.counts).toEqual({ open: 3, "in-progress": 0, closed: 7 });
+    expect(noise.total).toBe(10);
+  });
+
+  it("counts GROUPS in the total, not the complaints inside them", async () => {
+    // 3 distinct (day, type) pairs covering 17 underlying complaints.
+    const { headers } = await server.request(BASE);
+    expect(headers.get("x-complaints-total")).toBe("3");
+  });
+
+  it("fills at the cache limit, never at the caller's page size", async () => {
+    await server.request(`${BASE}&limit=25`);
+    expect(groupsSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      350,
+      expect.objectContaining({ limit: COMPLAINT_GROUPS_CACHE_LIMIT })
+    );
+  });
+
+  it("narrows to the requested window", async () => {
+    const { body, headers } = await server.request(`${BASE}&months=3`);
+    expect(body.every((r) => r.day >= "2026-05-01")).toBe(true);
+    expect(headers.get("x-complaints-total")).toBe("2");
+  });
+
+  it("filters by complaint bucket", async () => {
+    const { body } = await server.request(`${BASE}&bucket=parking`);
+    expect(body).toHaveLength(1);
+    expect(body[0].type).toBe("Illegal Parking");
+  });
+
+  it("filters by status and drops groups left with nothing", async () => {
+    const { body } = await server.request(`${BASE}&status=open`);
+    // Illegal Parking was closed-only, so its group disappears entirely rather
+    // than surfacing as a zero row.
+    expect(body.map((r) => r.type).sort()).toEqual(["Noise - Residential", "Street Condition"]);
+    expect(body.find((r) => r.type === "Noise - Residential").total).toBe(3);
+  });
+
+  it("splits the unfiltered total across the three status buckets with nothing lost", async () => {
+    const unfiltered = await server.request(BASE);
+    const sum = (rows) => rows.reduce((n, r) => n + r.total, 0);
+    const parts = await Promise.all(
+      ["open", "in-progress", "closed"].map((s) => server.request(`${BASE}&status=${s}`))
+    );
+    expect(parts.reduce((n, p) => n + sum(p.body), 0)).toBe(sum(unfiltered.body));
+  });
+
+  it("pages over groups with a stable, disjoint order", async () => {
+    const first = await server.request(`${BASE}&limit=2&offset=0`);
+    const second = await server.request(`${BASE}&limit=2&offset=2`);
+    expect(first.body).toHaveLength(2);
+    expect(second.body).toHaveLength(1);
+    expect(first.headers.get("x-complaints-has-more")).toBe("true");
+    expect(second.headers.get("x-complaints-has-more")).toBe("false");
+    expect(second.headers.get("x-complaints-offset")).toBe("2");
+    const keys = (rows) => rows.map((r) => `${r.day}|${r.type}`);
+    expect(keys(first.body).filter((k) => keys(second.body).includes(k))).toEqual([]);
+  });
+
+  it("reports truncation when the grouped fill hits the cache limit", async () => {
+    groupsSpy.mockResolvedValue(
+      Array.from({ length: COMPLAINT_GROUPS_CACHE_LIMIT }, (_, i) =>
+        groupTuple(`2026-08-14`, `Type ${i}`, "closed", 1)
+      )
+    );
+    const { headers } = await server.request(BASE);
+    expect(headers.get("x-complaints-truncated")).toBe("true");
+  });
+
+  it.each([
+    ["negative offset", `${BASE}&offset=-1`],
+    ["oversized offset", `${BASE}&offset=999999`],
+    ["unknown bucket", `${BASE}&bucket=nope`],
+    ["raw status instead of a bucket", `${BASE}&status=Pending`],
+    ["window outside the offered set", `${BASE}&months=7`],
+  ])("400s on %s", async (_label, path) => {
+    const { status, body } = await server.request(path);
+    expect(status).toBe(400);
+    expect(body.error).toBeTypeOf("string");
+  });
+
+  it("400s when a bucket is given without a tier to scope it", async () => {
+    const { status, body } = await server.request(
+      "/api/complaints?lat=40.7484&lng=-73.9857&complete=1&bucket=noise"
+    );
+    expect(status).toBe(400);
+    expect(body.error).toBe("missing_tier");
+  });
+});
+
+describe("GET /api/complaints/group (drill-in)", () => {
+  const BASE =
+    "/api/complaints/group?lat=40.7484&lng=-73.9857&tier=block&type=Noise%20-%20Residential&day=2026-08-14";
+
+  beforeEach(() => {
+    groupDetailSpy.mockImplementation(async (lat, lng, radius, { limit }) =>
+      Array.from({ length: limit }, (_, i) => complaintRow(i))
+    );
+  });
+
+  it("scopes the query to the tier radius, one day and one type", async () => {
+    await server.request(BASE);
+    expect(groupDetailSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      RADIUS_TIERS.block.radiusMeters,
+      expect.objectContaining({ type: "Noise - Residential", day: "2026-08-14" })
+    );
+  });
+
+  it("pages, because the largest measured group is 4,978 rows", async () => {
+    const { body, headers } = await server.request(`${BASE}&limit=50&offset=100`);
+    expect(body).toHaveLength(50);
+    expect(headers.get("x-complaints-offset")).toBe("100");
+    // The provider is asked for one extra row as a has-more probe, rather than
+    // paying for a second count query against the slowest upstream call.
+    expect(groupDetailSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ limit: 51, offset: 100 })
+    );
+    expect(headers.get("x-complaints-has-more")).toBe("true");
+  });
+
+  it("says there is no next page when the probe row does not come back", async () => {
+    groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1)]);
+    const { body, headers } = await server.request(`${BASE}&limit=50`);
+    expect(body).toHaveLength(2);
+    expect(headers.get("x-complaints-has-more")).toBe("false");
+  });
+
+  it.each([
+    ["missing tier", "/api/complaints/group?lat=40.7484&lng=-73.9857&type=PLUMBING&day=2026-08-14"],
+    ["missing day", "/api/complaints/group?lat=40.7484&lng=-73.9857&tier=block&type=PLUMBING"],
+    ["impossible month", `${BASE.replace("2026-08-14", "2026-13-01")}`],
+    ["impossible day of month", `${BASE.replace("2026-08-14", "2026-02-30")}`],
+    ["malformed day", `${BASE.replace("2026-08-14", "14-08-2026")}`],
+    [
+      "unrecognised complaint type",
+      "/api/complaints/group?lat=40.7484&lng=-73.9857&tier=block&type=Dragons&day=2026-08-14",
+    ],
   ])("400s on %s", async (_label, path) => {
     const { status, body } = await server.request(path);
     expect(status).toBe(400);

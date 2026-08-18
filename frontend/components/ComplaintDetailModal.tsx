@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { STATUS_LABEL, STATUS_VAR } from "@/lib/score";
+import { useDialog } from "@/lib/useDialog";
 import type { Complaint, ComplaintTimeline } from "@/lib/types";
 import { CloseIcon } from "./icons";
 
@@ -21,27 +21,30 @@ export function ComplaintDetailModal({
   timeline: ComplaintTimeline;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  // Escape, focus trap, focus restore and scroll lock all come from here.
+  const panelRef = useDialog(onClose);
 
   const latest = timeline.events[timeline.events.length - 1];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      // Above the search panel (z-50), which is itself above the header (z-40).
+      // z-70, above the complaints browser (z-60) that can open this.
+      className="fixed inset-0 z-70 flex items-center justify-center p-4"
       style={{ background: "color-mix(in srgb, black 50%, transparent)" }}
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${complaint.label} complaint details`}
     >
       <div
-        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-[var(--radius-lg)] p-6"
+        ref={panelRef}
+        tabIndex={-1}
+        // On the PANEL, not the backdrop: on the backdrop it made the entire
+        // viewport the dialog, so assistive tech announced the whole page.
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${complaint.label} complaint details`}
+        // dvh, not vh: on mobile Safari, 80vh is measured against the *expanded*
+        // viewport, so with the URL bar showing the dialog ran under it.
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-[var(--radius-lg)] p-5 outline-none sm:p-6"
         style={{ background: "var(--surface-1)", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border-hairline)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -65,7 +68,7 @@ export function ComplaintDetailModal({
           style={{ background: `color-mix(in srgb, var(${STATUS_VAR[complaint.status]}) 12%, transparent)` }}
         >
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: `var(${STATUS_VAR[complaint.status]})` }} />
-          <span className="font-medium" style={{ color: `var(${STATUS_VAR[complaint.status]})` }}>
+          <span className="font-medium" style={{ color: `var(${STATUS_VAR[complaint.status]}-ink)` }}>
             {STATUS_LABEL[complaint.status]}
           </span>
           {latest && (
@@ -93,7 +96,7 @@ export function ComplaintDetailModal({
               />
               <div className="min-w-0 pb-0.5">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-sm font-medium" style={{ color: `var(${STATUS_VAR[event.status]})` }}>
+                  <span className="text-sm font-medium" style={{ color: `var(${STATUS_VAR[event.status]}-ink)` }}>
                     {STATUS_LABEL[event.status]}
                   </span>
                   <span className="text-xs text-[color:var(--text-muted)]">{formatDate(event.date)}</span>

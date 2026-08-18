@@ -35,6 +35,7 @@ export function VerdictBanner({
 }) {
   const band = overallBand(building.band, block.band);
   const color = `var(${BAND_VAR[band]})`;
+  const ink = `var(${BAND_VAR[band]}-ink)`;
   // Three states, in priority order: still thinking, one labeled line per tier,
   // and — whenever nothing at all came back, or no explanation was ever
   // requested — the deterministic client-side verdict. Never empty, never an
@@ -44,7 +45,7 @@ export function VerdictBanner({
 
   return (
     <div
-      className="rounded-[var(--radius-lg)] p-6"
+      className="rounded-[var(--radius-lg)] p-5 sm:p-6"
       style={{
         boxShadow: "var(--shadow-md)",
         border: "1px solid var(--border-hairline)",
@@ -52,9 +53,14 @@ export function VerdictBanner({
         background: `color-mix(in srgb, ${color} 5%, var(--surface-1))`,
       }}
     >
-      <h1 className="text-xl font-semibold text-[color:var(--text-primary)]">{address}</h1>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <span className="text-2xl font-bold tracking-tight" style={{ color }}>
+      <h1 className="font-display text-lg font-semibold leading-snug text-[color:var(--text-primary)] sm:text-xl">
+        {address}
+      </h1>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span
+          className="font-display text-2xl font-semibold tracking-tight"
+          style={{ color: ink }}
+        >
           {BAND_VERDICT[band]}
         </span>
         <StatusBadge band={band} />

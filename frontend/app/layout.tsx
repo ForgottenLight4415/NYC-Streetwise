@@ -1,23 +1,46 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Archivo, IBM_Plex_Mono, Inter } from "next/font/google";
 import { Header } from "@/components/Header";
 import { mapsScriptSrc } from "@/lib/maps-keys";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Display: a signage grotesque. NYC wayfinding — subway, street blades, the
+// 311 forms themselves — is set in neo-grotesques, so this is the subject's own
+// lettering rather than a decorative pick. Used only at large sizes.
+const archivo = Archivo({
+  variable: "--font-display",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Body: chosen for small-size legibility, because the report pages are dense
+// lists of complaint labels and dates.
+const inter = Inter({
+  variable: "--font-body",
   subsets: ["latin"],
+});
+
+// Data: scores, counts, radii, dates, complaint IDs. These are record fields
+// off a municipal dataset and are set as such.
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-data",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
   title: "Streetwise — Check a landlord and block before you sign",
   description:
     "Search any NYC address for a Building Health Score and Block Quality Score built from public 311 complaint data.",
+};
+
+export const viewport: Viewport = {
+  // Matches --background in each theme so the browser chrome doesn't flash a
+  // white bar above a dark page on mobile.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b1220" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -28,10 +51,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // suppressHydrationWarning: the inline script below sets `data-theme`
+      // before React hydrates, so the client's <html> attributes legitimately
+      // differ from the server's. Scoped to this element only.
+      suppressHydrationWarning
+      className={`${archivo.variable} ${inter.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <head>{scriptSrc && <script async src={scriptSrc} />}</head>
-      <body className="min-h-full flex flex-col bg-[color:var(--background)] text-[color:var(--foreground)]">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {scriptSrc && <script async src={scriptSrc} />}
+      </head>
+      <body className="flex min-h-full flex-col bg-[color:var(--background)] text-[color:var(--foreground)]">
+        <a
+          href="#main"
+          className="sr-only rounded-full px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-[color:var(--surface-1)] focus:text-[color:var(--text-primary)]"
+          style={{ boxShadow: "var(--shadow-md)" }}
+        >
+          Skip to content
+        </a>
         <Header />
         {children}
       </body>

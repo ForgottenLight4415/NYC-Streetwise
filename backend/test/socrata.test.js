@@ -321,12 +321,43 @@ describe("fetchComplaints", () => {
       lng: -73.9857,
       created_date: "2026-01-02T03:04:05.000",
       status: "Closed",
+      statusBucket: "closed",
     });
   });
 
   it("nulls a missing status rather than dropping the key", async () => {
     const points = await fetchComplaints(40.7484, -73.9857, 350);
     expect(points[1].status).toBeNull();
+  });
+
+  // The raw status stays on the row, but every consumer reads statusBucket:
+  // the dataset returns eight distinct values, and mapping them in one place
+  // is what stops "Assigned" being filed under open again.
+  it("buckets an unknown status as open rather than dropping it", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        {
+          complaint_type: "Noise - Residential",
+          latitude: "40.7484",
+          longitude: "-73.9857",
+          created_date: "2026-01-02T03:04:05.000",
+          status: "Some Future Status",
+        },
+      ])
+    );
+    const points = await fetchComplaints(40.7484, -73.9857, 350);
+    expect(points[0].statusBucket).toBe("open");
+  });
+
+  it("buckets Assigned and Started as in-progress, not open", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { complaint_type: "PLUMBING", latitude: "40.7", longitude: "-73.9", created_date: "2026-01-02T00:00:00.000", status: "Assigned" },
+        { complaint_type: "PLUMBING", latitude: "40.7", longitude: "-73.9", created_date: "2026-01-01T00:00:00.000", status: "Started" },
+      ])
+    );
+    const points = await fetchComplaints(40.7484, -73.9857, 350);
+    expect(points.map((p) => p.statusBucket)).toEqual(["in-progress", "in-progress"]);
   });
 
   it("requests rows (not counts), newest first, under a row cap", async () => {

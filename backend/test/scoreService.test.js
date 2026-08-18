@@ -10,16 +10,23 @@ import {
 } from "vitest";
 import { startMongo } from "./helpers/mongoTestServer.js";
 import { getDb } from "../src/providers/mongo.js";
-import { CACHE_COLLECTION, RADIUS_TIERS } from "../src/config/constants.js";
+import {
+  CACHE_COLLECTION,
+  COMPLAINT_GROUPS_COLLECTION,
+  COMPLAINT_GROUPS_CACHE_LIMIT,
+  RADIUS_TIERS,
+} from "../src/config/constants.js";
 import { SocrataError } from "../src/providers/socrata.js";
 
 // The service is exercised against a REAL in-memory Mongo and a FAKE Socrata:
 // the cache behaviour is the thing under test, and the network is the thing we
 // must not touch.
 
-const { fetchSpy, complaintsSpy, aiSpy } = vi.hoisted(() => ({
+const { fetchSpy, complaintsSpy, groupsSpy, groupDetailSpy, aiSpy } = vi.hoisted(() => ({
   fetchSpy: vi.fn(),
   complaintsSpy: vi.fn(),
+  groupsSpy: vi.fn(),
+  groupDetailSpy: vi.fn(),
   aiSpy: vi.fn(),
 }));
 
@@ -29,6 +36,8 @@ vi.mock("../src/providers/socrata.js", async (importOriginal) => {
     ...actual,
     fetchCountsForTier: fetchSpy,
     fetchComplaints: complaintsSpy,
+    fetchComplaintGroups: groupsSpy,
+    fetchComplaintsForGroup: groupDetailSpy,
   };
 });
 
@@ -44,6 +53,8 @@ const {
   buildScoreReport,
   buildExplanation,
   fetchComplaintPoints,
+  fetchComplaintGroupList,
+  fetchComplaintGroupDetail,
   isMockMode,
 } = await import("../src/services/scoreService.js");
 
@@ -360,6 +371,124 @@ describe("fetchComplaintPoints", () => {
     const db = await getDb();
     const docs = await db.collection(CACHE_COLLECTION).find({}).toArray();
     expect(docs).toHaveLength(0);
+  });
+});
+
+describe("fetchComplaintGroupList", () => {
+  const TUPLES = [
+    { day: "2026-08-14", type: "Noise - Residential", statusBucket: "closed", count: 7 },
+    { day: "2026-08-14", type: "Noise - Residential", statusBucket: "open", count: 3 },
+    { day: "2026-08-14", type: "Illegal Parking", statusBucket: "closed", count: 2 },
+    { day: "2024-11-02", type: "Street Condition", statusBucket: "open", count: 5 },
+  ];
+
+  beforeEach(async () => {
+    groupsSpy.mockReset();
+    groupsSpy.mockResolvedValue(TUPLES);
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
+  });
+
+  it("collapses (day, type, status) tuples into one row per (day, type)", async () => {
+    const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    const noise = rows.find((r) => r.type === "Noise - Residential");
+    expect(noise.counts).toEqual({ open: 3, "in-progress": 0, closed: 7 });
+    expect(noise.total).toBe(10);
+  });
+
+  it("counts distinct (day, type) pairs as the total, not the complaints", async () => {
+    const { total } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    expect(total).toBe(3);
+  });
+
+  it("orders newest day first, then by type, so offset paging is stable", async () => {
+    const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    expect(rows.map((r) => `${r.day}|${r.type}`)).toEqual([
+      "2026-08-14|Illegal Parking",
+      "2026-08-14|Noise - Residential",
+      "2024-11-02|Street Condition",
+    ]);
+  });
+
+  it("drops a group whose only complaints are of another status", async () => {
+    const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, {
+      tier: "block",
+      status: "open",
+    });
+    expect(rows.map((r) => r.type)).not.toContain("Illegal Parking");
+  });
+
+  it("fills at the cache limit rather than the caller's page size", async () => {
+    await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block", limit: 25 });
+    expect(groupsSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      350,
+      expect.objectContaining({ limit: COMPLAINT_GROUPS_CACHE_LIMIT })
+    );
+  });
+
+  it("serves the second call from Mongo without touching Socrata", async () => {
+    await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    const second = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    expect(groupsSpy).toHaveBeenCalledTimes(1);
+    expect(second.cached).toBe(true);
+  });
+
+  it("does not read or write the cache for an ad-hoc radius", async () => {
+    // The key has no radius dimension, so a 100m request must not collide with
+    // the tier's own 350m entry.
+    await fetchComplaintGroupList(40.7484, -73.9857, 100, { tier: "block" });
+    const db = await getDb();
+    expect(await db.collection(COMPLAINT_GROUPS_COLLECTION).countDocuments()).toBe(0);
+  });
+
+  it("flags truncation when the fill hits the cache limit", async () => {
+    groupsSpy.mockResolvedValue(
+      Array.from({ length: COMPLAINT_GROUPS_CACHE_LIMIT }, (_, i) => ({
+        day: "2026-08-14",
+        type: `Type ${i}`,
+        statusBucket: "closed",
+        count: 1,
+      }))
+    );
+    const { truncated } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
+    expect(truncated).toBe(true);
+  });
+});
+
+describe("fetchComplaintGroupDetail", () => {
+  beforeEach(() => {
+    groupDetailSpy.mockReset();
+  });
+
+  it("asks for one row beyond the page as a has-more probe", async () => {
+    groupDetailSpy.mockResolvedValue([]);
+    await fetchComplaintGroupDetail(40.7484, -73.9857, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+      limit: 50,
+      offset: 0,
+    });
+    expect(groupDetailSpy).toHaveBeenCalledWith(
+      40.7484,
+      -73.9857,
+      350,
+      expect.objectContaining({ limit: 51 })
+    );
+  });
+
+  it("trims the probe row back off the page it returns", async () => {
+    groupDetailSpy.mockResolvedValue(
+      Array.from({ length: 4 }, () => ({ type: "Noise - Residential", statusBucket: "open" }))
+    );
+    const result = await fetchComplaintGroupDetail(40.7484, -73.9857, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+      limit: 3,
+    });
+    expect(result.points).toHaveLength(3);
+    expect(result.hasMore).toBe(true);
   });
 });
 

@@ -323,7 +323,18 @@ Individual complaint points for the heatmap.
 | `lat` | yes | — | Must be inside NYC bounds |
 | `lng` | yes | — | Must be inside NYC bounds |
 | `radius` | no | `350` | Meters, 1–2000 |
-| `limit` | no | `1000` | Whole number, 1–5000 |
+| `limit` | no | `1000` (raw) / `25` (grouped) | Whole number, 1–5000 |
+| `tier` | no | both tiers | `building` or `block`. Restricts to that tier's complaint types |
+| `complete` | no | off | `1` switches to grouped mode (see below) |
+
+Grouped mode (`complete=1`) accepts four more:
+
+| Param | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `months` | no | `24` | One of 3, 6, 9, 12, 18, 24 |
+| `bucket` | no | all | A bucket of the given `tier`; requires `tier` |
+| `status` | no | all | `open`, `in-progress` or `closed` — our bucket, never a raw 311 status |
+| `offset` | no | `0` | Whole number, 0–10000 |
 
 ### Sample request
 
@@ -365,6 +376,59 @@ X-Complaints-Limit: 3
 ```
 
 `status` may be `null`. `type` is the raw 311 `complaint_type` string.
+`statusBucket` is that status mapped onto `open` / `in-progress` / `closed` —
+read this rather than re-deriving it, because the dataset returns eight distinct
+status values, not three (see `STATUS_TO_BUCKET` in `constants.js`).
+
+### Grouped mode — `complete=1`
+
+Returns one row per `(day, complaint_type)` with a status breakdown, newest day
+first, for the complaints browser:
+
+```json
+[
+  { "day": "2026-08-14",
+    "type": "Noise - Residential",
+    "counts": { "open": 3, "in-progress": 0, "closed": 7 },
+    "total": 10 }
+]
+```
+
+```
+X-Complaints-Total: 2929      <- GROUPS matching the filters, before paging
+X-Complaints-Offset: 0
+X-Complaints-Has-More: true
+X-Complaints-Cached: true
+```
+
+**`X-Complaints-Total` counts groups, not complaints.** Paging is over groups
+too, so `offset=25` skips 25 `(day, type)` rows, not 25 complaints.
+
+The first grouped request for an address fills a 24h cache and was measured at
+**2.3–74.3s**; every request after it is a Mongo read. Do not put this on a page
+load — that is why it is opt-in rather than the default. Grouping is also what
+makes the worst addresses answerable at all: 655 E 230 St has 190,205 raw rows
+in a 350m/24mo window, past Socrata's own 50,000 `$limit`, but only 1,848
+grouped rows.
+
+---
+
+## `GET /api/complaints/group`
+
+The individual complaints behind one grouped row.
+
+| Param | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `lat`, `lng` | yes | — | Must be inside NYC bounds |
+| `tier` | yes | — | Supplies the radius; the caller does not pass one |
+| `type` | yes | — | A known `complaint_type` string |
+| `day` | yes | — | `YYYY-MM-DD` |
+| `status` | no | all | `open`, `in-progress` or `closed` |
+| `offset` | no | `0` | Whole number, 0–10000 |
+| `limit` | no | `50` | Whole number, 1–5000 |
+
+Returns the same row shape as the default mode, plus `X-Complaints-Has-More`.
+**Paginate it** — the largest single group measured is 4,978 rows.
 
 ### Truncation — read this
 

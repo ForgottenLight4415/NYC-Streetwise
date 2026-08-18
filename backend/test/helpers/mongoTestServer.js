@@ -1,10 +1,20 @@
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { closeMongo } from "../../src/providers/mongo.js";
-import { resetCacheIndexMemo } from "../../src/providers/cache.js";
+import {
+  resetCacheIndexMemo,
+  resetTrendCacheIndexMemo,
+  resetComplaintGroupsIndexMemo,
+} from "../../src/providers/cache.js";
 
-/** The memoized index promise, so a new mongod does not inherit an old one. */
+/**
+ * The memoized index promises, so a new mongod does not inherit an old one.
+ * Every collection with an ensure*Indexes memo belongs here — one left out
+ * resolves against the previous, now-stopped server.
+ */
 function resetIndexMemos() {
   resetCacheIndexMemo();
+  resetTrendCacheIndexMemo();
+  resetComplaintGroupsIndexMemo();
 }
 
 /**

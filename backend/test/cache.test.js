@@ -17,11 +17,15 @@ import {
   writeCounts,
   writeExplanation,
   resetCacheIndexMemo,
+  readComplaintGroups,
+  writeComplaintGroups,
+  ensureComplaintGroupsIndexes,
 } from "../src/providers/cache.js";
 import { getDb, isMongoConfigured, closeMongo } from "../src/providers/mongo.js";
 import {
   CACHE_COLLECTION,
   CACHE_TTL_SECONDS,
+  COMPLAINT_GROUPS_COLLECTION,
 } from "../src/config/constants.js";
 
 const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0 };
@@ -357,5 +361,75 @@ describe("explanation caching", () => {
     await closeMongo();
     process.env.MONGODB_URI = uri;
     delete process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS;
+  });
+});
+
+describe("grouped complaint cache", () => {
+  const GROUPS = [
+    { day: "2026-08-14", type: "Noise - Residential", statusBucket: "closed", count: 7 },
+    { day: "2024-11-02", type: "Street Condition", statusBucket: "open", count: 5 },
+  ];
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
+  });
+
+  it("round-trips groups and the truncation flag", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    expect(await readComplaintGroups(40.7484, -73.9857, "block")).toEqual({
+      groups: GROUPS,
+      truncated: false,
+    });
+  });
+
+  it("preserves truncated:true, which the UI relies on to stay honest", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, true);
+    const hit = await readComplaintGroups(40.7484, -73.9857, "block");
+    expect(hit.truncated).toBe(true);
+  });
+
+  it("misses on an unseen coordinate", async () => {
+    expect(await readComplaintGroups(40.6944, -73.9213, "block")).toBeNull();
+  });
+
+  it("separates the two tiers at the same point", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    expect(await readComplaintGroups(40.7484, -73.9857, "building")).toBeNull();
+  });
+
+  // No months in the key, unlike the trend cache: rows are stored newest-day
+  // first, so every window is a prefix of the one entry.
+  it("answers any window from a single entry", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    const hit = await readComplaintGroups(40.74839, -73.98572, "block");
+    expect(hit.groups).toHaveLength(2);
+  });
+
+  it("overwrites rather than duplicating on a refill", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    await writeComplaintGroups(40.7484, -73.9857, "block", [GROUPS[0]], false);
+    const db = await getDb();
+    expect(await db.collection(COMPLAINT_GROUPS_COLLECTION).countDocuments()).toBe(1);
+    const hit = await readComplaintGroups(40.7484, -73.9857, "block");
+    expect(hit.groups).toHaveLength(1);
+  });
+
+  it("creates the lookup and TTL indexes", async () => {
+    await ensureComplaintGroupsIndexes();
+    const db = await getDb();
+    const indexes = await db.collection(COMPLAINT_GROUPS_COLLECTION).indexes();
+    const byName = Object.fromEntries(indexes.map((i) => [i.name, i]));
+    expect(byName.coord_tier.unique).toBe(true);
+    expect(byName.createdAt_ttl.expireAfterSeconds).toBe(CACHE_TTL_SECONDS);
+  });
+
+  it("treats a document with no groups array as a miss, not a crash", async () => {
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).insertOne({
+      ...cacheKey(40.7484, -73.9857, "block"),
+      createdAt: new Date(),
+    });
+    expect(await readComplaintGroups(40.7484, -73.9857, "block")).toBeNull();
   });
 });

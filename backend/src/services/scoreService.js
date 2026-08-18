@@ -1,19 +1,33 @@
 import {
   RADIUS_TIERS,
   COMPLAINTS_DEFAULT_LIMIT,
+  COMPLAINT_GROUPS_CACHE_LIMIT,
+  STATUS_BUCKET_NAMES,
+  TYPE_TO_BUCKET,
   EXPLANATION_SOURCES,
+  statusBucket,
 } from "../config/constants.js";
-import { fetchCountsForTier, fetchComplaints } from "../providers/socrata.js";
+import {
+  fetchCountsForTier,
+  fetchComplaints,
+  fetchComplaintGroups,
+  fetchComplaintsForGroup,
+  fetchMonthlyTrend,
+} from "../providers/socrata.js";
 import {
   readEntries,
   writeCounts,
   writeExplanation,
+  readTrend,
+  writeTrend,
+  readComplaintGroups,
+  writeComplaintGroups,
   roundCoord,
 } from "../providers/cache.js";
 import { loadBaseline } from "../providers/baseline.js";
 import { buildReport, scoreTier } from "./scoring.js";
 import { explainFromTemplate, explainWithAI } from "./explain.js";
-import { mockScoreReport, mockComplaints } from "./mockData.js";
+import { mockScoreReport, mockComplaints, mockMonthlyTrend } from "./mockData.js";
 
 // Orchestration: cache first, Socrata on a miss, write the result back.
 // The routes never call Socrata or Mongo directly — that separation is what
@@ -219,7 +233,7 @@ export async function buildExplanation(lat, lng, tier, options = {}) {
  */
 export async function fetchComplaintPoints(lat, lng, radiusMeters, options = {}) {
   if (isMockMode()) {
-    const points = mockComplaints(lat, lng, radiusMeters);
+    const points = mockComplaints(lat, lng, radiusMeters).map(withStatusBucket);
     return { points, truncated: false, limit: points.length };
   }
 
@@ -234,4 +248,243 @@ export async function fetchComplaintPoints(lat, lng, radiusMeters, options = {})
     truncated: points.length >= limit,
     limit,
   };
+}
+
+/** Mock rows carry a raw status only; give them the same shape as live rows. */
+function withStatusBucket(point) {
+  return { ...point, statusBucket: statusBucket(point.status) };
+}
+
+/** "YYYY-MM-DD" for `months` months before the reference date. */
+function dayCutoff(months, now) {
+  const d = new Date(now ?? Date.now());
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
+
+function zeroStatusCounts() {
+  return Object.fromEntries(STATUS_BUCKET_NAMES.map((name) => [name, 0]));
+}
+
+/**
+ * One row per (day, complaint_type) for the complaints browser, newest first,
+ * with a status breakdown inside each row.
+ *
+ * Cache-first over GROUPED rows, which is what makes this affordable. The raw
+ * listing path can never answer these questions on a busy block: 655 E 230 St
+ * has 190,205 rows inside a 350m/24mo window, past Socrata's own $limit — but
+ * only 1,848 grouped rows.
+ *
+ * `total` counts distinct (day, type) pairs after filtering — GROUPS, not the
+ * complaints inside them. Paging is over groups too.
+ */
+export async function fetchComplaintGroupList(
+  lat,
+  lng,
+  radiusMeters,
+  { tier, months, bucket, status, offset = 0, limit = 25, now } = {}
+) {
+  let groups;
+  let truncated = false;
+  let cached = false;
+
+  if (isMockMode()) {
+    groups = groupMockComplaints(lat, lng, radiusMeters);
+  } else {
+    // The cache key has no radius dimension, so an ad-hoc radius must neither
+    // read from nor write to it — it would collide with the tier's own entry
+    // and describe a different circle.
+    const cacheable = Boolean(tier) && radiusMeters === RADIUS_TIERS[tier].radiusMeters;
+
+    if (cacheable) {
+      const hit = await readComplaintGroups(lat, lng, tier);
+      if (hit) {
+        ({ groups, truncated } = hit);
+        cached = true;
+      }
+    }
+
+    if (!groups) {
+      // Always filled at the CACHE limit, never the caller's page size —
+      // otherwise a limit=25 request would store a 25-row entry that every
+      // later page has to discard.
+      groups = await fetchComplaintGroups(lat, lng, radiusMeters, {
+        tier,
+        now,
+        limit: COMPLAINT_GROUPS_CACHE_LIMIT,
+      });
+      truncated = groups.length >= COMPLAINT_GROUPS_CACHE_LIMIT;
+      if (cacheable) {
+        // AWAITED, unlike writeTrend's fire-and-forget. That one follows a fast
+        // query and must not delay a chart; this one follows a fill measured at
+        // 2.3-74.3s, so a few milliseconds of Mongo write is noise — and losing
+        // the race means paying that fill a second time. Still never throws: a
+        // failed write costs a repeat fill, not a request.
+        await writeComplaintGroups(lat, lng, tier, groups, truncated).catch(() => {});
+      }
+    }
+  }
+
+  const cutoff = months ? dayCutoff(months, now) : null;
+  const matching = groups.filter((g) => {
+    if (cutoff && g.day < cutoff) return false;
+    if (bucket && TYPE_TO_BUCKET[g.type] !== bucket) return false;
+    if (status && g.statusBucket !== status) return false;
+    return true;
+  });
+
+  // Collapse the (day, type, status) tuples into one row per (day, type). Under
+  // a status filter the non-matching tuples are already gone, so a row whose
+  // only complaints were of another status never gets created.
+  const byKey = new Map();
+  for (const g of matching) {
+    const key = `${g.day}|${g.type}`;
+    let row = byKey.get(key);
+    if (!row) {
+      row = { day: g.day, type: g.type, counts: zeroStatusCounts(), total: 0 };
+      byKey.set(key, row);
+    }
+    row.counts[g.statusBucket] += g.count;
+    row.total += g.count;
+  }
+
+  // Sorted explicitly rather than trusting Socrata's grouping order: paging is
+  // offset-based, so an unstable order would duplicate and drop rows between
+  // pages.
+  const rows = [...byKey.values()].sort(
+    (a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : a.type.localeCompare(b.type))
+  );
+
+  return {
+    rows: rows.slice(offset, offset + limit),
+    total: rows.length,
+    hasMore: offset + limit < rows.length,
+    truncated,
+    cached,
+    offset,
+    limit,
+  };
+}
+
+/** Groups the deterministic mock rows the same way Socrata's $group would. */
+function groupMockComplaints(lat, lng, radiusMeters) {
+  const byKey = new Map();
+  for (const point of mockComplaints(lat, lng, radiusMeters)) {
+    const day = point.created_date.slice(0, 10);
+    const key = `${day}|${point.type}|${statusBucket(point.status)}`;
+    const existing = byKey.get(key);
+    if (existing) existing.count += 1;
+    else {
+      byKey.set(key, {
+        day,
+        type: point.type,
+        statusBucket: statusBucket(point.status),
+        count: 1,
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * The individual complaints behind one (day, type) group.
+ *
+ * Live and uncached: a rare, explicit drill-in, and the cost is the spatial
+ * filter rather than the rows (5.6s measured for a 17-row day), so a day+type
+ * cache would buy little for the upkeep of another collection.
+ */
+export async function fetchComplaintGroupDetail(
+  lat,
+  lng,
+  radiusMeters,
+  { type, day, status, offset = 0, limit = 50 } = {}
+) {
+  if (isMockMode()) {
+    const all = mockComplaints(lat, lng, radiusMeters)
+      .map(withStatusBucket)
+      .filter((p) => p.type === type && p.created_date.slice(0, 10) === day)
+      .filter((p) => !status || p.statusBucket === status);
+    return {
+      points: all.slice(offset, offset + limit),
+      total: all.length,
+      hasMore: offset + limit < all.length,
+    };
+  }
+
+  // One extra row is the cheapest possible "is there another page?" probe, and
+  // it avoids a second count query against the slowest part of the upstream.
+  const points = await fetchComplaintsForGroup(lat, lng, radiusMeters, {
+    type,
+    day,
+    offset,
+    limit: limit + 1,
+  });
+
+  const hasMore = points.length > limit;
+  const page = hasMore ? points.slice(0, limit) : points;
+
+  return {
+    // Filtered after the fetch, not in SoQL: `status` is our three-way bucket,
+    // not a dataset value, and expanding it back into raw statuses inside the
+    // query would put a second copy of the enum in the where-clause.
+    points: status ? page.filter((p) => p.statusBucket === status) : page,
+    total: null, // the caller already knows the group's size from the list
+    hasMore,
+  };
+}
+
+/**
+ * Complaints per month for one tier over the last `months` months, oldest
+ * first and zero-filled.
+ *
+ * Zero-filling happens here rather than in the provider because "no complaints
+ * that month" is a real, chartable value, while Socrata simply omits the row —
+ * a gap-free series is what every caller wants and none should have to
+ * reconstruct.
+ */
+export async function fetchTrend(lat, lng, radiusMeters, { tier, months, now } = {}) {
+  const reference = new Date(now ?? Date.now());
+
+  const buckets = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(reference.getFullYear(), reference.getMonth() - i, 1);
+    buckets.push({
+      month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      count: 0,
+    });
+  }
+
+  if (isMockMode()) {
+    return fill(buckets, mockMonthlyTrend(lat, lng, radiusMeters, { tier, months, now: reference }));
+  }
+
+  // Cache the finished series, not the raw rows: it is small (≤24 numbers), and
+  // the block-tier query is the slowest call in the app — 13s cold on a dense
+  // block, which is inside the Socrata retry budget but outside a serverless
+  // function's. The cached path is the one that has to hold up in production.
+  const cached = await readTrend(lat, lng, tier, months);
+  if (cached) return cached;
+
+  const points = await fetchMonthlyTrend(lat, lng, radiusMeters, {
+    tier,
+    months,
+    now: reference,
+  });
+  const series = fill(buckets, points);
+
+  // Not awaited into the response path — a slow cache write must not delay the
+  // chart, and a failed one costs a repeat query, not a request.
+  writeTrend(lat, lng, tier, months, series).catch(() => {});
+
+  return series;
+}
+
+/** Drops each returned month into its slot, ignoring anything out of range. */
+function fill(buckets, points) {
+  const indexByMonth = new Map(buckets.map((b, i) => [b.month, i]));
+  for (const point of points) {
+    const idx = indexByMonth.get(point.month);
+    if (idx !== undefined) buckets[idx].count = point.count;
+  }
+  return buckets;
 }

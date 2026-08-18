@@ -150,3 +150,35 @@ export function mockComplaints(lat, lng, radiusMeters) {
     };
   });
 }
+
+/**
+ * Deterministic monthly counts for one tier, mirroring what
+ * providers/socrata.js `fetchMonthlyTrend` returns: only months that actually
+ * have complaints, "YYYY-MM" keys, oldest first. The caller zero-fills.
+ *
+ * Seeded per coordinate + tier + window so a given address always charts the
+ * same shape, and shaped with a mild seasonal swell so the demo chart reads
+ * like complaint data rather than noise.
+ */
+export function mockMonthlyTrend(lat, lng, radiusMeters, { tier, months, now } = {}) {
+  const rand = seededRandom(seedFor(lat, lng, `trend:${tier}:${radiusMeters}`));
+  const reference = new Date(now ?? Date.now());
+  // Block-tier radii cover far more ground, so they carry far more complaints.
+  const scale = radiusMeters >= 200 ? 40 : 2;
+
+  const points = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(reference.getFullYear(), reference.getMonth() - i, 1);
+    // Winter peak: heat complaints spike Dec-Mar, and the block tier's noise
+    // runs the other way, so this is a gentle swell rather than a hard curve.
+    const seasonal = 1 + 0.45 * Math.cos((d.getMonth() / 12) * 2 * Math.PI);
+    const count = Math.round(rand() * scale * seasonal);
+    if (count > 0) {
+      points.push({
+        month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        count,
+      });
+    }
+  }
+  return points;
+}
