@@ -5,6 +5,16 @@ import {
   BASELINE_ID,
   BUCKET_NAMES,
 } from "../config/constants.js";
+
+// The one Mongo collection here with NO ensure*Indexes() function, and that is
+// correct rather than an omission: every access is by `_id` (findOne({_id: "v1"})
+// and a replaceOne on the same key), and Mongo indexes _id itself on every
+// collection. There is nothing to create. It holds a single document, so there
+// is also nothing to sort or expire.
+//
+// Noted explicitly because the audit that added lazy index creation everywhere
+// else has to be re-runnable: a future reader should be able to see this was
+// considered, not skipped.
 import { getDb, isMongoConfigured } from "./mongo.js";
 
 // Loads the citywide baseline the scorer compares against.

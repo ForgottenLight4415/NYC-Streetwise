@@ -52,10 +52,15 @@ export function ScorePanelCard({
   // The window lives here, not inside TrendSection, so it scopes the chart AND
   // the complaint list below it. Split between the two, a panel filtered to 3
   // months still listed complaints from 2024.
-  const [months, setMonths] = useState<TrendWindow>(TREND_DEFAULT_MONTHS as TrendWindow);
+  const [months, setMonths] = useState<TrendWindow>(
+    TREND_DEFAULT_MONTHS as TrendWindow,
+  );
   const [series, setSeries] = useState<TrendPoint[] | null>(null);
 
-  const totalComplaints = Object.values(panel.counts).reduce((sum, n) => sum + n, 0);
+  const totalComplaints = Object.values(panel.counts).reduce(
+    (sum, n) => sum + n,
+    0,
+  );
 
   // Filtered client-side, costing no request. The list is newest-first, so its
   // first N are the first N of any window it covers, and narrowing by date is a
@@ -76,8 +81,11 @@ export function ScorePanelCard({
 
   return (
     <div
-      className="flex flex-col gap-5 rounded-[var(--radius-lg)] bg-[color:var(--surface-1)] p-5 sm:p-6"
-      style={{ boxShadow: "var(--shadow-md)", border: "1px solid var(--border-hairline)" }}
+      className="flex flex-col gap-5 rounded-lg bg-(--surface-1) p-5 sm:p-6"
+      style={{
+        boxShadow: "var(--shadow-md)",
+        border: "1px solid var(--border-hairline)",
+      }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -91,43 +99,43 @@ export function ScorePanelCard({
             {icon}
           </span>
           <div className="min-w-0">
-            <h2 className="font-semibold text-[color:var(--text-primary)]">{title}</h2>
-            <p className="text-xs text-[color:var(--text-muted)]">{description}</p>
+            <h2 className="font-semibold text-(--text-primary)">{title}</h2>
+            <p className="text-xs text-(--text-muted)">{description}</p>
           </div>
         </div>
         <StatusBadge band={panel.band} />
       </div>
 
-      {confidenceMessage && (
-        <p
-          className="rounded-lg px-3 py-2 text-xs"
-          style={{
-            color: "var(--status-warning-ink)",
-            background: "color-mix(in srgb, var(--status-warning) 14%, transparent)",
-          }}
-        >
-          {confidenceMessage}
-        </p>
-      )}
-
       <div className="flex items-center gap-4 sm:gap-5">
         <ScoreMeter score={panel.score} band={panel.band} size={96} />
-        <div className="min-w-0 flex-1 text-sm text-[color:var(--text-secondary)]">
+        <div className="min-w-0 flex-1 text-sm text-(--text-secondary)">
           <p>
-            <span className="font-data font-medium text-[color:var(--text-primary)]">
+            <span className="font-data font-medium text-(--text-primary)">
               {totalComplaints}
             </span>{" "}
             complaints within{" "}
-            <span className="font-data font-medium text-[color:var(--text-primary)]">
+            <span className="font-data font-medium text-(--text-primary)">
               {panel.radiusMeters}m
             </span>
             .
           </p>
+          {confidenceMessage && (
+            <p
+              className="rounded-lg my-1 px-3 py-2 text-xs"
+              style={{
+                color: "var(--status-warning-ink)",
+                background:
+                  "color-mix(in srgb, var(--status-warning) 14%, transparent)",
+              }}
+            >
+              {confidenceMessage}
+            </p>
+          )}
         </div>
       </div>
 
       <div>
-        <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+        <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-(--text-muted)">
           By category
         </p>
         <ComplaintBreakdownBars
@@ -154,7 +162,7 @@ export function ScorePanelCard({
 
       {panel.recentComplaints !== undefined && (
         <div>
-          <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+          <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-(--text-muted)">
             Recent complaints
           </p>
           <RecentComplaintsList

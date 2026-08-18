@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { BAND_LABEL, BAND_VAR, BAND_VERDICT, CATEGORY_LABEL, overallBand } from "@/lib/score";
+import {
+  BAND_LABEL,
+  BAND_VAR,
+  BAND_VERDICT,
+  CATEGORY_LABEL,
+  overallBand,
+} from "@/lib/score";
 import type { ReportResponse } from "@/lib/types";
 
 function ScoreBlob({ score, colorVar }: { score: number; colorVar: string }) {
@@ -34,14 +40,19 @@ function PanelRow({
       <div className="flex items-center gap-2 min-w-0">
         <ScoreBlob score={score} colorVar={colorVar} />
         <div className="min-w-0">
-          <p className="font-medium text-[color:var(--text-primary)] leading-tight">{label}</p>
+          <p className="font-medium text-(--text-primary) leading-tight">
+            {label}
+          </p>
           {topCategory && (
-            <p className="text-xs text-[color:var(--text-muted)] truncate">Top: {topCategory}</p>
+            <p className="text-xs text-(--text-muted) truncate">
+              Top: {topCategory}
+            </p>
           )}
         </div>
       </div>
-      <span className="shrink-0 text-xs text-[color:var(--text-muted)]">
-        <span className="font-data">{total}</span> complaint{total !== 1 ? "s" : ""}
+      <span className="shrink-0 text-xs text-(--text-muted)">
+        <span className="font-data">{total}</span> complaint
+        {total !== 1 ? "s" : ""}
       </span>
     </div>
   );
@@ -53,7 +64,10 @@ export function FeaturedCard({
   data,
 }: {
   address: string;
-  borough: string;
+  // Nullable because it is derived, not fetched: the borough comes from the
+  // address text, with a coordinate bounding box behind it, and both can decline
+  // to answer. A missing chip beats a wrong one.
+  borough: string | null;
   data: ReportResponse;
 }) {
   const { buildingHealth, blockQuality } = data;
@@ -64,11 +78,21 @@ export function FeaturedCard({
   const accentColor = `var(${BAND_VAR[band]})`;
   const accentInk = `var(${BAND_VAR[band]}-ink)`;
 
-  const topBuildingCat = Object.entries(buildingHealth.counts).sort(([, a], [, b]) => b - a)[0]?.[0];
-  const topBlockCat = Object.entries(blockQuality.counts).sort(([, a], [, b]) => b - a)[0]?.[0];
+  const topBuildingCat = Object.entries(buildingHealth.counts).sort(
+    ([, a], [, b]) => b - a,
+  )[0]?.[0];
+  const topBlockCat = Object.entries(blockQuality.counts).sort(
+    ([, a], [, b]) => b - a,
+  )[0]?.[0];
 
-  const buildingTotal = Object.values(buildingHealth.counts).reduce((sum, n) => sum + n, 0);
-  const blockTotal = Object.values(blockQuality.counts).reduce((sum, n) => sum + n, 0);
+  const buildingTotal = Object.values(buildingHealth.counts).reduce(
+    (sum, n) => sum + n,
+    0,
+  );
+  const blockTotal = Object.values(blockQuality.counts).reduce(
+    (sum, n) => sum + n,
+    0,
+  );
 
   const streetAddress = address.split(",")[0];
   const restAddress = address.split(",").slice(1).join(",").trim();
@@ -76,7 +100,7 @@ export function FeaturedCard({
   return (
     <Link
       href={`/report?address=${encodeURIComponent(address)}`}
-      className="card-pop group flex flex-col overflow-hidden rounded-[var(--radius-lg)] bg-[color:var(--surface-1)]"
+      className="card-pop group flex flex-col overflow-hidden rounded-lg bg-(--surface-1)"
       style={{ border: "1px solid var(--border-hairline)" }}
     >
       <div className="h-1.5 w-full" style={{ background: accentColor }} />
@@ -90,24 +114,31 @@ export function FeaturedCard({
             >
               {BAND_VERDICT[band]}
             </p>
-            <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-[color:var(--text-muted)]">
+            <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
               {BAND_LABEL[band]}
             </p>
           </div>
-          <span
-            className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-            style={{
-              color: accentInk,
-              background: `color-mix(in srgb, ${accentColor} 14%, transparent)`,
-            }}
-          >
-            {borough}
-          </span>
+          {borough && (
+            <span
+              className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
+              style={{
+                color: accentInk,
+                background: `color-mix(in srgb, ${accentColor} 14%, transparent)`,
+              }}
+            >
+              {borough}
+            </span>
+          )}
         </div>
 
-        <div className="border-t pt-3" style={{ borderColor: "var(--gridline)" }}>
-          <p className="font-semibold text-[color:var(--text-primary)] leading-snug">{streetAddress}</p>
-          <p className="text-xs text-[color:var(--text-muted)] mt-0.5">{restAddress}</p>
+        <div
+          className="border-t pt-3"
+          style={{ borderColor: "var(--gridline)" }}
+        >
+          <p className="font-semibold text-(--text-primary) leading-snug">
+            {streetAddress}
+          </p>
+          <p className="text-xs text-(--text-muted) mt-0.5">{restAddress}</p>
         </div>
 
         <div className="flex flex-col gap-3">
@@ -115,20 +146,24 @@ export function FeaturedCard({
             label="Building Health"
             score={buildingHealth.score}
             total={buildingTotal}
-            topCategory={topBuildingCat ? (CATEGORY_LABEL[topBuildingCat] ?? null) : null}
+            topCategory={
+              topBuildingCat ? (CATEGORY_LABEL[topBuildingCat] ?? null) : null
+            }
             colorVar="--series-building"
           />
           <PanelRow
             label="Block Quality"
             score={blockQuality.score}
             total={blockTotal}
-            topCategory={topBlockCat ? (CATEGORY_LABEL[topBlockCat] ?? null) : null}
+            topCategory={
+              topBlockCat ? (CATEGORY_LABEL[topBlockCat] ?? null) : null
+            }
             colorVar="--series-block"
           />
         </div>
 
         <div
-          className="border-t pt-3 text-xs font-semibold text-[color:var(--brand-ink)] transition-colors group-hover:text-[color:var(--brand-strong)]"
+          className="border-t pt-3 text-xs font-semibold text-(--brand-ink) transition-colors group-hover:text-(--brand-strong)"
           style={{ borderColor: "var(--gridline)" }}
         >
           View full report →

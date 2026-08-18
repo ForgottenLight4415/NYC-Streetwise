@@ -113,6 +113,6 @@ export function explainVerdict(
 // has no user-facing message; surface it to the team instead.
 export const CONFIDENCE_MESSAGE: Record<string, string> = {
   no_complaints_found:
-    "No records found at this location — this may not be a building address.",
+    "No records were found at this location. Make sure this is a building address.",
   no_baseline: "Score is not comparable to the rest of the city.",
 };

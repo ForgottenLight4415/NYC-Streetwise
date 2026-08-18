@@ -23,20 +23,26 @@ const SCORE_TIE_MARGIN = 10;
  */
 function dominantCategory(
   counts: Record<string, number>,
-  bucketScores?: Record<string, number | undefined>
+  bucketScores?: Record<string, number | undefined>,
 ): string | null {
   const categories = Object.keys(counts);
   if (categories.length === 0) return null;
 
   const byCount = (candidates: string[]) =>
-    candidates.reduce((most, c) => ((counts[c] ?? 0) > (counts[most] ?? 0) ? c : most));
+    candidates.reduce((most, c) =>
+      (counts[c] ?? 0) > (counts[most] ?? 0) ? c : most,
+    );
 
   const scored = bucketScores
     ? categories.filter((c) => Number.isFinite(bucketScores[c]))
     : [];
   if (scored.length > 0) {
     const worst = Math.min(...scored.map((c) => bucketScores![c] as number));
-    return byCount(scored.filter((c) => (bucketScores![c] as number) - worst <= SCORE_TIE_MARGIN));
+    return byCount(
+      scored.filter(
+        (c) => (bucketScores![c] as number) - worst <= SCORE_TIE_MARGIN,
+      ),
+    );
   }
 
   return byCount(categories);
@@ -64,13 +70,13 @@ function explain(
   tier: "building" | "block",
   score: number,
   counts: Record<string, number>,
-  bucketScores?: Record<string, number | undefined>
+  bucketScores?: Record<string, number | undefined>,
 ): string {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
 
   if (total === 0) {
     return tier === "building"
-      ? "Nothing was filed against this building in the window — no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
+      ? "Nothing was filed against this building in the window - no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
       : "Nothing was filed on this block in the window — no noise, parking, or street-condition complaints. That is a real clean record, not missing data.";
   }
 
@@ -125,19 +131,27 @@ export function ComplaintBreakdownBars({
   const [expanded, setExpanded] = useState(false);
 
   const explanation = useMemo(
-    () => (typeof score === "number" ? explain(tier, score, counts, bucketScores) : null),
-    [tier, score, counts, bucketScores]
+    () =>
+      typeof score === "number"
+        ? explain(tier, score, counts, bucketScores)
+        : null,
+    [tier, score, counts, bucketScores],
   );
 
   return (
     <div className="flex flex-col gap-2.5">
       <div>
         {entries.map(([cat, count]) => (
-          <div key={cat} className="flex items-center justify-between gap-3 py-1 text-sm">
-            <span className="min-w-0 truncate text-[color:var(--text-secondary)]">
+          <div
+            key={cat}
+            className="flex items-center justify-between gap-3 py-1 text-sm"
+          >
+            <span className="min-w-0 truncate text-(--text-secondary)">
               {CATEGORY_LABEL[cat]}
             </span>
-            <span className="font-data shrink-0 text-[color:var(--text-primary)]">{count}</span>
+            <span className="font-data shrink-0 text-(--text-primary)">
+              {count}
+            </span>
           </div>
         ))}
       </div>
@@ -153,13 +167,13 @@ export function ComplaintBreakdownBars({
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            className="text-xs font-semibold text-[color:var(--brand-ink)]"
+            className="text-xs font-semibold text-(--brand-ink)"
           >
             {expanded ? "Hide why" : "Why this score?"}
           </button>
           {expanded && (
             <p
-              className="mt-2 rounded-[var(--radius-md)] p-3 text-sm leading-6 text-[color:var(--text-secondary)]"
+              className="mt-2 rounded-md p-3 text-sm leading-6 text-(--text-secondary)"
               style={{ background: "var(--surface-2)" }}
             >
               {explanation}

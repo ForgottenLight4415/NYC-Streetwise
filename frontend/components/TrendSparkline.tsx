@@ -11,7 +11,21 @@ const PAD_LEFT = 22;
 const PAD_RIGHT = 6;
 const BAR_WIDTH_RATIO = 0.6;
 
-const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_SHORT = [
+  "",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function monthShort(month: string) {
   const [, m] = month.split("-");
@@ -46,7 +60,9 @@ export function TrendSparkline({
   const step = rawMax <= 5 ? 1 : rawMax <= 20 ? 5 : 10;
   const axisMax = Math.max(step, Math.ceil(rawMax / step) * step);
   const midTick = Math.round(axisMax / 2);
-  const ticks = Array.from(new Set([0, midTick, axisMax])).sort((a, b) => a - b);
+  const ticks = Array.from(new Set([0, midTick, axisMax])).sort(
+    (a, b) => a - b,
+  );
 
   const yFor = (count: number) => PAD_TOP + chartH - (count / axisMax) * chartH;
   const baseline = PAD_TOP + chartH;
@@ -57,14 +73,23 @@ export function TrendSparkline({
     const bandStart = PAD_LEFT + i * bandWidth;
     const barX = bandStart + (bandWidth - barWidth) / 2;
     const barY = yFor(d.count);
-    return { ...d, bandStart, x: barX, y: barY, centerX: bandStart + bandWidth / 2 };
+    return {
+      ...d,
+      bandStart,
+      x: barX,
+      y: barY,
+      centerX: bandStart + bandWidth / 2,
+    };
   });
 
   function handleMove(e: React.PointerEvent<SVGSVGElement>) {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || bars.length === 0) return;
     const relX = ((e.clientX - rect.left) / rect.width) * W;
-    const idx = Math.min(bars.length - 1, Math.max(0, Math.floor((relX - PAD_LEFT) / bandWidth)));
+    const idx = Math.min(
+      bars.length - 1,
+      Math.max(0, Math.floor((relX - PAD_LEFT) / bandWidth)),
+    );
     setHoverIdx(idx);
   }
 
@@ -74,8 +99,12 @@ export function TrendSparkline({
   return (
     <div className="relative">
       <div className="mb-1 flex items-baseline justify-between">
-        <span className="text-[10px] text-[color:var(--text-muted)]">Complaints per month</span>
-        <span className="text-[10px] text-[color:var(--text-muted)]">{totalComplaints} total</span>
+        <span className="text-[10px] text-(--text-muted)">
+          Complaints per month
+        </span>
+        <span className="text-[10px] text-(--text-muted)">
+          {totalComplaints} total
+        </span>
       </div>
       <svg
         ref={svgRef}
@@ -83,7 +112,9 @@ export function TrendSparkline({
         className="w-full touch-none"
         role="img"
         aria-label={`Complaints per month over the last ${data.length} months, ranging from 0 to ${rawMax}. ${
-          hovered ? `Currently showing ${hovered.count} complaints in ${monthWithYear(hovered.month)}.` : ""
+          hovered
+            ? `Currently showing ${hovered.count} complaints in ${monthWithYear(hovered.month)}.`
+            : ""
         }`}
         onPointerMove={handleMove}
         onPointerLeave={() => setHoverIdx(null)}
@@ -137,7 +168,7 @@ export function TrendSparkline({
         )}
       </svg>
 
-      <div className="font-data mt-1 flex justify-between pl-[22px] text-[10px] text-[color:var(--text-muted)]">
+      <div className="font-data mt-1 flex justify-between pl-5.5 text-[10px] text-(--text-muted)">
         <span>{monthWithYear(data[0]?.month)}</span>
         <span>{monthWithYear(data[data.length - 1]?.month)}</span>
       </div>
@@ -156,8 +187,9 @@ export function TrendSparkline({
           }}
         >
           <span className="font-medium">{hovered.count}</span>{" "}
-          <span className="text-[color:var(--text-muted)]">
-            {hovered.count === 1 ? "complaint" : "complaints"} · {monthWithYear(hovered.month)}
+          <span className="text-(--text-muted)">
+            {hovered.count === 1 ? "complaint" : "complaints"} ·{" "}
+            {monthWithYear(hovered.month)}
           </span>
         </div>
       )}

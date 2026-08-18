@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { RATE_LIMIT_UPSTREAM } from "../config/constants.js";
+import { rateLimit } from "../lib/rateLimit.js";
 import { validateCoords, validateTier, validateMonths } from "../lib/validate.js";
 import { fetchTrend } from "../services/scoreService.js";
 import {
@@ -25,7 +27,11 @@ export const trendRouter = Router();
  * `radiusMeters` is echoed back because the caller labels the chart with it and
  * should not have to keep its own copy of the tier radii.
  */
-trendRouter.get("/api/trend", async (req, res, next) => {
+// Socrata aggregation on a miss — measured 13s cold on a dense block.
+trendRouter.get(
+  "/api/trend",
+  rateLimit({ ...RATE_LIMIT_UPSTREAM, name: "trend" }),
+  async (req, res, next) => {
   try {
     const { lat, lng } = validateCoords(req.query);
     const tier = validateTier(req.query.tier);
@@ -47,4 +53,5 @@ trendRouter.get("/api/trend", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+  }
+);

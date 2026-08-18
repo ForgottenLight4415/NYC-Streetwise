@@ -48,10 +48,19 @@ const ALL_TIERS = Object.keys(RADIUS_TIERS);
  * Misses are fetched in parallel, so an uncached point still costs the two HTTP
  * calls CLAUDE.md budgets — never more.
  *
- * @returns {Promise<{coord: {lat, lng}, counts: Record<string, object>,
+ * `cacheOnly` suppresses the Socrata fallback entirely and leaves a missing
+ * tier's counts `null`. That is for callers on a path where a slow answer is
+ * worse than no answer — the homepage renders whatever is already cached, and
+ * must never pay a 0.3-2.5s (tail 8.3s) upstream call to do it.
+ *
+ * @returns {Promise<{coord: {lat, lng}, counts: Record<string, object|null>,
  *   cache: Record<string, "hit"|"miss">}>}
  */
-export async function getCounts(lat, lng, { now, tiers = ALL_TIERS, forceRefresh = false } = {}) {
+export async function getCounts(
+  lat,
+  lng,
+  { now, tiers = ALL_TIERS, forceRefresh = false, cacheOnly = false } = {}
+) {
   const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
 
   const entries = forceRefresh
@@ -69,6 +78,20 @@ export async function getCounts(lat, lng, { now, tiers = ALL_TIERS, forceRefresh
   );
 
   const misses = tiers.filter((tier) => cached[tier] === null);
+
+  // A cache-only caller stops here. Reported as a "miss" rather than an error:
+  // nothing went wrong, the answer simply is not stored yet, and the caller
+  // decides what to show for a null.
+  if (cacheOnly) {
+    return {
+      coord,
+      counts: cached,
+      cachedExplanations,
+      cache: Object.fromEntries(
+        tiers.map((tier) => [tier, misses.includes(tier) ? "miss" : "hit"])
+      ),
+    };
+  }
 
   // allSettled, not all: Promise.all short-circuits on the first rejection, so a
   // failing building tier would abandon the block tier mid-write and throw away
@@ -141,6 +164,40 @@ export async function buildScoreReport(lat, lng, options = {}) {
   // A cached AI explanation is served if one exists, otherwise the deterministic
   // template goes out immediately and the frontend asks /api/explanation for
   // the real thing.
+  for (const [tier, key] of Object.entries(REPORT_KEYS)) {
+    report[key] = {
+      ...report[key],
+      ...resolveCachedExplanation(tier, report[key], cachedExplanations?.[tier]),
+    };
+  }
+
+  return report;
+}
+
+/**
+ * The same payload as buildScoreReport, but ONLY if it is already cached.
+ *
+ * Returns null when either tier is missing, rather than a half-scored report:
+ * the overall verdict is the worse of the two bands, so a report holding one
+ * band is not a weaker version of the answer, it is a different answer. Callers
+ * show nothing for a null.
+ *
+ * No Socrata and no AI — cached counts plus the memoized baseline, so this is
+ * Mongo latency plus arithmetic (measured 2-5ms warm). That is what makes it
+ * safe on the homepage's render path.
+ */
+export async function buildCachedScoreReport(lat, lng, options = {}) {
+  if (isMockMode()) return mockScoreReport(lat, lng);
+
+  const [{ coord, counts, cache, cachedExplanations }, baseline] = await Promise.all([
+    getCounts(lat, lng, { ...options, cacheOnly: true }),
+    loadBaseline(),
+  ]);
+
+  if (ALL_TIERS.some((tier) => counts[tier] === null)) return null;
+
+  const report = buildReport(counts, baseline, { coord, cache });
+
   for (const [tier, key] of Object.entries(REPORT_KEYS)) {
     report[key] = {
       ...report[key],

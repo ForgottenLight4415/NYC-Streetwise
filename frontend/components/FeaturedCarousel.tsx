@@ -2,16 +2,18 @@
 
 import { useEffect, useRef } from "react";
 import { FeaturedCard } from "./FeaturedCard";
-import type { FeaturedReport } from "@/lib/mock-data";
+import type { ShowcaseItem } from "@/lib/types";
 
 const SCROLL_SPEED = 0.18; // px per animation frame (~11px/s at 60fps)
 const RESUME_DELAY = 2000; // ms after interaction stops before auto-scroll resumes
 
-export function FeaturedCarousel({ reports }: { reports: FeaturedReport[] }) {
+export function FeaturedCarousel({ reports }: { reports: ShowcaseItem[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const paused = useRef(false);
   const rafRef = useRef<number>(0);
-  const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   // Track fractional scroll position separately — browsers round scrollLeft to
   // integers on read, so `el.scrollLeft += 0.18` would never accumulate.
   const scrollPos = useRef(0);
@@ -60,7 +62,13 @@ export function FeaturedCarousel({ reports }: { reports: FeaturedReport[] }) {
     el.addEventListener("touchstart", pause, { passive: true });
     el.addEventListener("touchend", scheduleResume, { passive: true });
     // Sync tracked position when user scrolls manually so resume is seamless
-    el.addEventListener("scroll", () => { scrollPos.current = el.scrollLeft; }, { passive: true });
+    el.addEventListener(
+      "scroll",
+      () => {
+        scrollPos.current = el.scrollLeft;
+      },
+      { passive: true },
+    );
 
     function onWheel() {
       pause();
@@ -92,9 +100,13 @@ export function FeaturedCarousel({ reports }: { reports: FeaturedReport[] }) {
           // taken out. The min() keeps the desktop width and lets the card sit
           // inside the viewport on a phone, with a sliver of the next one
           // showing so the row reads as scrollable.
-          className="w-[min(340px,82vw)] flex-shrink-0"
+          className="w-[min(340px,82vw)] shrink-0"
         >
-          <FeaturedCard address={report.address} borough={report.borough} data={report.data} />
+          <FeaturedCard
+            address={report.address}
+            borough={report.borough}
+            data={report}
+          />
         </div>
       ))}
     </div>

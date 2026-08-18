@@ -68,6 +68,41 @@ export interface ReportResponse {
   meta: ReportMeta;
 }
 
+/**
+ * One address the backend has both a name and cached scores for.
+ *
+ * Extends ReportResponse rather than wrapping it because that is literally what
+ * /api/showcase returns — the score payload with the address grafted on. The
+ * `address` field is non-null here, unlike on ReportResponse, which is the whole
+ * reason this type exists: /api/score is coordinate-only and answers `null`, and
+ * only the lookup directory knows what a coordinate is called.
+ */
+export interface ShowcaseItem extends Omit<ReportResponse, "address"> {
+  address: string;
+  borough: string | null;
+  lat: number;
+  lng: number;
+  lookups: number;
+  lastSeenAt: string | null;
+  /** True for the committed pre-warmed set, false for a real visitor lookup. */
+  curated: boolean;
+}
+
+/**
+ * A named address with no scores — what the homepage's hero card falls back to
+ * when nothing is cached, and fetches a live score for itself.
+ *
+ * Comes from the backend's committed curated list, picked at random per request,
+ * so the frontend does not keep its own copy of addresses and coordinates that
+ * could drift from the set actually being pre-warmed.
+ */
+export interface ShowcaseFallback {
+  address: string;
+  borough: string | null;
+  lat: number;
+  lng: number;
+}
+
 export interface AutocompleteSuggestion {
   id: string;
   description: string;

@@ -4,8 +4,18 @@ Backend for the NYC 311 address risk tool. Takes a coordinate, returns two
 0–100 scores derived from live NYC 311 complaint data.
 
 - **Base URL (local):** `http://localhost:3001`
-- **Auth:** none. Every endpoint is public — this is a read-only view over NYC
-  Open Data, and nothing here belongs to any one caller.
+- **Auth:** none, on every endpoint but one. This is a read-only view over NYC
+  Open Data and nothing here belongs to any one caller. Two exceptions worth
+  knowing: `POST /api/lookups` appends a public address string and a counter
+  (with nothing identifying who asked), and `GET /api/warm` requires a bearer
+  token because it is the only call that costs real upstream work.
+- **Rate limits:** per caller per minute, tiered by what a call costs to serve —
+  60 for Socrata-backed reads (`/api/score`, `/api/trend`, `/api/complaints`),
+  30 for `/api/explanation` (metered AI key), 10 for
+  the grouped fill (`/api/complaints?complete=1`, measured 2.3–74.3s), 240 for
+  cache-only reads. Over the line is `429 rate_limited` with `Retry-After` and
+  `X-RateLimit-*` headers. Ordinary use does not come close: opening the homepage
+  and three reports costs 8 / 10 / 10 / 2 / 3 against those budgets.
 - **Content type:** `application/json` everywhere.
 - **CORS:** open (`Access-Control-Allow-Origin: *`), preflight answered with 204.
 
@@ -594,6 +604,231 @@ $ curl "localhost:3001/api/explanation?lat=40.698&lng=-73.921&tier=roof"
 
 Coordinates are validated before `tier`, so a request that is wrong in both ways
 reports the coordinate problem first. Fix what you are told about, then re-send.
+
+---
+
+
+### `429 rate_limited`
+
+Returned by every endpoint except `/health` when a caller exceeds its per-minute
+budget. Carries `Retry-After` (seconds) plus `X-RateLimit-Limit`,
+`X-RateLimit-Remaining` and `X-RateLimit-Reset`.
+
+```json
+{ "error": "rate_limited", "details": "Too many requests. Try again in 42s." }
+```
+
+`details` is written to be shown to a person as-is — unlike a `400`, there is
+nothing in the request to fix, so the only useful advice is when to try again.
+
+
+## `GET /api/showcase`
+
+Addresses this backend has **both a name and cached scores for**. Powers the
+homepage's live report card, its "Try:" chips, and its recently-checked
+carousel.
+
+Each item is the `POST /api/score` payload with the address grafted on, so no
+new client type is needed — but note `address` is a real string here, unlike on
+`/api/score`, where it is always `null`.
+
+**Cache-only, and that is the contract.** It never calls Socrata, so it cannot
+be slow and cannot `503`. A cold or partly-expired cache returns *fewer* items,
+or none. Render what you get; do not treat an empty list as an error.
+
+### Query parameters
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int | `6` | 1–12. |
+| `mode` | enum | `top` | `top` (most looked up), `recent` (most recently looked up), `random`. |
+
+### Sample request
+
+```bash
+curl 'http://localhost:3001/api/showcase?limit=2&mode=top'
+```
+
+### Sample response — `200 OK`
+
+```json
+{
+  "fallback": {
+    "address": "1 Grand Army Plaza, Brooklyn, NY 11238",
+    "borough": "Brooklyn",
+    "lat": 40.6743,
+    "lng": -73.9704
+  },
+  "items": [
+    {
+      "address": "215 W 92nd St, New York, NY 10025",
+      "borough": "Manhattan",
+      "lat": 40.7921,
+      "lng": -73.9732,
+      "lookups": 1,
+      "lastSeenAt": "2026-08-18T18:49:07.764Z",
+      "curated": false,
+      "buildingHealth": { "score": 100, "band": "good", "counts": { "...": 0 } },
+      "blockQuality":  { "score": 32,  "band": "poor", "counts": { "...": 0 } },
+      "meta": { "windowMonths": 24, "cache": { "building": "hit", "block": "hit" } }
+    }
+  ]
+}
+```
+
+(`buildingHealth` / `blockQuality` / `meta` are elided above — they are
+byte-identical in shape to [`POST /api/score`](#post-apiscore).)
+
+### `fallback`
+
+One curated address, **picked at random on every request**, with no scores
+attached. Present on every response, empty list or not.
+
+It is what you show when `items` is empty: a real, committed, pre-warmed address
+you can fetch a live score for yourself. The homepage's hero card does exactly
+that, client-side, so the rest of the page renders while it resolves.
+
+Random rather than pinned so a cold homepage is not permanently fronted by one
+building, and so no client needs its own copy of addresses and coordinates that
+could drift from the set actually being warmed.
+
+### Extra fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `address` | string | As the person who looked it up saw it. A coordinate keeps the first name given to it. |
+| `borough` | string \| null | Derived from the address text, coordinate bounding box as fallback. `null` when neither is conclusive — render nothing, not a guess. |
+| `lookups` | int | How many times this address has been reported on. `0` for a pre-warmed curated address nobody has visited. |
+| `lastSeenAt` | ISO string \| null | Last lookup. |
+| `curated` | bool | True for the committed pre-warmed set (`config/showcase.js`). |
+
+### Latency
+
+Measured ~20–30ms warm over 8 addresses — one indexed directory read plus a
+cached-counts read and arithmetic per item. There is no cold case that is slow:
+uncached addresses are skipped, not fetched.
+
+### Why items go missing
+
+The address directory has **no TTL**; the counts cache expires after 24h. A
+directory row whose counts have expired is skipped, so the list thins out
+between warm runs. That is the designed steady state, not a fault — see
+`GET /api/warm`.
+
+---
+
+## `POST /api/lookups`
+
+Records that an address was looked up, so a cached coordinate can be **named**
+later. Nothing else in this system stores address text.
+
+**Requires `Authorization: Bearer $INTERNAL_API_SECRET`, and is not callable
+from a browser.** This writes the one string the app shows to other people, so
+it is restricted to our own frontend, server-to-server. `401` without the token,
+`503 lookups_not_configured` if the deployment has no secret set.
+
+Deliberately not a field on `POST /api/score`: that endpoint is coordinate-only
+and answers `address: null`, and this backend does not geocode. Both stay true.
+
+### Request
+
+```bash
+curl -X POST http://localhost:3001/api/lookups \
+  -H 'Content-Type: application/json' \
+  -d '{"address":"88 Bedford Ave, Brooklyn, NY 11249","lat":40.7178,"lng":-73.9647}'
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `address` | string | Required, 5–200 chars. Must be a real NYC street address — see below. |
+| `lat` / `lng` | number | Required, must be inside the NYC bounding box. |
+
+Do **not** send a borough — it is derived server-side and a supplied one is
+ignored.
+
+### Where the address is supposed to come from
+
+Google, via our own server — never a browser, and never a person typing.
+
+The frontend's geocode route resolves a Places suggestion the user picked, takes
+`formattedAddress` from Google's response, and posts it here with the shared
+secret. That is what makes the string trustworthy: not its shape, but its
+origin. Free-text search still produces a report; it carries no `placeId`, so
+nothing is recorded.
+
+An earlier version was public and tried to judge submitted strings by shape
+instead — house-number prefixes, TLD patterns. It let `"BUY CRYPTO AT
+evil.example, New York, NY 10001"` through, which is what a blocklist does
+eventually. The validation that remains is hygiene, applying whatever the
+source: `400 invalid_address` for over 200 characters, or for control, zero-width
+and bidi-override characters.
+
+### Response — `202 Accepted`
+
+Empty body. `202` rather than `201` because the write is advisory: a failed
+directory write must not read as a failed report. You get `202` even when Mongo
+is unconfigured and nothing was written — there is nothing you would do
+differently.
+
+`400` on a missing/over-long address or an out-of-NYC coordinate, same error
+shape as everywhere else.
+
+### What is stored
+
+`{ address, borough, lat, lng, lookups, curated, firstSeenAt, lastSeenAt }`.
+The coordinate is rounded to 4dp so the row joins `complaint_cache`. **No caller
+identity, no session, no IP** — a row says an address was looked up, never who
+looked it up.
+
+---
+
+## `GET /api/warm`
+
+Fetches the curated showcase set (8 addresses with committed real coordinates,
+`config/showcase.js`) from Socrata and caches it, so the homepage has real
+addresses to show on a cold cache.
+
+**The one showcase path that goes upstream: sixteen Socrata calls, measured
+62s.** Never put it on a page load.
+
+### Authentication — the only route that has any
+
+Requires `Authorization: Bearer $CRON_SECRET`. Set `CRON_SECRET` in the
+deployment's environment; on Vercel that name is special, and scheduled
+invocations get the header attached automatically with no code at the call site.
+
+| Response | When |
+|---|---|
+| `401 unauthorized` | Missing, malformed or wrong bearer token. |
+| `503 warm_not_configured` | `CRON_SECRET` is not set on this deployment. |
+
+**It fails closed.** Unset means nobody can warm anything — not even the cron.
+Open-when-unconfigured would turn one forgotten environment variable into a
+public endpoint that burns 62s of Socrata quota per request.
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3001/api/warm
+
+# Local development needs no secret at all — this bypasses HTTP entirely:
+npm run warm:showcase
+```
+
+```json
+{
+  "warmed": 8,
+  "failed": 0,
+  "results": [
+    { "address": "456 Park Ave, New York, NY 10022", "ok": true,
+      "cache": { "building": "miss", "block": "miss" } }
+  ]
+}
+```
+
+Run daily. It re-fetches rather than checking first, deliberately: a cache *hit*
+performs no write, so `createdAt` is untouched and the document still expires 24h
+after its last fetch. Only a write slides the TTL. A daily cron
+(`vercel.json → crons`) therefore keeps the set warm indefinitely; a
+check-first version would not.
 
 ---
 

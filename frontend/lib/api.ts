@@ -5,6 +5,8 @@ import type {
   ComplaintPage,
   ComplaintStatus,
   ReportResponse,
+  ShowcaseFallback,
+  ShowcaseItem,
   TrendPoint,
 } from "./types";
 
@@ -364,6 +366,61 @@ export async function fetchSuggestions(
 // Vercel's edge, and that redirect response carries no CORS headers, so the
 // browser blocks it as a CORS failure before ever following it.
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
+
+export type ShowcaseMode = "top" | "recent" | "random";
+
+/**
+ * How long the homepage will wait for its cached addresses before giving up.
+ *
+ * The endpoint answers in ~30ms warm, so this is not a latency budget — it is a
+ * cap on the ways the call can go WRONG. A backend cold start, or a Mongo
+ * outage (the driver's own server-selection timeout is 8s), would otherwise sit
+ * on the page render. Two and a half seconds is far outside the normal response
+ * and far inside anything a visitor would tolerate staring at.
+ */
+const SHOWCASE_TIMEOUT_MS = 2500;
+
+/** Nothing cached and no subject to fall back to. Shared so the shape is one thing. */
+const EMPTY_SHOWCASE = { items: [] as ShowcaseItem[], fallback: null };
+
+/**
+ * Addresses the backend has already cached, named and scored — what the homepage
+ * shows in place of the invented "sample reports" it used to.
+ *
+ * Cache-only server-side, so this is fast or empty, never slow. Returns [] on any
+ * failure for the same reason fetchNearbyComplaints does: the homepage must
+ * render whether or not this resolves, and fewer real cards beat a broken page.
+ *
+ * `init` carries Next's fetch options through — the homepage passes a revalidate
+ * window so the call happens during ISR rather than on a visitor's request.
+ */
+export async function fetchShowcase(
+  mode: ShowcaseMode = "top",
+  limit = 6,
+  init?: RequestInit
+): Promise<{ items: ShowcaseItem[]; fallback: ShowcaseFallback | null }> {
+  const url = `${API_BASE_URL}/api/showcase?mode=${mode}&limit=${limit}`;
+  try {
+    const res = await fetch(url, {
+      // An aborted fetch rejects, and the catch below turns that into the empty
+      // result — the same cold-cache path the page already handles. Overridable,
+      // but every caller so far wants the cap.
+      signal: AbortSignal.timeout(SHOWCASE_TIMEOUT_MS),
+      ...init,
+    });
+    if (!res.ok) return EMPTY_SHOWCASE;
+    const data = await res.json();
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      // Null when the backend is unreachable, which is also when a live score
+      // fetch would fail — so the hero card renders nothing rather than a
+      // subject it cannot score.
+      fallback: data.fallback ?? null,
+    };
+  } catch {
+    return EMPTY_SHOWCASE;
+  }
+}
 
 export async function fetchReport(lat: number, lng: number): Promise<ReportResponse> {
   let res: Response;

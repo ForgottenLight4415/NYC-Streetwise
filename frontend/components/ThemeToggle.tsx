@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { isThemePreference, THEME_KEY, type ThemePreference } from "@/lib/theme";
+import {
+  isThemePreference,
+  THEME_KEY,
+  type ThemePreference,
+} from "@/lib/theme";
 import { ContrastIcon, MoonIcon, SunIcon } from "./icons";
 
 const OPTIONS: {
@@ -42,7 +46,8 @@ const getServerSnapshot = (): ThemePreference => "system";
 function applyResolved(pref: ThemePreference) {
   const dark =
     pref === "dark" ||
-    (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    (pref === "system" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
 
@@ -116,7 +121,10 @@ export function ThemeToggle({ onPhoto = false }: { onPhoto?: boolean }) {
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
               e.preventDefault();
-              const next = OPTIONS[(i + (e.key === "ArrowRight" ? 1 : 2)) % OPTIONS.length];
+              const next =
+                OPTIONS[
+                  (i + (e.key === "ArrowRight" ? 1 : 2)) % OPTIONS.length
+                ];
               choose(next.value);
               // Focus follows selection so the arrow keys keep working.
               (

@@ -1,5 +1,10 @@
 import { Router } from "express";
 import {
+  RATE_LIMIT_FILL,
+  RATE_LIMIT_UPSTREAM,
+} from "../config/constants.js";
+import { rateLimit } from "../lib/rateLimit.js";
+import {
   validateCoords,
   validateRadius,
   validateLimit,
@@ -55,7 +60,20 @@ export const complaintsRouter = Router();
  *   served from the grouped cache. Used by the complaints browser, where an
  *   explicit click justifies paying for the fill once per address per day.
  */
-complaintsRouter.get("/api/complaints", async (req, res, next) => {
+// Two limiters, because this endpoint has two wildly different costs behind one
+// path. The default mode is a bounded row query; `complete=1` triggers the
+// grouped fill, measured 2.3-74.3s per cold address and the single most
+// expensive thing an anonymous caller can ask for. `when` applies the strict one
+// only to that mode, so the cheap read is not punished for sharing a route.
+complaintsRouter.get(
+  "/api/complaints",
+  rateLimit({
+    ...RATE_LIMIT_FILL,
+    name: "complaints-fill",
+    when: (req) => req.query.complete === "1" || req.query.complete === "true",
+  }),
+  rateLimit({ ...RATE_LIMIT_UPSTREAM, name: "complaints" }),
+  async (req, res, next) => {
   try {
     const { lat, lng } = validateCoords(req.query);
     const radius = validateRadius(req.query.radius, {
@@ -113,7 +131,8 @@ complaintsRouter.get("/api/complaints", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+  }
+);
 
 /**
  * GET /api/complaints/group?lat=&lng=&tier=&type=&day=&status=&offset=&limit=
@@ -150,7 +169,11 @@ complaintsRouter.get("/api/complaints", async (req, res, next) => {
  * count comes from a 24h cache filled from one snapshot, so for a day that is
  * still being revised the two can legitimately differ.
  */
-complaintsRouter.get("/api/complaints/group", async (req, res, next) => {
+// Live and uncached by design — 5.6s measured for a 17-row day.
+complaintsRouter.get(
+  "/api/complaints/group",
+  rateLimit({ ...RATE_LIMIT_UPSTREAM, name: "complaints-group" }),
+  async (req, res, next) => {
   try {
     const { lat, lng } = validateCoords(req.query);
     const tier = validateTier(req.query.tier);
@@ -179,4 +202,5 @@ complaintsRouter.get("/api/complaints/group", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+  }
+);

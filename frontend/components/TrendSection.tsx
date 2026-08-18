@@ -91,7 +91,7 @@ export function TrendSection({
   return (
     <div>
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+        <p className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
           {months}-month trend
         </p>
 
@@ -117,7 +117,10 @@ export function TrendSection({
                   e.preventDefault();
                   const next =
                     TREND_WINDOW_OPTIONS[
-                      (i + (e.key === "ArrowRight" ? 1 : TREND_WINDOW_OPTIONS.length - 1)) %
+                      (i +
+                        (e.key === "ArrowRight"
+                          ? 1
+                          : TREND_WINDOW_OPTIONS.length - 1)) %
                         TREND_WINDOW_OPTIONS.length
                     ];
                   onMonthsChange(next);
@@ -132,12 +135,12 @@ export function TrendSection({
               </button>
             );
           })}
-          <span className="pr-1.5 text-[11px] text-[color:var(--text-muted)]">mo</span>
+          <span className="pr-1.5 text-[11px] text-(--text-muted)">mo</span>
         </div>
       </div>
 
       {failed ? (
-        <p className="text-xs text-[color:var(--text-muted)]">
+        <p className="text-xs text-(--text-muted)">
           Couldn&rsquo;t load the trend for this window.
         </p>
       ) : series ? (
@@ -146,7 +149,7 @@ export function TrendSection({
         // Height-matched to the chart so switching windows doesn't jump the
         // card and shove the complaint list under the cursor.
         <div
-          className="h-[136px] animate-pulse rounded-[var(--radius-md)]"
+          className="h-34 animate-pulse rounded-md"
           style={{ background: "var(--surface-2)" }}
           aria-label="Loading trend"
         />

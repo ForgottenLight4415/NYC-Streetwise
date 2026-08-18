@@ -18,6 +18,31 @@ import { getDb, isMongoConfigured } from "./mongo.js";
 // 2. NO 2dsphere index. Spatial filtering is Socrata's job; the cache lookup is
 //    an exact match on rounded coordinates (see CLAUDE.md).
 
+/**
+ * Awaits a memoized index build without letting it fail the caller.
+ *
+ * Every read and write below calls this first, rather than trusting a startup
+ * hook. src/index.js was written for a long-running server with a boot phase;
+ * Vercel has no boot phase — api/index.js only builds the app, and each request
+ * is its own short-lived invocation — so in production that hook NEVER RUNS.
+ * Relying on it meant the deployed database had no unique constraints and no TTL
+ * at all: cached documents would have lived forever, and concurrent misses could
+ * leave duplicate rows that reads flip between.
+ *
+ * Cost is one round trip per process, not per request: the ensure* functions
+ * memoize their promise, so every later call awaits an already-resolved one.
+ *
+ * Never throws, in keeping with rule 1 above — an index that cannot be built is
+ * a slower query, not a failed request.
+ */
+async function ready(ensure) {
+  try {
+    await ensure();
+  } catch (err) {
+    console.warn("[cache] index setup failed, continuing without it:", err.message);
+  }
+}
+
 /** Rounds one coordinate to the cache-key precision (~11m at 4dp). */
 export function roundCoord(value) {
   // Number(...toFixed) rather than Math.round(v*1e4)/1e4: the latter leaves
@@ -93,6 +118,7 @@ function isCompleteCounts(counts, radiusTier) {
 export async function readEntries(lat, lng, radiusTiers) {
   const result = Object.fromEntries(radiusTiers.map((tier) => [tier, null]));
   if (!isMongoConfigured()) return result;
+  await ready(ensureCacheIndexes);
 
   try {
     const db = await getDb();
@@ -143,6 +169,7 @@ export async function readCounts(lat, lng, radiusTiers) {
  */
 export async function writeCounts(lat, lng, radiusTier, counts, { now } = {}) {
   if (!isMongoConfigured()) return false;
+  await ready(ensureCacheIndexes);
 
   try {
     const db = await getDb();
@@ -182,6 +209,7 @@ export async function writeCounts(lat, lng, radiusTier, counts, { now } = {}) {
  */
 export async function writeExplanation(lat, lng, radiusTier, explanation, source) {
   if (!isMongoConfigured()) return false;
+  await ready(ensureCacheIndexes);
 
   try {
     const db = await getDb();
@@ -258,6 +286,7 @@ export function trendCacheKey(lat, lng, radiusTier, months) {
  */
 export async function readTrend(lat, lng, radiusTier, months) {
   if (!isMongoConfigured()) return null;
+  await ready(ensureTrendCacheIndexes);
   try {
     const db = await getDb();
     if (!db) return null;
@@ -278,6 +307,7 @@ export async function readTrend(lat, lng, radiusTier, months) {
 /** Never throws. A failed write costs one repeat query, not a request. */
 export async function writeTrend(lat, lng, radiusTier, months, points, { now } = {}) {
   if (!isMongoConfigured()) return false;
+  await ready(ensureTrendCacheIndexes);
   try {
     const db = await getDb();
     if (!db) return false;
@@ -342,6 +372,7 @@ export function resetComplaintGroupsIndexMemo() {
  */
 export async function readComplaintGroups(lat, lng, radiusTier) {
   if (!isMongoConfigured()) return null;
+  await ready(ensureComplaintGroupsIndexes);
   try {
     const db = await getDb();
     if (!db) return null;
@@ -359,6 +390,7 @@ export async function readComplaintGroups(lat, lng, radiusTier) {
 /** Never throws. A failed write costs one repeat fill, not a request. */
 export async function writeComplaintGroups(lat, lng, radiusTier, groups, truncated, { now } = {}) {
   if (!isMongoConfigured()) return false;
+  await ready(ensureComplaintGroupsIndexes);
   try {
     const db = await getDb();
     if (!db) return false;

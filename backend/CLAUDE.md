@@ -275,6 +275,133 @@ GET /api/trend?lat=&lng=&tier=building|block&months=3|6|9|12|18|24
   cache key and its own upstream query, so an open parameter would let one
   caller spray 24 near-identical variants for no user benefit.
 
+GET /api/showcase?limit=&mode=top|recent|random
+  returns: { items: [ { address, borough, lat, lng, lookups, lastSeenAt,
+                        curated, buildingHealth, blockQuality, meta }, ... ],
+             fallback: { address, borough, lat, lng } }
+
+  **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
+
+  Addresses we have BOTH a name and cached scores for. Each item is the
+  /api/score payload with the address grafted on, so the frontend needs no
+  second type -- note `address` is a real string here, unlike on /api/score,
+  where it is always null.
+
+  CACHE-ONLY, and that is the contract, not an implementation detail: it never
+  calls Socrata, so it cannot be slow and cannot 503. A cold or partly-expired
+  cache yields FEWER items, or none; callers render what they get. Measured
+  ~20-30ms warm against 8 addresses.
+
+  Why it exists: the homepage used to fill its "sample report" card and its
+  featured carousel with client-side generated scores -- a seeded PRNG dressed
+  up as real addresses. For a product whose claim is "we only report what the
+  city recorded" that was the one thing the landing page must not do. It now
+  shows only real cached scores, and shows fewer (or a citywide-baseline panel)
+  when there is nothing cached.
+
+  Three modes, three sorts over the same rows: `top` by lookup count, `recent`
+  by last lookup, `random` via $sample. Closed set -- each has an index behind
+  it, and a free sort parameter would let a caller order the directory by an
+  arbitrary field. limit is capped at 12.
+
+  Requires the address directory below. A directory row whose counts have
+  expired is skipped, which is the normal steady state (the directory has no
+  TTL, the counts have a 24h one), so candidates are over-fetched 3x.
+
+  `fallback` is one curated address (config/showcase.js) picked at RANDOM, with
+  no scores attached, sent on every response whether or not items is empty. It
+  exists so a caller with an empty list still has a real subject to show: the
+  homepage's hero card fetches a live score for it client-side. Random, not
+  pinned: the frontend used to hardcode 456 Park Ave for this, which made one
+  building the permanent face of a cold homepage AND duplicated a committed list
+  it could drift from. Any of the eight is equally real and equally pre-warmed.
+
+POST /api/lookups   header: Authorization: Bearer $INTERNAL_API_SECRET
+  body: { address: string, lat: number, lng: number }
+  returns: 202 Accepted, empty body
+           401 unauthorized          — wrong or missing bearer token
+           503 lookups_not_configured — INTERNAL_API_SECRET unset
+
+  **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
+
+  Records that an address was looked up, so a cached coordinate can be NAMED
+  later. Nothing else in the system stores address text.
+
+  Deliberately NOT a field on POST /api/score. That endpoint's contract is
+  coordinate-only with `address: null`, and this backend does not geocode --
+  both stay true. The frontend fires this from the report view after the report
+  is already on screen, so it costs the user nothing, and ignores the response.
+
+  Stores the address, the ROUNDED coordinate (so the row joins complaint_cache),
+  a lookup counter and timestamps. No caller identity, no session, no IP. The
+  borough is derived server-side in lib/borough.js from the address text, with a
+  coordinate bounding box as fallback -- never accepted from the caller.
+
+  NOT CALLABLE FROM A BROWSER. This writes the one string the app stores and then
+  SHOWS to other people, so "is this a real address?" is answered by WHERE IT
+  CAME FROM, not by inspecting it. The Next.js geocode route resolves a Places
+  suggestion the user picked, takes Google's own `formattedAddress` out of that
+  response, and forwards it here server-to-server with the shared secret. A
+  visitor cannot reach this endpoint, and the frontend never sends a string
+  anyone typed.
+
+  This replaced shape heuristics — house-number prefixes, TLD patterns, a "must
+  name New York" rule. They were a blocklist by another name: each stopped only
+  the phrasings someone had thought of, and the first cut let "BUY CRYPTO AT
+  evil.example" through. Provenance has no such gap.
+
+  `address` validation is now hygiene, not judgement: <= 200 chars and no control
+  or bidi characters. It is STORED, never interpolated into a SoQL clause or a
+  query predicate, so unlike `type` it needs no whitelist.
+
+  Only the placeId path records. Free-text search still produces a report — it
+  has to, or a direct link would break — but it carries no placeId, so nothing is
+  written. The homepage is the one place provenance matters.
+
+  202 rather than 201: this is fire-and-forget, and a directory write failing
+  must not read as a failed report. Answers 202 even when Mongo is unconfigured
+  and the write was skipped -- the caller has nothing to do differently.
+
+GET /api/warm   header: Authorization: Bearer $CRON_SECRET
+  returns: { warmed, failed, results: [{ address, ok, cache | error }] }
+           401 unauthorized      — wrong or missing bearer token
+           503 warm_not_configured — CRON_SECRET unset on this deployment
+
+  **CONTRACT CHANGE (post-freeze): new endpoint. Flag to Person 2.**
+
+  THE ONLY AUTHENTICATED ROUTE, and the only one that needs to be. Everything
+  else here is a cheap read over public data; one call to this is ~62s of live
+  Socrata queries against our app token's rate limit, so leaving it open means
+  anyone who reads the network tab can hold the URL down and exhaust it.
+
+  FAILS CLOSED: with CRON_SECRET unset it refuses everyone, cron included. The
+  alternative — open when unconfigured, matching how every other env var here
+  degrades — would make a forgotten variable a public expensive endpoint, which
+  is the exact failure the secret exists to prevent. Nothing local depends on the
+  route: `npm run warm:showcase` calls the service directly, no HTTP, no secret.
+
+  Bearer, not a query parameter: query strings land in access logs, browser
+  history and Referer headers. Compared with timingSafeEqual over SHA-256
+  digests, so wrong guesses cost the same time and leak not even the length.
+
+  The header format is Vercel's own convention — set CRON_SECRET in Project
+  Settings and Vercel sends it on every scheduled invocation automatically.
+
+  Fetches the curated showcase set (config/showcase.js, 8 addresses with
+  committed real coordinates) from Socrata and caches it, so the homepage has
+  real addresses to show on a cold cache. The ONE showcase path that goes
+  upstream: sixteen Socrata calls, measured 62s. Keep it away from page loads.
+
+  Hit by a daily Vercel cron (vercel.json) and by `npm run warm:showcase`. It
+  re-fetches rather than checking first, deliberately: a cache HIT performs no
+  write, so createdAt is untouched and the document still expires 24h after its
+  last fetch. Only a write slides the TTL, which is what makes a daily cron
+  effective.
+
+  It no longer carries index creation on its back — see the Mongo section. It
+  used to be the only path that built address_lookups' indexes in production,
+  which quietly made warming load-bearing for something unrelated to warming.
+
 GET /health
   returns: 200 OK   // for deploy checks + keep-warm pings
 
@@ -282,6 +409,57 @@ band = "good" | "fair" | "poor"
 
 Every endpoint is public. This is a read-only view over NYC Open Data — there
 is no per-caller state to protect, and nothing is written on a caller's behalf.
+The one exception is POST /api/lookups, which writes a public address string and
+a counter with nothing attached identifying who asked.
+
+## Abuse surface — what is protected and why
+
+Public does not mean free. Three things an anonymous caller could otherwise do,
+without ever sending an invalid request, and what stops each:
+
+1. **Put arbitrary text on the homepage.** POST /api/lookups writes the only
+   caller-supplied string the app stores and then shows to other people (chips,
+   carousel cards). React escapes it, so there is no script injection — the risk
+   is defacement and spam.
+
+   Solved by PROVENANCE, not inspection. The endpoint requires
+   INTERNAL_API_SECRET and is called only by our Next.js geocode route, which
+   forwards the `formattedAddress` Google returned for a Places suggestion the
+   user picked. A stranger cannot write at all, and our own frontend never sends
+   a string a visitor typed.
+
+   An earlier version left the endpoint public and tried to TELL a real address
+   from spam: house-number prefixes, domain patterns, a "must name New York"
+   rule. It worked on the cases we imagined and let "BUY CRYPTO AT evil.example"
+   through on the ones we did not — which is the permanent condition of a
+   blocklist. Do not reintroduce that approach; if a new writer needs access,
+   give it a credential.
+
+   What remains in validateAddress is hygiene that holds regardless of source:
+   a length bound, and control/bidi characters that would corrupt rendering.
+
+2. **Burn upstream quota.** /api/score is two live Socrata queries on a miss and
+   the caller picks the coordinate — the NYC bbox holds ~33M distinct cache keys
+   at 4dp. /api/complaints?complete=1 was measured at 2.3-74.3s. /api/explanation
+   spends a metered AI key. All rate limited per caller per minute, tiered by
+   what the call COSTS us rather than by how it looks: see RATE_LIMIT_* in
+   config/constants.js and lib/rateLimit.js.
+
+3. **Run the warm job.** /api/warm is authenticated outright — see above.
+
+Measured against real use: a person opening the homepage and three reports made
+8 score, 10 complaints, 10 trend, 2 explanation and 3 lookups calls, all inside
+limits of 60/60/60/30/30. The limits are clear of anything a human does and
+immediate for anything a loop does.
+
+**The limiter's honest weakness.** State is in-process memory, so on Vercel each
+warm instance counts separately and the real ceiling is (instances x limit). A
+shared counter in Mongo would add a write to every request on the same free-tier
+cluster it is meant to protect, and would make the limiter a dependency of the
+thing it defends. A hard global ceiling belongs at the edge (Vercel WAF /
+Cloudflare), not here. Caller identity also leans on forwarding headers, which
+are spoofable outside platforms that set them — x-vercel-forwarded-for and
+x-real-ip are preferred over x-forwarded-for for that reason.
 
 ## Socrata query pattern
 
@@ -324,8 +502,52 @@ collection complaint_cache:
   - NO 2dsphere index. Spatial filtering is done by Socrata, not Mongo. Cache
     lookup is exact key match on rounded coords.
 
+collection address_lookups:
+  { address, borough, lat (rounded 4dp), lng (rounded), lookups, curated,
+    firstSeenAt, lastSeenAt }
+  - unique index {lat, lng} -- one row per cache coordinate, so a race between
+    two first-lookups cannot split the counter across two documents
+  - {lookups: -1, lastSeenAt: -1} and {lastSeenAt: -1} for the showcase sorts
+  - **NO TTL index**, unlike the three caches. Those hold copies of city data
+    that must expire; this holds the mapping needed to name a coordinate at all.
+    If it expired with the counts there would be no way to re-warm an address or
+    to label a cached score on the homepage.
+  - Written by POST /api/lookups. The address text is $setOnInsert, so a
+    coordinate keeps the FIRST name given to it -- "456 Park Ave" and "456 Park
+    Avenue" round to one key, and letting the later win would make the homepage
+    labels flicker. Curated seeds are inserted at lookups: 0 so real traffic
+    always outranks them.
+
 collection baseline:
   { _id: "v1", perBucket: { <bucket>: {median, p90} }, radiusTier, computedAt }
+  - NO ensure*Indexes(), deliberately: every access is by _id, which Mongo
+    indexes on every collection already. One document, nothing to sort or expire.
+
+### Index creation: lazy and memoized, NOT from startup
+
+Every collection above has a memoized `ensure*Indexes()` that its OWN provider
+functions await before their first read or write. Do not add a collection whose
+indexes are built only from `src/index.js`.
+
+Why this is not a style preference: `src/index.js` assumes a long-running server
+with a boot phase, and **Vercel has none**. `api/index.js` only builds the app,
+and each request is its own short-lived invocation, so that file never executes
+in production. Verified against a fresh database driven only through
+`api/index.js`: complaint_cache, trend_cache and complaint_groups_cache came out
+with NO indexes at all -- no unique constraint, and no TTL, meaning cached
+documents would have lived forever instead of self-refreshing daily.
+address_lookups escaped only because `/api/warm` built its indexes as a side
+effect of doing something else.
+
+Cost is one round trip per PROCESS, not per request: the memo means every later
+call awaits an already-resolved promise (asserted in test/lazyIndexes.test.js).
+A failed build is not memoized -- it resets, so the next call retries -- and it
+never throws, because a missing index is a slower query, not a failed request.
+
+`src/index.js` still builds them all at boot. That is now an optimisation for
+the long-running paths (docker, `npm run dev`), moving the round trip off the
+first request. Deleting it would cost latency; deleting the provider calls would
+cost correctness.
 
 ## AI Explanation Layer (NEW SCOPE)
 
@@ -405,6 +627,10 @@ depending on environment.
   listener, so no adapter is needed. (`serverless-http` was tried first — it
   targets AWS Lambda's event/context convention, which Vercel's Node.js
   functions don't use, and it 500'd on every request in practice.)
+- Indexes MUST be created lazily from the provider functions, never from
+  `src/index.js` — that file does not run on Vercel. See "Index creation" under
+  Mongo above. **DONE** — every collection has a memoized `ensure*Indexes()`
+  awaited by its own reads and writes.
 - Mongo connections MUST be cached on `global`, not opened fresh per invocation,
   or you'll exhaust Atlas's connection limit under any real traffic.
   **DONE** — `providers/mongo.js` caches the client and its connect promise on a
@@ -416,10 +642,13 @@ depending on environment.
   (`nyc-streetwise-dev`) vs Atlas (`nyc-streetwise`). No code branches on this —
   only `MONGODB_URI` / `MONGODB_DB` differ. Prod values are recorded in
   `.env.production.example` for pasting into the host's env settings.
-- Env vars (SOCRATA_APP_TOKEN, MONGODB_URI, AI_PROVIDER, GEMINI_API_KEY) go in
-  Vercel dashboard > Project Settings. .env files do NOT deploy. All of them are
-  optional — a missing one degrades the deploy (uncached, throttled, or
-  template-only explanations), it does not fail it.
+- Env vars (SOCRATA_APP_TOKEN, MONGODB_URI, AI_PROVIDER, GEMINI_API_KEY,
+  CRON_SECRET) go in Vercel dashboard > Project Settings. .env files do NOT
+  deploy. All of them are optional in the sense that a missing one degrades the
+  deploy (uncached, throttled, or template-only explanations) rather than failing
+  it — **except CRON_SECRET**, which fails closed: unset, GET /api/warm answers
+  503 and the daily cron warms nothing, so the homepage's curated addresses fall
+  out of the 24h cache. That asymmetry is deliberate; see the endpoint above.
 - Hobby tier function execution cap (reportedly ~10s) — verify actual current
   limit on Vercel's own pricing page before assuming. This is another reason the
   AI explanation call happens at cache-write time, not inline in the live request

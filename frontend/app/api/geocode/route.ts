@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { serverMapsKey } from "@/lib/maps-keys";
+import { recordLookup } from "@/lib/record-lookup";
 
 export interface GeocodeResponse {
   address: string;
@@ -66,6 +67,28 @@ export async function GET(request: NextRequest) {
         lng: location.longitude,
         placeId,
       };
+
+      // Recorded HERE, on the placeId path only, and never from the browser.
+      //
+      // A placeId means the user picked a real suggestion out of Places
+      // autocomplete, and `formattedAddress` is Google's own canonical string
+      // for it — so the address the homepage will display was never typed by
+      // anyone. The free-text branch below deliberately records nothing: it
+      // still produces a perfectly good report, it just cannot promise the same
+      // provenance, and the homepage is the one place where that matters.
+      //
+      // after(), not a floating promise. Work started and left unawaited in a
+      // route handler is not guaranteed to run: the response returns, the
+      // invocation is torn down, and the request never leaves. That is exactly
+      // what happened in the first cut of this — the write silently never
+      // landed. after() is the supported way to say "do this once the response
+      // is sent", so it keeps the geocode off this call's latency without
+      // gambling on the runtime finishing it.
+      if (placeDetails.formattedAddress) {
+        const canonical = placeDetails.formattedAddress;
+        after(() => recordLookup(canonical, location.latitude, location.longitude));
+      }
+
       return NextResponse.json(result);
     }
 

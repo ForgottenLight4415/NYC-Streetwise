@@ -61,10 +61,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         {scriptSrc && <script async src={scriptSrc} />}
       </head>
-      <body className="flex min-h-full flex-col bg-[color:var(--background)] text-[color:var(--foreground)]">
+      <body className="flex min-h-full flex-col bg-background text-foreground">
         <a
           href="#main"
-          className="sr-only rounded-full px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-[color:var(--surface-1)] focus:text-[color:var(--text-primary)]"
+          className="sr-only rounded-full px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-(--surface-1) focus:text-(--text-primary)"
           style={{ boxShadow: "var(--shadow-md)" }}
         >
           Skip to content

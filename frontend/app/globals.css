@@ -247,11 +247,13 @@ body {
 
 .search-field:focus-visible {
   outline: none;
+  border-radius: 9999px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent);
 }
 
 .search-field--hero:focus-visible {
   outline: none;
+  border-radius: 9999px;
   box-shadow:
     var(--shadow-lg),
     0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent);

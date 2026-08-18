@@ -55,7 +55,9 @@ export function FilterChips<T extends string | number>({
         );
       })}
       {suffix && (
-        <span className="pr-1.5 text-[11px] text-[color:var(--text-muted)]">{suffix}</span>
+        <span className="pr-1.5 text-[11px] text-(--text-muted)">
+          {suffix}
+        </span>
       )}
     </div>
   );
