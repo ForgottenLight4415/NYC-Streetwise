@@ -22,7 +22,7 @@ function ScoreReadout({
   inkVar: string;
 }) {
   return (
-    <div className="flex items-baseline gap-2.5">
+    <div className="flex items-center gap-2.5">
       <span
         className="font-data text-3xl font-semibold leading-none"
         style={{ color: `var(${inkVar})` }}
@@ -100,7 +100,7 @@ export function HeroSampleCard({
   if (failed || !address) return null;
 
   return (
-    <div className="mx-auto -mb-16 max-w-6xl px-4 sm:px-6 lg:-mb-20">
+    <div className="mx-auto pb-5 -mb-16 max-w-6xl px-4 sm:px-6 lg:-mb-20">
       {data ? (
         <Card address={address} borough={borough} data={data} />
       ) : (
