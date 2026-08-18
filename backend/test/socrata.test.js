@@ -3,6 +3,7 @@ import {
   fetchCountsForTier,
   fetchAllCounts,
   fetchComplaints,
+  fetchComplaintsForGroup,
   SocrataError,
 } from "../src/providers/socrata.js";
 import {
@@ -297,6 +298,7 @@ describe("fetchComplaints", () => {
     fetchMock.mockResolvedValue(
       jsonResponse([
         {
+          unique_key: "70072819",
           complaint_type: "Noise - Residential",
           latitude: "40.7484",
           longitude: "-73.9857",
@@ -316,6 +318,7 @@ describe("fetchComplaints", () => {
   it("maps rows into the heatmap contract shape with numeric coords", async () => {
     const points = await fetchComplaints(40.7484, -73.9857, 350);
     expect(points[0]).toEqual({
+      unique_key: "70072819",
       type: "Noise - Residential",
       lat: 40.7484,
       lng: -73.9857,
@@ -323,6 +326,18 @@ describe("fetchComplaints", () => {
       status: "Closed",
       statusBucket: "closed",
     });
+  });
+
+  // The only field that identifies a row, and the number a renter can quote to
+  // 311 — so it has to be asked for explicitly, not inferred.
+  it("selects unique_key, the dataset's own primary key", async () => {
+    await fetchComplaints(40.7484, -73.9857, 350);
+    expect(calls()[0].searchParams.get("$select")).toContain("unique_key");
+  });
+
+  it("nulls a missing unique_key rather than dropping the key", async () => {
+    const points = await fetchComplaints(40.7484, -73.9857, 350);
+    expect(points[1].unique_key).toBeNull();
   });
 
   it("nulls a missing status rather than dropping the key", async () => {
@@ -374,5 +389,65 @@ describe("fetchComplaints", () => {
     expect(where).toContain("'HEAT/HOT WATER'");
     expect(where).toContain("'Illegal Parking'");
     expect(where).toContain("within_circle(location, 40.7484, -73.9857, 350)");
+  });
+});
+
+describe("fetchComplaintsForGroup", () => {
+  beforeEach(() => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+  });
+
+  const whereFor = async (opts) => {
+    await fetchComplaintsForGroup(40.7484, -73.9857, 350, {
+      type: "Noise - Residential",
+      day: "2026-08-14",
+      ...opts,
+    });
+    return calls()[0].searchParams.get("$where");
+  };
+
+  it("selects unique_key so a drill-in can show the real 311 case number", async () => {
+    const where = await whereFor({});
+    expect(where).toBeTruthy();
+    expect(calls()[0].searchParams.get("$select")).toContain("unique_key");
+  });
+
+  it("bounds the query to the one day and type the group describes", async () => {
+    const where = await whereFor({});
+    expect(where).toContain("complaint_type = 'Noise - Residential'");
+    expect(where).toContain("created_date >= '2026-08-14T00:00:00'");
+    expect(where).toContain("created_date < '2026-08-14T23:59:59.999'");
+  });
+
+  it("adds no status predicate when the caller did not filter", async () => {
+    const where = await whereFor({});
+    expect(where).not.toContain("status");
+  });
+
+  // Paging is $offset/$limit over the filtered set, so the filter has to be
+  // upstream. Filtering the returned page instead dropped rows silently.
+  it("filters closed upstream as a plain in-list", async () => {
+    const where = await whereFor({ status: "closed" });
+    expect(where).toContain("status in ('Closed','Cancel')");
+  });
+
+  it("filters in-progress upstream, including Assigned/Started/Pending", async () => {
+    const where = await whereFor({ status: "in-progress" });
+    expect(where).toContain("'In Progress'");
+    expect(where).toContain("'Pending'");
+    expect(where).toContain("'Assigned'");
+    expect(where).toContain("'Started'");
+  });
+
+  // statusBucket() sends NULL and anything unrecognised to open, so the query
+  // has to match the complement too — otherwise a filtered page would omit rows
+  // the grouped counts had already counted, which is the exact disagreement
+  // this endpoint was fixed for.
+  it("matches open as a total complement, not just the known open strings", async () => {
+    const where = await whereFor({ status: "open" });
+    expect(where).toContain("status in ('Open','Unspecified')");
+    expect(where).toContain("status IS NULL");
+    expect(where).toMatch(/status not in \([^)]*'Closed'[^)]*\)/);
+    expect(where).toMatch(/status not in \([^)]*'Assigned'[^)]*\)/);
   });
 });

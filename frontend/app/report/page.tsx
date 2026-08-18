@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { ReportSkeleton } from "@/components/ReportSkeleton";
+import { ReportLoading } from "@/components/ReportLoading";
 import { ReportView } from "@/components/ReportView";
 
 export default function ReportPage() {
   return (
-    <Suspense fallback={<ReportSkeleton />}>
+    <Suspense fallback={<ReportLoading />}>
       <ReportView />
     </Suspense>
   );

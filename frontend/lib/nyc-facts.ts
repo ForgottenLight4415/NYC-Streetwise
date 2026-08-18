@@ -1,7 +1,8 @@
 /**
- * Something to read while the complaints browser fills its cache.
+ * Something to read during the app's two long waits — the complaints
+ * browser filling its cache, and the report assembling a score.
  *
- * That first fetch was measured at 2.3-74.3s, and a spinner held for a minute
+ * The first of those was measured at 2.3-74.3s, and a spinner held that long
  * reads as a hang. Hardcoded rather than fetched: this is the one screen whose
  * whole job is to cover for variable latency, so putting a network call inside
  * it would add a second thing that can fail to the thing meant to smooth over

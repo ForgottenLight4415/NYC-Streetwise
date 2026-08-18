@@ -232,13 +232,19 @@ export async function buildExplanation(lat, lng, tier, options = {}) {
  * prevent. The heatmap is a secondary view; the score is what must be fast.
  */
 export async function fetchComplaintPoints(lat, lng, radiusMeters, options = {}) {
+  // Rounded like every other read on this page. The score's counts, the grouped
+  // browser, and the drill-in all describe the rounded circle; querying the raw
+  // one here made this list the odd one out, so a complaint could appear under
+  // "Recent complaints" that the browser beside it did not have.
+  const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
+
   if (isMockMode()) {
-    const points = mockComplaints(lat, lng, radiusMeters).map(withStatusBucket);
+    const points = mockComplaints(coord.lat, coord.lng, radiusMeters).map(withStatusBucket);
     return { points, truncated: false, limit: points.length };
   }
 
   const limit = options.limit ?? COMPLAINTS_DEFAULT_LIMIT;
-  const points = await fetchComplaints(lat, lng, radiusMeters, { ...options, limit });
+  const points = await fetchComplaints(coord.lat, coord.lng, radiusMeters, { ...options, limit });
 
   return {
     points,
@@ -288,8 +294,15 @@ export async function fetchComplaintGroupList(
   let truncated = false;
   let cached = false;
 
+  // Rounded before querying, exactly as getCounts() does and for the same
+  // reason: readComplaintGroups keys on the rounded coordinate, so filling the
+  // entry from the raw one would let a hit and a miss describe measurably
+  // different circles — and the drill-in, which rounds identically, would then
+  // disagree with the counts it was opened from.
+  const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
+
   if (isMockMode()) {
-    groups = groupMockComplaints(lat, lng, radiusMeters);
+    groups = groupMockComplaints(coord.lat, coord.lng, radiusMeters);
   } else {
     // The cache key has no radius dimension, so an ad-hoc radius must neither
     // read from nor write to it — it would collide with the tier's own entry
@@ -297,7 +310,7 @@ export async function fetchComplaintGroupList(
     const cacheable = Boolean(tier) && radiusMeters === RADIUS_TIERS[tier].radiusMeters;
 
     if (cacheable) {
-      const hit = await readComplaintGroups(lat, lng, tier);
+      const hit = await readComplaintGroups(coord.lat, coord.lng, tier);
       if (hit) {
         ({ groups, truncated } = hit);
         cached = true;
@@ -308,7 +321,7 @@ export async function fetchComplaintGroupList(
       // Always filled at the CACHE limit, never the caller's page size —
       // otherwise a limit=25 request would store a 25-row entry that every
       // later page has to discard.
-      groups = await fetchComplaintGroups(lat, lng, radiusMeters, {
+      groups = await fetchComplaintGroups(coord.lat, coord.lng, radiusMeters, {
         tier,
         now,
         limit: COMPLAINT_GROUPS_CACHE_LIMIT,
@@ -320,7 +333,7 @@ export async function fetchComplaintGroupList(
         // 2.3-74.3s, so a few milliseconds of Mongo write is noise — and losing
         // the race means paying that fill a second time. Still never throws: a
         // failed write costs a repeat fill, not a request.
-        await writeComplaintGroups(lat, lng, tier, groups, truncated).catch(() => {});
+        await writeComplaintGroups(coord.lat, coord.lng, tier, groups, truncated).catch(() => {});
       }
     }
   }
@@ -399,8 +412,13 @@ export async function fetchComplaintGroupDetail(
   radiusMeters,
   { type, day, status, offset = 0, limit = 50 } = {}
 ) {
+  // Rounded for the same reason as the group list above, and it must be rounded
+  // the SAME way: a drill-in describing a different circle from the row that
+  // opened it is exactly the disagreement being fixed here.
+  const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
+
   if (isMockMode()) {
-    const all = mockComplaints(lat, lng, radiusMeters)
+    const all = mockComplaints(coord.lat, coord.lng, radiusMeters)
       .map(withStatusBucket)
       .filter((p) => p.type === type && p.created_date.slice(0, 10) === day)
       .filter((p) => !status || p.statusBucket === status);
@@ -413,21 +431,25 @@ export async function fetchComplaintGroupDetail(
 
   // One extra row is the cheapest possible "is there another page?" probe, and
   // it avoids a second count query against the slowest part of the upstream.
-  const points = await fetchComplaintsForGroup(lat, lng, radiusMeters, {
+  //
+  // `status` goes INTO the query rather than filtering the result. It used to
+  // filter the page after slicing, which made both the page and `hasMore` wrong:
+  // the rows were drawn from every status, so a day with 100 complaints of which
+  // 3 were open rendered an empty list under a header that said 3. Expanding the
+  // bucket into raw statuses happens in socrata.js off rawStatusesForBucket(),
+  // so the enum still lives only in constants.js.
+  const points = await fetchComplaintsForGroup(coord.lat, coord.lng, radiusMeters, {
     type,
     day,
+    status,
     offset,
     limit: limit + 1,
   });
 
   const hasMore = points.length > limit;
-  const page = hasMore ? points.slice(0, limit) : points;
 
   return {
-    // Filtered after the fetch, not in SoQL: `status` is our three-way bucket,
-    // not a dataset value, and expanding it back into raw statuses inside the
-    // query would put a second copy of the enum in the where-clause.
-    points: status ? page.filter((p) => p.statusBucket === status) : page,
+    points: hasMore ? points.slice(0, limit) : points,
     total: null, // the caller already knows the group's size from the list
     hasMore,
   };
@@ -445,6 +467,11 @@ export async function fetchComplaintGroupDetail(
 export async function fetchTrend(lat, lng, radiusMeters, { tier, months, now } = {}) {
   const reference = new Date(now ?? Date.now());
 
+  // Rounded, like every other read: trendCacheKey rounds, so querying the raw
+  // coordinate would let a hit and a miss describe different circles — and this
+  // series is what the report totals ("Show all N") are counted from.
+  const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
+
   const buckets = [];
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(reference.getFullYear(), reference.getMonth() - i, 1);
@@ -455,17 +482,20 @@ export async function fetchTrend(lat, lng, radiusMeters, { tier, months, now } =
   }
 
   if (isMockMode()) {
-    return fill(buckets, mockMonthlyTrend(lat, lng, radiusMeters, { tier, months, now: reference }));
+    return fill(
+      buckets,
+      mockMonthlyTrend(coord.lat, coord.lng, radiusMeters, { tier, months, now: reference })
+    );
   }
 
   // Cache the finished series, not the raw rows: it is small (≤24 numbers), and
   // the block-tier query is the slowest call in the app — 13s cold on a dense
   // block, which is inside the Socrata retry budget but outside a serverless
   // function's. The cached path is the one that has to hold up in production.
-  const cached = await readTrend(lat, lng, tier, months);
+  const cached = await readTrend(coord.lat, coord.lng, tier, months);
   if (cached) return cached;
 
-  const points = await fetchMonthlyTrend(lat, lng, radiusMeters, {
+  const points = await fetchMonthlyTrend(coord.lat, coord.lng, radiusMeters, {
     tier,
     months,
     now: reference,
@@ -474,7 +504,7 @@ export async function fetchTrend(lat, lng, radiusMeters, { tier, months, now } =
 
   // Not awaited into the response path — a slow cache write must not delay the
   // chart, and a failed one costs a repeat query, not a request.
-  writeTrend(lat, lng, tier, months, series).catch(() => {});
+  writeTrend(coord.lat, coord.lng, tier, months, series).catch(() => {});
 
   return series;
 }

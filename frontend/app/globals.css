@@ -177,6 +177,15 @@
    Base
    =========================================================================== */
 
+/* Reserves the scrollbar's width whether or not one is showing, so the content
+   column never shifts sideways. Two things move it otherwise: a page growing
+   past the viewport mid-load (the report gains a scrollbar as its panels fill
+   in), and useDialog setting body overflow:hidden on every modal open, which
+   removes the scrollbar entirely and slides the page under the dialog. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

@@ -9,7 +9,7 @@ down as props.
 | Route | File | What it does |
 |---|---|---|
 | `/` | `app/page.tsx` | Landing page: hero + address search, "how it works," feature cards, and a `FeaturedCarousel` of sample reports (`buildFeaturedReport` from `lib/mock-data.ts` — always mock, not wired to the backend). Server component. |
-| `/report?address=` | `app/report/page.tsx` → `components/ReportView.tsx` | The main report screen. Client component wrapped in `<Suspense fallback={<ReportSkeleton />}>` because it reads `useSearchParams()`. |
+| `/report?address=` | `app/report/page.tsx` → `components/ReportView.tsx` | The main report screen. Client component wrapped in `<Suspense fallback={<ReportLoading />}>` because it reads `useSearchParams()`. |
 | `/compare?a=&b=` | `app/compare/page.tsx` → `components/CompareView.tsx` | Two `CompareColumn`s side by side, each independently searchable, syncing `a`/`b` query params via `router.replace`. |
 
 `app/layout.tsx` is the root layout: loads the Geist fonts, renders

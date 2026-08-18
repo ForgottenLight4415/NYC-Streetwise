@@ -123,6 +123,32 @@ complaintsRouter.get("/api/complaints", async (req, res, next) => {
  *
  * `radius` comes from the tier rather than the caller, so a drill-in always
  * describes the same circle as the group it came from.
+ *
+ * UPSTREAM INCONSISTENCY, and it is CONFINED TO THE NEWEST DAYS. Measured at
+ * 123 Ludlow St, block tier, on 2026-08-18:
+ *
+ *   - Row queries over the last 11 days x 2 complaint types, 5 identical runs
+ *     each: 21 of 22 combinations returned the same count every time AND
+ *     matched the grouped aggregate exactly. The one exception was 2026-08-16
+ *     "Noise - Street/Sidewalk" — two days old — which alternated 4 and 8.
+ *   - The grouped query itself was stable: 4 full runs, 3,123 rows over 729
+ *     days, byte-identical per-day totals. Nothing older than a few days moved.
+ *
+ * The mechanism is revision, not random flakiness. That day's records were
+ * still being rewritten upstream (:updated_at within the previous 24h), and
+ * mid-revision the replicas disagree: one had 4 rows with statuses "In
+ * Progress", the other had those same records advanced to "Closed" plus 4
+ * newly-ingested ones. Once a day stops being revised, every replica agrees on
+ * it and it stays agreed. 311 also publishes with a lag, so the last day or two
+ * legitimately read as empty before they fill in.
+ *
+ * So: no snapshot can be pinned (public SODA exposes no such parameter), but
+ * nothing needs pinning for the bulk of the window. What this endpoint does is
+ * avoid compounding the narrow case — X-Complaints-Total is emitted from the
+ * rows this response actually contains, so the client shows a count matching
+ * its own list rather than one contradicting it. The grouped browser's per-day
+ * count comes from a 24h cache filled from one snapshot, so for a day that is
+ * still being revised the two can legitimately differ.
  */
 complaintsRouter.get("/api/complaints/group", async (req, res, next) => {
   try {
@@ -144,6 +170,11 @@ complaintsRouter.get("/api/complaints/group", async (req, res, next) => {
     res.set("X-Complaints-Limit", String(limit));
     res.set("X-Complaints-Offset", String(offset));
     res.set("X-Complaints-Has-More", String(hasMore));
+    // Only when the last page is in hand is the total actually known, and then
+    // it is exact. Sent because the caller's other number for this — the group
+    // row's cached count — comes from a DIFFERENT Socrata snapshot and can
+    // disagree with what this query just returned; see the note on the endpoint.
+    if (!hasMore) res.set("X-Complaints-Total", String(offset + points.length));
     res.json(points);
   } catch (err) {
     next(err);

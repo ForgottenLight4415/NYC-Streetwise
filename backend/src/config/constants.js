@@ -120,6 +120,23 @@ export function statusBucket(raw) {
   return STATUS_TO_BUCKET[raw] ?? "open";
 }
 
+/** Every raw status we know how to bucket, for building an upstream filter. */
+export const KNOWN_STATUSES = Object.keys(STATUS_TO_BUCKET);
+
+/**
+ * The raw `status` values that fall in one bucket — the inverse of
+ * STATUS_TO_BUCKET, so a query can filter upstream instead of after the fact.
+ *
+ * Note this is NOT sufficient on its own for "open". statusBucket() sends
+ * anything unrecognised there too, so a caller filtering to open must also
+ * match NULL and any value outside KNOWN_STATUSES; see
+ * fetchComplaintsForGroup(). Exported from here rather than inlined at the call
+ * site for the same reason as STATUS_TO_BUCKET itself: one copy of the enum.
+ */
+export function rawStatusesForBucket(bucket) {
+  return KNOWN_STATUSES.filter((raw) => STATUS_TO_BUCKET[raw] === bucket);
+}
+
 // ---------------------------------------------------------------------------
 // Time window
 // ---------------------------------------------------------------------------

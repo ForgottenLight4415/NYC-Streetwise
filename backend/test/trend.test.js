@@ -56,6 +56,14 @@ describe("GET /api/trend", () => {
     }
   });
 
+  // trendCacheKey rounds, so the query has to as well — otherwise a hit and a
+  // miss describe different circles, and this series is what the report's
+  // "Show all N" total is counted from.
+  it("queries Socrata with the rounded coordinate its cache keys on", async () => {
+    await server.request("/api/trend?lat=40.74839999&lng=-73.98571234&tier=block");
+    expect(trendSpy).toHaveBeenCalledWith(40.7484, -73.9857, expect.any(Number), expect.any(Object));
+  });
+
   it("echoes the tier's radius so the caller need not hardcode it", async () => {
     for (const tier of ["building", "block"]) {
       const { body } = await server.request(`/api/trend?${NYC}&tier=${tier}`);

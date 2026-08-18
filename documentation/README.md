@@ -43,8 +43,9 @@ caveats like `streetCondition`'s null-geocode rate).
 The root README's
 ["What's real vs. mocked/stubbed"](../README.md#whats-real-vs-mockedstubbed-right-now)
 table is the current answer to "is what I'm looking at real". Scores, the
-complaint list, and the explanation text are real; the complaint timeline is
-still a deliberate UI stub.
+complaint list, and the explanation text are real. The synthesised complaint
+timeline is gone — the detail modal now shows only the filing date and current
+status, which is all 311 publishes.
 
 > Previously this section warned that a fully-populated-looking report was no
 > proof the backend was being used, because `fetchReport()` silently fell back
