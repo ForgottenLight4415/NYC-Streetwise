@@ -1,12 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { STATUS_LABEL, STATUS_VAR } from "@/lib/score";
 import type { Complaint } from "@/lib/types";
 import type { TrendWindow } from "@/lib/api";
 import { ChevronRightIcon } from "./icons";
-import { ComplaintDetailModal } from "./ComplaintDetailModal";
-import { ComplaintsBrowserModal } from "./ComplaintsBrowserModal";
+
+/* Both modals are click-gated, and neither can be on screen when the report
+   first paints — but they were statically imported, so every visitor
+   downloaded them to read a score. ComplaintsBrowserModal alone is the largest
+   component in the app, and drags in the filter chips, the pager and the whole
+   grouped-complaints API surface with it.
+
+   ssr:false because there is nothing to prerender: they only ever exist in
+   response to a click. */
+
+const ComplaintDetailModal = dynamic(
+  () => import("./ComplaintDetailModal").then((m) => m.ComplaintDetailModal),
+  { ssr: false },
+);
+
+const ComplaintsBrowserModal = dynamic(
+  () => import("./ComplaintsBrowserModal").then((m) => m.ComplaintsBrowserModal),
+  { ssr: false },
+);
+
+/** Pulls the browser chunk on intent, so the click itself has nothing to wait for. */
+function preloadBrowser() {
+  void import("./ComplaintsBrowserModal");
+}
 
 function formatDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
@@ -100,6 +123,8 @@ export function RecentComplaintsList({
           <button
             type="button"
             onClick={() => setBrowsing(true)}
+            onPointerEnter={preloadBrowser}
+            onFocus={preloadBrowser}
             className="min-h-11 text-xs font-semibold text-(--brand-ink)"
           >
             Show all {windowTotal !== null ? windowTotal.toLocaleString() : ""}

@@ -1,167 +1,91 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { fetchExplanation, fetchNearbyComplaints, fetchReport, getLatLng } from "@/lib/api";
+import {
+  useCoords,
+  useExplanation,
+  useNearbyComplaints,
+  usePrefetchTrends,
+  useReport,
+} from "@/lib/hooks";
 import { AddressSearch } from "./AddressSearch";
-import { MapPanel } from "./MapPanel";
+import { MapPanelLazy } from "./MapPanelLazy";
 import { ReportLoading } from "./ReportLoading";
 import { ScorePanelCard } from "./ScorePanelCard";
 import { VerdictBanner, type AiExplanationState } from "./VerdictBanner";
 import { BuildingIcon, BlockIcon, ChevronRightIcon } from "./icons";
-import type { ReportResponse } from "@/lib/types";
-
-/** The two tiers in display order, paired with the key /api/explanation wants. */
-function tiersOf(data: ReportResponse) {
-  return [
-    {
-      key: "building" as const,
-      label: "Building Health",
-      section: data.buildingHealth,
-    },
-    {
-      key: "block" as const,
-      label: "Block Quality",
-      section: data.blockQuality,
-    },
-  ];
-}
-
-interface LoadedReport {
-  address: string;
-  lat: number;
-  lng: number;
-  data: ReportResponse;
-}
 
 export function ReportView() {
   const searchParams = useSearchParams();
   const address = searchParams.get("address") ?? "";
   const placeId = searchParams.get("placeId") ?? undefined;
-  const [result, setResult] = useState<LoadedReport | null>(null);
-  const [errorState, setErrorState] = useState<{
-    address: string;
-    message: string;
-  } | null>(null);
-  // Only the *fetched* result lives in state; the rest is derived below. One
-  // entry per tier, in tiersOf() order, and keyed by address so a stale result
-  // cannot leak onto the next report.
-  const [fetchedAi, setFetchedAi] = useState<{
-    address: string;
-    texts: (string | null)[];
-  } | null>(null);
 
-  useEffect(() => {
-    if (!address) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const coords = await getLatLng(address, placeId);
-        if (!coords) throw new Error("Couldn't locate that address.");
-        const data = await fetchReport(coords.lat, coords.lng);
+  // Four independent subscriptions where there used to be one effect awaiting
+  // everything in series. The old order was:
+  //
+  //     geocode -> /api/score -> both complaint fetches -> RENDER -> trend
+  //
+  // and nothing at all was on screen until the last of those resolved, even
+  // though the complaint lists fill the BOTTOM of each panel. Now:
+  //
+  //     geocode -> /api/score -> RENDER
+  //                          |-> complaints (per tier) -> fills the list
+  //                          '-> trend (prefetched at geocode) -> fills the chart
+  //
+  // The scores paint a full round-trip earlier, and the trend no longer waits
+  // on a score it does not depend on.
+  const { data: coords, error: coordsError } = useCoords(address, placeId);
+  const { data: report, error: reportError } = useReport(coords);
 
-        // Fetch recent complaint points for both panels in parallel so the
-        // "Recent Complaints" section is populated.
-        const [buildingComplaints, blockComplaints] = await Promise.all([
-          fetchNearbyComplaints(
-            coords.lat,
-            coords.lng,
-            data.buildingHealth.radiusMeters,
-            "building",
-          ),
-          fetchNearbyComplaints(
-            coords.lat,
-            coords.lng,
-            data.blockQuality.radiusMeters,
-            "block",
-          ),
-        ]);
-        data.buildingHealth.recentComplaints = buildingComplaints;
-        data.blockQuality.recentComplaints = blockComplaints;
+  usePrefetchTrends(coords);
 
-        if (cancelled) return;
-        setResult({ address, lat: coords.lat, lng: coords.lng, data });
+  const buildingComplaints = useNearbyComplaints(
+    coords,
+    report?.buildingHealth.radiusMeters,
+    "building",
+  );
+  const blockComplaints = useNearbyComplaints(
+    coords,
+    report?.blockQuality.radiusMeters,
+    "block",
+  );
 
-      } catch (e) {
-        if (cancelled) return;
-        setErrorState({
-          address,
-          message: e instanceof Error ? e.message : "Something went wrong",
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [address, placeId]);
+  const buildingAi = useExplanation(coords, "building", report?.buildingHealth);
+  const blockAi = useExplanation(coords, "block", report?.blockQuality);
 
-  // The AI explanation is the slow path, deliberately kept off the score
-  // request: /api/score returns template text immediately, and each tier only
-  // upgrades to "ai" once /api/explanation has been called for it. Fired here,
-  // after the report is on screen, so the banner can swap its text in place.
-  useEffect(() => {
-    if (!result) return;
-    const { lat, lng, data, address: forAddress } = result;
-    const tiers = tiersOf(data);
-
-    // A tier already marked "ai" was served from the backend's cache, so asking
-    // again would just pay the model latency for text we already hold.
-    if (tiers.every((t) => t.section.explanationSource === "ai")) return;
-
-    let cancelled = false;
-    Promise.all(
-      tiers.map((t) =>
-        t.section.explanationSource === "ai"
-          ? Promise.resolve<string | null>(t.section.explanation)
-          : fetchExplanation(lat, lng, t.key),
-      ),
-    ).then((texts) => {
-      if (cancelled) return;
-      // Kept per tier (null where the AI had nothing) rather than merged, so the
-      // banner can label each line and fall back per tier.
-      setFetchedAi({ address: forAddress, texts });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [result]);
-
-  const report = result?.address === address ? result : null;
-  const error = errorState?.address === address ? errorState.message : null;
+  const error = coordsError ?? reportError;
 
   const aiExplanation = useMemo<AiExplanationState>(() => {
     if (!report) return { loading: false, tiers: [] };
-    const tiers = tiersOf(report.data);
-    const allCached = tiers.every((t) => t.section.explanationSource === "ai");
-    const fetched =
-      fetchedAi?.address === report.address ? fetchedAi.texts : null;
-    // Fully cached upstream resolves immediately, with no "Reasoning..." flash.
-    if (!allCached && !fetched) return { loading: true, tiers: [] };
+    // Either tier still in flight keeps the banner on "Reasoning...". A tier the
+    // backend already had cached never starts a request, so the fully-cached
+    // case resolves immediately with no flash.
+    if (buildingAi.isLoading || blockAi.isLoading) {
+      return { loading: true, tiers: [] };
+    }
+
+    const tiers = [
+      { label: "Building Health", ai: buildingAi.text, section: report.buildingHealth },
+      { label: "Block Quality", ai: blockAi.text, section: report.blockQuality },
+    ];
 
     return {
       loading: false,
       tiers: tiers
-        .map((t, i) => {
-          const ai =
-            fetched?.[i] ??
-            (t.section.explanationSource === "ai"
-              ? t.section.explanation
-              : null);
+        .map(({ label, ai, section }) => ({
+          label,
           // Falling back to the tier's own template text rather than dropping
           // the line: a tier with zero complaints legitimately has nothing for
           // the model to describe (see explain.js), and "no complaints were
           // filed" is the accurate thing to say, not an absence worth hiding.
-          return {
-            label: t.label,
-            text: ai ?? t.section.explanation,
-            source: ai ? ("ai" as const) : ("template" as const),
-          };
-        })
+          text: ai ?? section.explanation,
+          source: ai ? ("ai" as const) : ("template" as const),
+        }))
         .filter((t) => t.text.trim()),
     };
-  }, [report, fetchedAi]);
+  }, [report, buildingAi.text, buildingAi.isLoading, blockAi.text, blockAi.isLoading]);
 
   if (!address) {
     return (
@@ -179,7 +103,9 @@ export function ReportView() {
   if (error) {
     return (
       <div className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6">
-        <p style={{ color: "var(--status-critical)" }}>{error}</p>
+        <p style={{ color: "var(--status-critical)" }}>
+          {error instanceof Error ? error.message : "Something went wrong"}
+        </p>
         <Link
           href="/"
           className="mt-3 inline-block text-sm underline text-(--text-secondary)"
@@ -190,10 +116,11 @@ export function ReportView() {
     );
   }
 
-  if (!report) {
+  if (!report || !coords) {
     // The same view the Suspense boundary above already rendered, so the two
-    // back-to-back waits read as one. This one covers a geocode, /api/score and
-    // both complaint fetches, all awaited before anything can be shown.
+    // back-to-back waits read as one. This now covers only the geocode and
+    // /api/score — the complaint fetches it used to include have moved into the
+    // panels, which render their own skeletons.
     return <ReportLoading />;
   }
 
@@ -212,14 +139,10 @@ export function ReportView() {
           read a NYC address in. */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 sm:max-w-md">
-          <AddressSearch
-            key={report.address}
-            size="sm"
-            initialValue={report.address}
-          />
+          <AddressSearch key={address} size="sm" initialValue={address} />
         </div>
         <Link
-          href={`/compare?a=${encodeURIComponent(report.address)}`}
+          href={`/compare?a=${encodeURIComponent(address)}`}
           className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-sm font-semibold transition-colors"
           style={{ background: "var(--brand)", color: "#ffffff" }}
         >
@@ -228,10 +151,10 @@ export function ReportView() {
       </div>
 
       <VerdictBanner
-        building={report.data.buildingHealth}
-        block={report.data.blockQuality}
-        address={report.address}
-        windowMonths={report.data.meta.windowMonths}
+        building={report.buildingHealth}
+        block={report.blockQuality}
+        address={address}
+        windowMonths={report.meta.windowMonths}
         aiExplanation={aiExplanation}
       />
 
@@ -242,31 +165,35 @@ export function ReportView() {
         <ScorePanelCard
           icon={<BuildingIcon className="h-4.5 w-4.5" />}
           title="Building Health"
-          panel={report.data.buildingHealth}
+          panel={report.buildingHealth}
           colorVar="--series-building"
           description="Complaints tied to this building"
           tier="building"
-          lat={report.lat}
-          lng={report.lng}
+          lat={coords.lat}
+          lng={coords.lng}
+          recentComplaints={buildingComplaints.data}
+          recentComplaintsLoading={buildingComplaints.isLoading}
         />
         <ScorePanelCard
           icon={<BlockIcon className="h-4.5 w-4.5" />}
           title="Block Quality"
-          panel={report.data.blockQuality}
+          panel={report.blockQuality}
           colorVar="--series-block"
           description="Complaints on the surrounding block"
           tier="block"
-          lat={report.lat}
-          lng={report.lng}
+          lat={coords.lat}
+          lng={coords.lng}
+          recentComplaints={blockComplaints.data}
+          recentComplaintsLoading={blockComplaints.isLoading}
         />
       </div>
 
       <div className="mt-4">
-        <MapPanel
-          centerLat={report.lat}
-          centerLng={report.lng}
-          buildingRadiusMeters={report.data.buildingHealth.radiusMeters}
-          blockRadiusMeters={report.data.blockQuality.radiusMeters}
+        <MapPanelLazy
+          centerLat={coords.lat}
+          centerLng={coords.lng}
+          buildingRadiusMeters={report.buildingHealth.radiusMeters}
+          blockRadiusMeters={report.blockQuality.radiusMeters}
         />
       </div>
     </div>

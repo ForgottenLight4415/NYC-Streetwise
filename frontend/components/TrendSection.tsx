@@ -1,14 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { TrendSparkline } from "./TrendSparkline";
-import {
-  fetchTrend,
-  TREND_MAX_MONTHS,
-  TREND_WINDOW_OPTIONS,
-  type TrendWindow,
-} from "@/lib/api";
-import type { TrendPoint } from "@/lib/types";
+import { TREND_WINDOW_OPTIONS, type TrendWindow } from "@/lib/api";
+import { useTrend } from "@/lib/hooks";
 
 /**
  * The trend chart plus its window selector.
@@ -34,7 +29,7 @@ export function TrendSection({
   colorVar,
   months,
   onMonthsChange,
-  onSeriesChange,
+  onWindowTotalChange,
 }: {
   lat: number;
   lng: number;
@@ -42,8 +37,13 @@ export function TrendSection({
   colorVar: string;
   months: TrendWindow;
   onMonthsChange: (months: TrendWindow) => void;
-  /** Lifts the fetched series up so the card can total the visible window. */
-  onSeriesChange?: (series: TrendPoint[] | null) => void;
+  /**
+   * Reports the visible window's total up to the card, which shows it above the
+   * complaint list. A NUMBER, not the series: lifting the array meant a fresh
+   * identity on every window change and a re-render of the entire card to
+   * derive one integer from it.
+   */
+  onWindowTotalChange?: (total: number | null) => void;
 }) {
   // Always the widest window, sliced down for display. Every window is a suffix
   // of a longer one — the last 9 months are the last 9 entries of the last 24 —
@@ -55,38 +55,31 @@ export function TrendSection({
   // render — and it is the reason this survives StrictMode's double-invoke,
   // where a "have we started?" ref would cancel the first run and then skip the
   // second, leaving the chart loading forever.
-  const key = `${lat},${lng},${tier}`;
-  const [fetched, setFetched] = useState<{
-    key: string;
-    points?: TrendPoint[];
-    failed?: boolean;
-  } | null>(null);
+  // Keyed by coordinate+tier in the SWR cache, which is what the hand-rolled
+  // `fetched.key === key` tagging this replaces was doing by hand — and it is
+  // shared, so ReportView's prefetch at geocode time means this usually finds
+  // the request already in flight rather than starting a new one.
+  const { data, isLoading } = useTrend({ lat, lng }, tier);
 
-  const current = fetched?.key === key ? fetched : null;
-  const full = current?.points ?? null;
-  const failed = current?.failed ?? false;
+  // fetchTrend swallows its errors and answers [], so an empty series is the
+  // only failure signal there is. Distinguished from "still loading" by SWR.
+  const failed = !isLoading && data !== undefined && data.length === 0;
+  const series = useMemo(
+    () => (data && data.length > 0 ? data.slice(-months) : null),
+    [data, months],
+  );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchTrend(lat, lng, tier, TREND_MAX_MONTHS).then((points) => {
-      if (cancelled) return;
-      setFetched(points.length === 0 ? { key, failed: true } : { key, points });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [key, lat, lng, tier]);
-
-  const series = full ? full.slice(-months) : null;
+  const windowTotal = series
+    ? series.reduce((sum, p) => sum + p.count, 0)
+    : null;
 
   useEffect(() => {
-    onSeriesChange?.(series);
-    // series is derived from full+months; depending on those avoids rebuilding
-    // the array identity on every render.
+    onWindowTotalChange?.(windowTotal);
+    // Deliberately not depending on the callback identity: the parent passes a
+    // plain setState, and including it would re-fire this on every parent
+    // render. The total is a number, so this now runs only when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [full, months]);
+  }, [windowTotal]);
 
   return (
     <div>

@@ -56,11 +56,22 @@ export function clientMapsKey(): string | undefined {
  * console warning about direct loading. It means the SDK is not guaranteed to
  * exist by the time React hydrates, so `MapPanel` waits for `window.google`
  * rather than assuming it — see `whenMapsReady` there.
+ *
+ * `places` dropped from `libraries=`. It is never used in the browser at all —
+ * autocomplete runs server-side through /api/autocomplete against the server
+ * key — so the bootstrap was fetching a library nothing consumes.
+ *
+ * `maps,marker` are kept even though `MapPanel` also calls `importLibrary` for
+ * both. Removing the parameter entirely ought to work, and probably does, but
+ * this environment has no way to confirm a map actually PAINTS (the automated
+ * browser window is permanently backgrounded, and Google's vector renderer
+ * produces an empty container in a hidden tab), so the unverifiable half of the
+ * change was left alone and only the certain half taken.
  */
 export function mapsScriptSrc(): string | null {
   const key = clientMapsKey();
   return key
-    ? `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=maps,marker,places&loading=async`
+    ? `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=maps,marker&loading=async`
     : null;
 }
 

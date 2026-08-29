@@ -365,7 +365,7 @@ export async function fetchSuggestions(
 // Trailing slash stripped: a doubled "//" here gets 308-redirected by
 // Vercel's edge, and that redirect response carries no CORS headers, so the
 // browser blocks it as a CORS failure before ever following it.
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
 
 export type ShowcaseMode = "top" | "recent" | "random";
 

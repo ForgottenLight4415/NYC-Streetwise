@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findSuggestions } from "@/lib/seed-addresses";
+import { TtlCache } from "@/lib/lru";
 import { serverMapsKey } from "@/lib/maps-keys";
 
 // Tight bounding box around the outer edges of the five boroughs (Staten
@@ -35,6 +36,35 @@ function isNewYorkState(description: string): boolean {
   return /,\s*NY,/.test(description);
 }
 
+/**
+ * Every distinct prefix typed into the search box is a separate billed Places
+ * Autocomplete call. The field debounces at 150ms, so one address is still
+ * roughly ten of them — and the next visitor typing the same street pays the
+ * whole ladder again from zero.
+ *
+ * Prefixes are the ideal thing to cache: short, highly repeated across users
+ * (every NYC address search starts with a house number and a handful of
+ * letters), and the answer barely moves. Ten minutes is well inside how often
+ * Google's predictions change and well outside a single session.
+ *
+ * 5,000 entries is a few hundred KB of strings — nothing next to what an
+ * instance already holds — and covers the long tail of a busy hour.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_MAX = 5000;
+
+const suggestionCache = new TtlCache<Suggestion[]>(CACHE_MAX, CACHE_TTL_MS);
+
+interface Suggestion {
+  id: string;
+  description: string;
+}
+
+/** Case and surrounding whitespace are not meaningful to Places; collapse them. */
+function cacheKey(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 // Google Places Autocomplete (New) API for real NYC address suggestions.
 // Falls back to local mock suggestions if no API key is configured, so the
 // search bar still works without Google Maps set up.
@@ -45,6 +75,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ suggestions: [] });
   }
 
+  const key = cacheKey(q);
+  const cached = suggestionCache.get(key);
+  if (cached) {
+    return NextResponse.json({ suggestions: cached });
+  }
+
+  // Not cached: a miss here is either "no key configured" or "Google is down",
+  // and neither is a state worth serving for ten minutes once it resolves.
   const seedFallback = () =>
     NextResponse.json({
       suggestions: findSuggestions(q).map((s) => ({ id: s.id, description: s.description })),
@@ -85,9 +123,10 @@ export async function GET(request: NextRequest) {
         id: s.placePrediction?.placeId ?? "",
         description: s.placePrediction?.text?.text ?? "",
       }))
-      .filter((s: { id: string; description: string }) => s.description && isNewYorkState(s.description))
+      .filter((s: Suggestion) => s.description && isNewYorkState(s.description))
       .slice(0, 6);
 
+    suggestionCache.set(key, suggestions);
     return NextResponse.json({ suggestions });
   } catch (error) {
     console.error("Autocomplete error:", error);

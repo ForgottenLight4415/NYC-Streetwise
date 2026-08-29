@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchReport } from "@/lib/api";
+import { useReport } from "@/lib/hooks";
 import { RENTING_FACTS } from "@/lib/renting-facts";
 import { BAND_VAR, BAND_VERDICT, overallBand } from "@/lib/score";
 import type { ReportResponse, ShowcaseFallback, ShowcaseItem } from "@/lib/types";
@@ -72,26 +71,15 @@ export function HeroSampleCard({
   item: ShowcaseItem | null;
   fallback: ShowcaseFallback | null;
 }) {
-  // Only the *fetched* report is state. When `item` is present nothing here runs.
-  const [fetched, setFetched] = useState<ReportResponse | null>(null);
-  const [failed, setFailed] = useState(false);
+  // A null key when `item` is present, so nothing is requested in the common
+  // warm-cache case. Shared with the report page's cache, so clicking through
+  // to the address this card is showing does not re-score it.
+  const { data: fetched, error } = useReport(
+    item || !fallback ? undefined : { lat: fallback.lat, lng: fallback.lng },
+  );
+  const failed = Boolean(error);
 
-  useEffect(() => {
-    if (item || !fallback) return;
-    let cancelled = false;
-    fetchReport(fallback.lat, fallback.lng)
-      .then((data) => {
-        if (!cancelled) setFetched(data);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [item, fallback]);
-
-  const data: ReportResponse | ShowcaseItem | null = item ?? fetched;
+  const data: ReportResponse | ShowcaseItem | null = item ?? fetched ?? null;
   const address = item?.address ?? fallback?.address;
   const borough = item?.borough ?? fallback?.borough ?? null;
 

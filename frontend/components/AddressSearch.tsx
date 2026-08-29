@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSuggestions } from "@/lib/api";
+import { useSuggestions } from "@/lib/hooks";
 import { SearchIcon, ClockIcon, MapPinIcon } from "./icons";
 import type { AutocompleteSuggestion } from "@/lib/types";
 
@@ -79,6 +79,35 @@ function getRecentsSnapshot(): string[] {
 
 const getRecentsServerSnapshot = (): string[] => EMPTY;
 
+/* One document-level pointerdown listener for every AddressSearch on the page,
+   rather than one each. The compare view mounts three of these (two columns
+   plus the header), and each was independently binding to `document`. */
+
+const outsideSubscribers = new Set<(e: PointerEvent) => void>();
+
+function onDocumentPointerDown(e: PointerEvent) {
+  // Copied first: a subscriber closing its panel can unsubscribe during the
+  // loop, and mutating a Set mid-iteration skips the neighbour.
+  for (const notify of Array.from(outsideSubscribers)) notify(e);
+}
+
+function subscribeOutside(notify: (e: PointerEvent) => void) {
+  if (outsideSubscribers.size === 0) {
+    // pointerdown rather than mousedown so a tap outside on a touchscreen
+    // closes the panel too.
+    document.addEventListener("pointerdown", onDocumentPointerDown);
+  }
+  outsideSubscribers.add(notify);
+  return () => {
+    outsideSubscribers.delete(notify);
+    if (outsideSubscribers.size === 0) {
+      document.removeEventListener("pointerdown", onDocumentPointerDown);
+    }
+  };
+}
+
+const NO_SUGGESTIONS: AutocompleteSuggestion[] = [];
+
 export function AddressSearch({
   size = "hero",
   autoFocus = false,
@@ -95,17 +124,10 @@ export function AddressSearch({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState(initialValue);
-  // Results are stored with the query they belong to, so a stale list can be
-  // filtered out below rather than cleared by an extra effect. Without the
-  // pairing, clearing the field and typing again showed the previous query's
-  // suggestions for the length of the debounce.
-  const [fetched, setFetched] = useState<{
-    q: string;
-    items: AutocompleteSuggestion[];
-  }>({
-    q: "",
-    items: [],
-  });
+  // The debounce is a separate piece of state from the query so the SWR key
+  // only moves once typing settles. Every distinct key is a billed Places
+  // call, which is what the delay is protecting — not render cost.
+  const [debounced, setDebounced] = useState(initialValue.trim());
   const recents = useSyncExternalStore(
     subscribeRecents,
     getRecentsSnapshot,
@@ -118,37 +140,31 @@ export function AddressSearch({
   const listboxId = useId();
 
   const trimmed = query.trim();
-  const suggestions = fetched.q === trimmed ? fetched.items : [];
 
   useEffect(() => {
-    const q = query.trim();
-    if (!q) return;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      fetchSuggestions(query, controller.signal)
-        .then((items) => setFetched({ q, items }))
-        .catch(() => {});
-    }, 150);
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
+    const timeout = setTimeout(() => setDebounced(query.trim()), 150);
+    return () => clearTimeout(timeout);
   }, [query]);
 
-  useEffect(() => {
-    function onPointerDown(e: PointerEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    // pointerdown rather than mousedown so a tap outside on a touchscreen
-    // closes the panel too.
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, []);
+  const fetchedSuggestions = useSuggestions(debounced);
+  // Still gated on the key matching what is actually in the box. SWR clears
+  // `data` when the key moves, but during the 150ms before it moves the hook
+  // is still holding the PREVIOUS query's results — which is exactly the
+  // "clear the field, type again, see the old list" case.
+  const suggestions = debounced === trimmed ? fetchedSuggestions : NO_SUGGESTIONS;
+
+  useEffect(
+    () =>
+      subscribeOutside((e) => {
+        if (
+          containerRef.current &&
+          !containerRef.current.contains(e.target as Node)
+        ) {
+          setOpen(false);
+        }
+      }),
+    [],
+  );
 
   const showingRecents = !trimmed && recents.length > 0;
   const options: { key: string; label: string; placeId?: string }[] = trimmed
