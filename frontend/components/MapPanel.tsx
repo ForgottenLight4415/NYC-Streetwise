@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MapPinIcon } from "./icons";
 import { mapId } from "../lib/maps-keys";
+import { getResolvedTheme, subscribeResolvedTheme } from "../lib/theme";
 
 // The SDK arrives from a <script> tag rather than npm, so @types/google.maps
 // supplies the `google.maps.*` namespace and this declares the global it
@@ -55,29 +56,23 @@ export function MapPanel({
   const [mapInitError, setMapInitError] = useState<string | null>(null);
   // A light Google basemap inside a dark page was the single most jarring thing
   // in the dark theme. `colorScheme` is fixed at construction, so the theme has
-  // to be part of this component's state and rebuild the map when it changes.
+  // to be an input to this component and rebuild the map when it changes.
   //
-  // Seeded from the DOM in the initializer rather than from an effect: starting
-  // at "light" and correcting on mount ran the map effect twice, which built a
-  // second map into the same container and pulled the WebGL context out from
-  // under the first.
+  // The OBSERVER is now shared (lib/theme.ts) instead of private to this
+  // component, which is the point of the change: the compare view mounts two of
+  // these, and that was two MutationObservers watching one attribute.
+  //
+  // The initial value is still seeded synchronously from the DOM, deliberately.
+  // useSyncExternalStore would be the tidier way to read a shared store, but its
+  // server snapshot cannot know the theme and has to answer "light" — so the
+  // first client render says light and the second says dark, the effect below
+  // re-runs on that change, and a SECOND map gets built into the same container,
+  // pulling the WebGL context out from under the first. That is the exact bug
+  // the original lazy initializer was written to avoid, and it stays avoided.
   const [theme, setTheme] = useState<string>(() =>
-    typeof document === "undefined"
-      ? "light"
-      : (document.documentElement.getAttribute("data-theme") ?? "light"),
+    typeof document === "undefined" ? "light" : getResolvedTheme(),
   );
-
-  useEffect(() => {
-    const read = () =>
-      setTheme(document.documentElement.getAttribute("data-theme") ?? "light");
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
-    });
-    return () => observer.disconnect();
-  }, []);
+  useEffect(() => subscribeResolvedTheme(() => setTheme(getResolvedTheme())), []);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -142,10 +137,12 @@ export function MapPanel({
         // resolved from the live computed styles instead of being hardcoded —
         // that way the pin and radius rings re-color with the theme and stay
         // in step with the legend below the map.
+        // One computed-style read, not one per token. getComputedStyle resolves
+        // the element's full style; calling it five times asked for that work
+        // five times to pull five custom properties out of the same result.
+        const rootStyle = getComputedStyle(document.documentElement);
         const token = (name: string, fallback: string) =>
-          getComputedStyle(document.documentElement)
-            .getPropertyValue(name)
-            .trim() || fallback;
+          rootStyle.getPropertyValue(name).trim() || fallback;
 
         const pin = new PinElement({
           background: token("--status-critical", "#dc3f3f"),

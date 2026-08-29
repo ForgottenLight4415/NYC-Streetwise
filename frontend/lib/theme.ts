@@ -26,3 +26,52 @@ if(p!=="light"&&p!=="dark"&&p!=="system")p="system";
 var d=p==="dark"||(p==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);
 document.documentElement.setAttribute("data-theme",d?"dark":"light");
 }catch(e){document.documentElement.setAttribute("data-theme","light");}})();`;
+
+/* ---------------------------------------------------------------------------
+   The resolved theme as an external store.
+
+   `data-theme` on <html> is the single source of truth (the init script above
+   sets it, ThemeToggle updates it), but anything that needs to REACT to it was
+   observing the attribute for itself. MapPanel ran its own MutationObserver —
+   and the compare view mounts two MapPanels, so that was two observers on the
+   same node for the same attribute.
+
+   One observer, shared, created on first subscription and torn down with the
+   last.
+
+   Consumed with useState + subscribe rather than useSyncExternalStore, because
+   the server snapshot would have to answer "light" and MapPanel cannot survive
+   a light->dark correction after mount — see the comment there.
+   --------------------------------------------------------------------------- */
+
+const themeSubscribers = new Set<() => void>();
+let themeObserver: MutationObserver | null = null;
+
+export function subscribeResolvedTheme(onChange: () => void): () => void {
+  themeSubscribers.add(onChange);
+
+  if (!themeObserver) {
+    themeObserver = new MutationObserver(() => {
+      // Copied: a subscriber unmounting in response can mutate the set.
+      for (const notify of Array.from(themeSubscribers)) notify();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+  }
+
+  return () => {
+    themeSubscribers.delete(onChange);
+    if (themeSubscribers.size === 0) {
+      themeObserver?.disconnect();
+      themeObserver = null;
+    }
+  };
+}
+
+export function getResolvedTheme(): ResolvedTheme {
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? "dark"
+    : "light";
+}

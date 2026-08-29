@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Mono, Inter } from "next/font/google";
 import { Header } from "@/components/Header";
-import { mapsScriptSrc } from "@/lib/maps-keys";
+import { API_BASE_URL } from "@/lib/api";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -44,10 +44,6 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  // Rendered into page source, so this is the referrer-restricted CLIENT key
-  // (GOOGLE_MAPS_CLIENT_KEY) — never the billed server key. See lib/maps-keys.ts.
-  const scriptSrc = mapsScriptSrc();
-
   return (
     <html
       lang="en"
@@ -59,7 +55,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        {scriptSrc && <script async src={scriptSrc} />}
+        {/* The Express backend is a different origin, and the first call to it
+            is on the critical path of every page: the report's score, and the
+            homepage's own hero card. This gets the DNS lookup and TLS handshake
+            out of the way while the document is still parsing.
+
+            The Maps SDK is NOT loaded here any more — it moved to the two
+            routes that actually build a map. See app/report/page.tsx. */}
+        <link rel="preconnect" href={API_BASE_URL} crossOrigin="" />
       </head>
       <body className="flex min-h-full flex-col bg-background text-foreground">
         <a

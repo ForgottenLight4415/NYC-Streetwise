@@ -90,7 +90,16 @@ export function TrendSparkline({
       bars.length - 1,
       Math.max(0, Math.floor((relX - PAD_LEFT) / bandWidth)),
     );
-    setHoverIdx(idx);
+    // Only when the pointer crosses into a different month. A pointermove fires
+    // per frame (~120Hz on a trackpad) but a 9-month chart has nine bands, so
+    // the overwhelming majority of moves land in the band already highlighted.
+    // React bails out on an identical value, so this turns a continuous re-render
+    // of the whole SVG — gridlines, up to 24 rects, and the tooltip, times two
+    // charts on the report and four on the compare view — into one render per
+    // band crossed. It also keeps the getBoundingClientRect above cheap: with no
+    // re-render in between, the layout is clean and the browser serves it from
+    // cache instead of recomputing it.
+    setHoverIdx((prev) => (prev === idx ? prev : idx));
   }
 
   const hovered = hoverIdx !== null ? bars[hoverIdx] : null;

@@ -8,7 +8,7 @@ import { StatusBadge } from "./StatusBadge";
 import { TrendSection } from "./TrendSection";
 import { CONFIDENCE_MESSAGE } from "@/lib/score";
 import { TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
-import type { Complaint, Confidence, ScoreBand, TrendPoint } from "@/lib/types";
+import type { Complaint, Confidence, ScoreBand } from "@/lib/types";
 
 /** "YYYY-MM-DD" for `months` months ago, for comparing against Complaint.date. */
 function monthsAgoISO(months: number): string {
@@ -26,6 +26,8 @@ export function ScorePanelCard({
   tier,
   lat,
   lng,
+  recentComplaints,
+  recentComplaintsLoading,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -40,7 +42,6 @@ export function ScorePanelCard({
     // "Why this score?" disclosure name the category that actually drove the
     // rating rather than just the largest raw count.
     bucketScores?: Record<string, number | undefined>;
-    recentComplaints?: Complaint[];
   };
   colorVar: string;
   description: string;
@@ -48,6 +49,18 @@ export function ScorePanelCard({
   tier: "building" | "block";
   lat: number;
   lng: number;
+  /**
+   * The tier's recent complaint points, fetched by the caller.
+   *
+   * Passed in rather than read off `panel` because the report used to *mutate*
+   * the fetched score payload to attach them — which, now that the payload is
+   * an SWR cache entry, would be writing into the cache. Callers that never
+   * fetch them (the compare view) pass neither prop and the section is hidden;
+   * `undefined` with `recentComplaintsLoading` means still in flight, and `[]`
+   * means none were found.
+   */
+  recentComplaints?: Complaint[];
+  recentComplaintsLoading?: boolean;
 }) {
   // The window lives here, not inside TrendSection, so it scopes the chart AND
   // the complaint list below it. Split between the two, a panel filtered to 3
@@ -55,7 +68,10 @@ export function ScorePanelCard({
   const [months, setMonths] = useState<TrendWindow>(
     TREND_DEFAULT_MONTHS as TrendWindow,
   );
-  const [series, setSeries] = useState<TrendPoint[] | null>(null);
+  // The TOTAL, not the series it came from. Lifting the array up meant a new
+  // array identity on every window change, which re-rendered this whole card —
+  // meter, category bars, complaint list — to recompute one number.
+  const [windowTotal, setWindowTotal] = useState<number | null>(null);
 
   const totalComplaints = Object.values(panel.counts).reduce(
     (sum, n) => sum + n,
@@ -67,12 +83,8 @@ export function ScorePanelCard({
   // prefix operation — correct even when the underlying feed was row-capped.
   const windowed = useMemo(() => {
     const cutoff = monthsAgoISO(months);
-    return (panel.recentComplaints ?? []).filter((c) => c.date >= cutoff);
-  }, [panel.recentComplaints, months]);
-
-  // From the trend series, not from the list above: the series is aggregated
-  // server-side and exact, while the list stops at a row cap.
-  const windowTotal = series?.reduce((sum, p) => sum + p.count, 0) ?? null;
+    return (recentComplaints ?? []).filter((c) => c.date >= cutoff);
+  }, [recentComplaints, months]);
 
   const confidenceMessage =
     panel.confidence === "low" && panel.confidenceReason
@@ -157,24 +169,36 @@ export function ScorePanelCard({
         colorVar={colorVar}
         months={months}
         onMonthsChange={setMonths}
-        onSeriesChange={setSeries}
+        onWindowTotalChange={setWindowTotal}
       />
 
-      {panel.recentComplaints !== undefined && (
+      {(recentComplaints !== undefined || recentComplaintsLoading) && (
         <div>
           <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-(--text-muted)">
             Recent complaints
           </p>
-          <RecentComplaintsList
-            complaints={windowed}
-            months={months}
-            windowTotal={windowTotal}
-            tier={tier}
-            lat={lat}
-            lng={lng}
-            radiusMeters={panel.radiusMeters}
-            panelLabel={title}
-          />
+          {recentComplaints === undefined ? (
+            // Height-matched to five collapsed rows so the card does not grow
+            // under the cursor when the list lands. This section is the reason
+            // the whole report used to block: it is now the only thing still
+            // waiting once the scores are on screen.
+            <div
+              className="h-55 animate-pulse rounded-md"
+              style={{ background: "var(--surface-2)" }}
+              aria-label="Loading recent complaints"
+            />
+          ) : (
+            <RecentComplaintsList
+              complaints={windowed}
+              months={months}
+              windowTotal={windowTotal}
+              tier={tier}
+              lat={lat}
+              lng={lng}
+              radiusMeters={panel.radiusMeters}
+              panelLabel={title}
+            />
+          )}
         </div>
       )}
     </div>

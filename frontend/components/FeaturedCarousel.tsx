@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FeaturedCard } from "./FeaturedCard";
 import type { ShowcaseItem } from "@/lib/types";
 
@@ -20,7 +20,7 @@ export function FeaturedCarousel({ reports }: { reports: ShowcaseItem[] }) {
 
   // Duplicate entries so we can loop seamlessly: when we reach the midpoint,
   // silently snap back to position 0 (which looks identical).
-  const looped = [...reports, ...reports];
+  const looped = useMemo(() => [...reports, ...reports], [reports]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -31,54 +31,99 @@ export function FeaturedCarousel({ reports }: { reports: ShowcaseItem[] }) {
     // asked for less motion gets a plain, manually scrollable row.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
+    // The loop used to reschedule itself unconditionally for the life of the
+    // page — still ticking every frame while paused, while scrolled past, and
+    // while the tab was in the background. It now runs only when all three of
+    // those say it should, and genuinely stops otherwise.
+    let running = false;
+    let onScreen = false;
+
     function tick() {
-      if (!paused.current && el) {
-        scrollPos.current += SCROLL_SPEED;
-        // Seamless loop: halfway through the duplicated list = back to start
-        if (scrollPos.current >= el.scrollWidth / 2) {
-          scrollPos.current = 0;
-        }
-        el.scrollLeft = scrollPos.current;
+      if (!el) return;
+      scrollPos.current += SCROLL_SPEED;
+      // Seamless loop: halfway through the duplicated list = back to start
+      if (scrollPos.current >= el.scrollWidth / 2) {
+        scrollPos.current = 0;
       }
+      el.scrollLeft = scrollPos.current;
       rafRef.current = requestAnimationFrame(tick);
     }
 
-    rafRef.current = requestAnimationFrame(tick);
+    function start() {
+      if (running || paused.current || !onScreen || document.hidden) return;
+      running = true;
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    function stop() {
+      if (!running) return;
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+    }
 
     function pause() {
       paused.current = true;
       clearTimeout(resumeTimer.current);
+      stop();
     }
 
     function scheduleResume() {
       clearTimeout(resumeTimer.current);
       resumeTimer.current = setTimeout(() => {
         paused.current = false;
+        start();
       }, RESUME_DELAY);
     }
-
-    el.addEventListener("mouseenter", pause);
-    el.addEventListener("mouseleave", scheduleResume);
-    el.addEventListener("touchstart", pause, { passive: true });
-    el.addEventListener("touchend", scheduleResume, { passive: true });
-    // Sync tracked position when user scrolls manually so resume is seamless
-    el.addEventListener(
-      "scroll",
-      () => {
-        scrollPos.current = el.scrollLeft;
-      },
-      { passive: true },
-    );
 
     function onWheel() {
       pause();
       scheduleResume();
     }
+
+    // Sync tracked position when user scrolls manually so resume is seamless
+    function onScroll() {
+      if (el) scrollPos.current = el.scrollLeft;
+    }
+
+    function onVisibility() {
+      if (document.hidden) stop();
+      else start();
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        onScreen = entries.some((e) => e.isIntersecting);
+        if (onScreen) start();
+        else stop();
+      },
+      // A sliver counts: the row is full-bleed and tall enough that requiring
+      // more would leave it frozen while partly in view.
+      { threshold: 0 },
+    );
+    observer.observe(el);
+
+    el.addEventListener("mouseenter", pause);
+    el.addEventListener("mouseleave", scheduleResume);
+    el.addEventListener("touchstart", pause, { passive: true });
+    el.addEventListener("touchend", scheduleResume, { passive: true });
+    el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      cancelAnimationFrame(rafRef.current);
+      stop();
       clearTimeout(resumeTimer.current);
+      observer.disconnect();
+      // Every listener added above is removed here. The old cleanup cancelled
+      // the frame and the timer but left these bound, which under StrictMode's
+      // double-invoke meant two of each in development.
+      el.removeEventListener("mouseenter", pause);
+      el.removeEventListener("mouseleave", scheduleResume);
+      el.removeEventListener("touchstart", pause);
+      el.removeEventListener("touchend", scheduleResume);
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

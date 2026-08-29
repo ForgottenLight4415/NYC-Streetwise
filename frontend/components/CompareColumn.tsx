@@ -1,20 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { AddressSearch } from "./AddressSearch";
-import { MapPanel } from "./MapPanel";
+import { MapPanelLazy } from "./MapPanelLazy";
 import { ScorePanelCard } from "./ScorePanelCard";
 import { VerdictBanner } from "./VerdictBanner";
-import { fetchReport, getLatLng } from "@/lib/api";
+import { useCoords, usePrefetchTrends, useReport } from "@/lib/hooks";
 import { BuildingIcon, BlockIcon, SpinnerIcon } from "./icons";
-import type { ReportResponse } from "@/lib/types";
-
-interface LoadedReport {
-  address: string;
-  lat: number;
-  lng: number;
-  data: ReportResponse;
-}
 
 export function CompareColumn({
   label,
@@ -25,38 +16,22 @@ export function CompareColumn({
   initialAddress: string;
   onAddressChange: (address: string, placeId?: string) => void;
 }) {
-  const [result, setResult] = useState<LoadedReport | null>(null);
-  const [errorState, setErrorState] = useState<{
-    address: string;
-    message: string;
-  } | null>(null);
   const address = initialAddress;
 
-  useEffect(() => {
-    if (!address) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const coords = await getLatLng(address);
-        if (!coords) throw new Error("Couldn't locate that address.");
-        const data = await fetchReport(coords.lat, coords.lng);
-        if (cancelled) return;
-        setResult({ address, lat: coords.lat, lng: coords.lng, data });
-      } catch (e) {
-        if (cancelled) return;
-        setErrorState({
-          address,
-          message: e instanceof Error ? e.message : "Something went wrong",
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [address]);
+  // Same two hooks the report page uses, so comparing an address you already
+  // looked up costs nothing — and comparing an address against ITSELF issues
+  // one request, not two.
+  const { data: coords, error: coordsError } = useCoords(address);
+  const { data: report, error: reportError } = useReport(coords);
 
-  const report = result?.address === address ? result : null;
-  const error = errorState?.address === address ? errorState.message : null;
+  usePrefetchTrends(coords);
+
+  const failure = coordsError ?? reportError;
+  const error = failure
+    ? failure instanceof Error
+      ? failure.message
+      : "Something went wrong"
+    : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -92,39 +67,39 @@ export function CompareColumn({
         </div>
       )}
 
-      {report && (
+      {report && coords && (
         <>
           <VerdictBanner
-            building={report.data.buildingHealth}
-            block={report.data.blockQuality}
-            address={report.address}
-            windowMonths={report.data.meta.windowMonths}
+            building={report.buildingHealth}
+            block={report.blockQuality}
+            address={address}
+            windowMonths={report.meta.windowMonths}
           />
           <ScorePanelCard
             icon={<BuildingIcon className="h-4.5 w-4.5" />}
             title="Building Health"
-            panel={report.data.buildingHealth}
+            panel={report.buildingHealth}
             colorVar="--series-building"
             description="Complaints tied to this building"
             tier="building"
-            lat={report.lat}
-            lng={report.lng}
+            lat={coords.lat}
+            lng={coords.lng}
           />
           <ScorePanelCard
             icon={<BlockIcon className="h-4.5 w-4.5" />}
             title="Block Quality"
-            panel={report.data.blockQuality}
+            panel={report.blockQuality}
             colorVar="--series-block"
             description="Complaints on the surrounding block"
             tier="block"
-            lat={report.lat}
-            lng={report.lng}
+            lat={coords.lat}
+            lng={coords.lng}
           />
-          <MapPanel
-            centerLat={report.lat}
-            centerLng={report.lng}
-            buildingRadiusMeters={report.data.buildingHealth.radiusMeters}
-            blockRadiusMeters={report.data.blockQuality.radiusMeters}
+          <MapPanelLazy
+            centerLat={coords.lat}
+            centerLng={coords.lng}
+            buildingRadiusMeters={report.buildingHealth.radiusMeters}
+            blockRadiusMeters={report.blockQuality.radiusMeters}
           />
         </>
       )}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
+import { TtlCache } from "@/lib/lru";
 import { serverMapsKey } from "@/lib/maps-keys";
 import { recordLookup } from "@/lib/record-lookup";
 
@@ -8,6 +9,32 @@ export interface GeocodeResponse {
   lng: number;
   placeId?: string;
 }
+
+/**
+ * Where a building stands does not change, so this is about as cacheable as a
+ * lookup gets. Every report load goes through here, and the homepage's four
+ * preset chips all resolve to the same four coordinates forever.
+ *
+ * Twelve hours rather than something longer only because a wrong or stale entry
+ * should age out on its own rather than needing a deploy.
+ */
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const CACHE_MAX = 5000;
+
+const geocodeCache = new TtlCache<GeocodeResponse>(CACHE_MAX, CACHE_TTL_MS);
+
+/**
+ * CDN caching for the free-text path only.
+ *
+ * The placeId path deliberately does NOT get this. That branch is the one that
+ * fires `recordLookup` (see below), and a response served from Vercel's edge
+ * never invokes the function — so putting this header on it would quietly
+ * starve the homepage's showcase feed of exactly the lookups it exists to
+ * count. The in-process cache still spares the billed Google call there; this
+ * header only adds the tier that would skip our own code.
+ */
+const CDN_CACHE_CONTROL =
+  "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800";
 
 // Google Geocoding API — converts a free-text address (or a Places placeId)
 // into coordinates for the map + score lookup.
@@ -20,6 +47,27 @@ export async function GET(request: NextRequest) {
       { error: "Either 'address' or 'placeId' parameter required" },
       { status: 400 }
     );
+  }
+
+  // Namespaced, because the same string could plausibly arrive as either kind
+  // of input and they resolve through different Google APIs.
+  const cacheKey = placeId
+    ? `p:${placeId}`
+    : `a:${address!.trim().toLowerCase().replace(/\s+/g, " ")}`;
+
+  const cached = geocodeCache.get(cacheKey);
+  if (cached) {
+    // Recorded on a cache HIT too. This is a popularity signal, not a geocode:
+    // skipping it here would mean the most-looked-up addresses — the ones that
+    // stay warm in this cache — were the only ones never counted, which is
+    // precisely backwards for a "recently checked" feed.
+    if (placeId && cached.address) {
+      const { address: canonical, lat, lng } = cached;
+      after(() => recordLookup(canonical, lat, lng));
+    }
+    return NextResponse.json(cached, {
+      headers: placeId ? undefined : { "Cache-Control": CDN_CACHE_CONTROL },
+    });
   }
 
   // Server-side key only (Geocoding + Places). The browser's client key is a
@@ -89,6 +137,7 @@ export async function GET(request: NextRequest) {
         after(() => recordLookup(canonical, location.latitude, location.longitude));
       }
 
+      geocodeCache.set(cacheKey, result);
       return NextResponse.json(result);
     }
 
@@ -128,7 +177,10 @@ export async function GET(request: NextRequest) {
       lng: result.geometry.location.lng,
       placeId: result.place_id,
     };
-    return NextResponse.json(response);
+    geocodeCache.set(cacheKey, response);
+    return NextResponse.json(response, {
+      headers: { "Cache-Control": CDN_CACHE_CONTROL },
+    });
   } catch (error) {
     console.error("Geocode error:", error);
     return NextResponse.json({ error: "Failed to geocode address" }, { status: 500 });
