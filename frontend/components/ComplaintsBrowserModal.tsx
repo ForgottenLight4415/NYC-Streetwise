@@ -11,7 +11,12 @@ import {
 } from "@/lib/api";
 import { CATEGORY_LABEL, STATUS_LABEL, STATUS_VAR } from "@/lib/score";
 import { useDialog } from "@/lib/useDialog";
-import type { Complaint, ComplaintGroup, ComplaintStatus } from "@/lib/types";
+import type {
+  Complaint,
+  ComplaintGroup,
+  ComplaintStatus,
+  ComplaintTierId,
+} from "@/lib/types";
 import { ChevronRightIcon, CloseIcon } from "./icons";
 import { ComplaintDetailModal } from "./ComplaintDetailModal";
 import { FactRotator } from "./FactRotator";
@@ -51,7 +56,7 @@ export function ComplaintsBrowserModal({
 }: {
   lat: number;
   lng: number;
-  tier: "building" | "block";
+  tier: ComplaintTierId;
   radiusMeters: number;
   panelLabel: string;
   initialMonths: TrendWindow;

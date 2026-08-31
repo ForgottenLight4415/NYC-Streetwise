@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, IBM_Plex_Mono, Inter } from "next/font/google";
+import { Archivo, IBM_Plex_Mono, Lato } from "next/font/google";
 import { Header } from "@/components/Header";
 import { API_BASE_URL } from "@/lib/api";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -14,10 +14,15 @@ const archivo = Archivo({
 });
 
 // Body: chosen for small-size legibility, because the report pages are dense
-// lists of complaint labels and dates.
-const inter = Inter({
+// lists of complaint labels and dates. Lato isn't a variable font on Google
+// Fonts, so the weights it can serve are fixed to 100/300/400/700/900 — 400
+// covers body copy and font-normal; 700 covers font-semibold/font-bold
+// headings and labels (there's no 500/600 cut, so those Tailwind utilities
+// fall back to the browser's nearest match).
+const lato = Lato({
   variable: "--font-body",
   subsets: ["latin"],
+  weight: ["400", "700"],
 });
 
 // Data: scores, counts, radii, dates, complaint IDs. These are record fields
@@ -51,7 +56,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       // before React hydrates, so the client's <html> attributes legitimately
       // differ from the server's. Scoped to this element only.
       suppressHydrationWarning
-      className={`${archivo.variable} ${inter.variable} ${plexMono.variable} h-full antialiased`}
+      className={`${archivo.variable} ${lato.variable} ${plexMono.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

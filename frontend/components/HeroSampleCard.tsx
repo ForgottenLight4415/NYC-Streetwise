@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { AMENITY_CATEGORIES } from "@/lib/categories";
 import { useReport } from "@/lib/hooks";
 import { RENTING_FACTS } from "@/lib/renting-facts";
-import { BAND_VAR, BAND_VERDICT, overallBand } from "@/lib/score";
+import { ACCESS_VERDICT, BAND_VAR, BAND_VERDICT, overallAmenityBand, overallBand } from "@/lib/score";
 import type { ReportResponse, ShowcaseFallback, ShowcaseItem } from "@/lib/types";
 import { FactRotator } from "./FactRotator";
 import { ArrowRightIcon } from "./icons";
@@ -108,6 +109,11 @@ function Card({
   data: ReportResponse;
 }) {
   const band = overallBand(data.buildingHealth.band, data.blockQuality.band);
+  const amenityCats = AMENITY_CATEGORIES.filter((c) => data[c.key] != null);
+  const accessBand =
+    amenityCats.length > 0
+      ? overallAmenityBand(...amenityCats.map((c) => data[c.key]!.band))
+      : null;
 
   return (
     <Link
@@ -132,6 +138,17 @@ function Card({
           style={{ color: `var(${BAND_VAR[band]}-ink)` }}
         >
           {BAND_VERDICT[band]}
+          {/* A secondary access chip, not folded into the one verdict above —
+              without it this card could say "Looks solid" and open a report
+              that also says "Car-dependent", which reads as a contradiction. */}
+          {accessBand && (
+            <span
+              className="ml-2 text-(--text-muted)"
+              style={{ color: `var(${BAND_VAR[accessBand]}-ink)` }}
+            >
+              · {ACCESS_VERDICT[accessBand]}
+            </span>
+          )}
         </p>
       </div>
 

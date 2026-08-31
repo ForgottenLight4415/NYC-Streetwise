@@ -6,6 +6,7 @@ import useSWRImmutable from "swr/immutable";
 import {
   COMPLAINTS_FETCH_LIMIT,
   TREND_MAX_MONTHS,
+  fetchAmenityNearby,
   fetchExplanation,
   fetchNearbyComplaints,
   fetchReport,
@@ -14,8 +15,12 @@ import {
   getLatLng,
 } from "./api";
 import type {
+  AmenityNearbyResponse,
   AutocompleteSuggestion,
+  CategoryId,
+  CategoryKey,
   Complaint,
+  ComplaintTierId,
   ExplanationSource,
   ReportResponse,
   TrendPoint,
@@ -96,13 +101,13 @@ export function useReport(coords: Coords | undefined) {
 export function useNearbyComplaints(
   coords: Coords | undefined,
   radius: number | undefined,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
 ) {
   return useSWRImmutable<Complaint[]>(
     coords && radius
       ? (["complaints", coords.lat, coords.lng, radius, tier, COMPLAINTS_FETCH_LIMIT] as const)
       : null,
-    ([, lat, lng, r, t]: readonly [string, number, number, number, "building" | "block", number]) =>
+    ([, lat, lng, r, t]: readonly [string, number, number, number, ComplaintTierId, number]) =>
       fetchNearbyComplaints(lat, lng, r, t),
     NO_RETRY,
   );
@@ -115,9 +120,9 @@ export function useNearbyComplaints(
  * ReportView prefetches this key alongside /api/score, the chart is already
  * warm by the time the panel mounts.
  */
-type TrendKey = readonly [string, number, number, "building" | "block"];
+type TrendKey = readonly [string, number, number, ComplaintTierId];
 
-const trendKey = (coords: Coords, tier: "building" | "block"): TrendKey => [
+const trendKey = (coords: Coords, tier: ComplaintTierId): TrendKey => [
   "trend",
   coords.lat,
   coords.lng,
@@ -129,7 +134,7 @@ const trendFetcher = ([, lat, lng, t]: TrendKey) =>
 
 export function useTrend(
   coords: Coords | undefined,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
 ) {
   return useSWRImmutable<TrendPoint[]>(
     coords ? trendKey(coords, tier) : null,
@@ -159,8 +164,12 @@ export function usePrefetchTrends(coords: Coords | undefined) {
 }
 
 /**
- * The AI explanation for one tier — the slow path, deliberately off the score
- * request.
+ * The AI explanation — the slow path, deliberately off the score request.
+ * `tier` is typed as the general `CategoryId`, but in practice the only
+ * caller left is VerdictBanner asking for "overall": building/block/transit/
+ * parks/bike/walkability each get a deterministic explanation instead (see
+ * `explainFromTemplate` on the backend and the client-side amenity
+ * equivalent in AmenityPanelCard), so nothing else ever calls this hook.
  *
  * Not requested at all when the section already came back as "ai": that means
  * the backend served it from its own cache, and asking again would pay model
@@ -170,10 +179,10 @@ export function usePrefetchTrends(coords: Coords | undefined) {
  */
 export function useExplanation(
   coords: Coords | undefined,
-  tier: "building" | "block",
+  tier: CategoryId,
   /** Only the two fields that decide whether a fetch is needed at all. */
   section:
-    | { explanation: string; explanationSource: ExplanationSource }
+    | { explanation?: string; explanationSource?: ExplanationSource }
     | undefined,
 ) {
   const alreadyAi = section?.explanationSource === "ai";
@@ -181,7 +190,7 @@ export function useExplanation(
     coords && section && !alreadyAi
       ? (["explanation", coords.lat, coords.lng, tier] as const)
       : null,
-    ([, lat, lng, t]: readonly [string, number, number, "building" | "block"]) =>
+    ([, lat, lng, t]: readonly [string, number, number, CategoryId]) =>
       fetchExplanation(lat, lng, t),
     NO_RETRY,
   );
@@ -192,6 +201,87 @@ export function useExplanation(
     text: alreadyAi ? (section?.explanation ?? null) : (data ?? null),
     isLoading,
   };
+}
+
+/**
+ * The report's one fixed-arity fanout: two useNearbyComplaints calls
+ * (amenities have no complaint feed or time series to fetch). React's Rules
+ * of Hooks forbid looping the category registry to build this, so this hook
+ * is the one place that has to enumerate every category by hand.
+ *
+ * Returns a TOTAL `Record<CategoryKey, ...>` — a seventh `CategoryKey` added
+ * to `lib/types.ts` without a matching line here is a *build error inside
+ * this hook*, not a silent gap that shows up later as a blank panel. (This
+ * is exactly how walkabilityAccess was added — the compiler caught it here
+ * first.)
+ *
+ * No per-tier AI fetch here any more: building/block/transit/parks/bike/
+ * walkability each get a deterministic "Why this score?" instead — the
+ * complaint tiers' from the counts already in `report`, the amenity tiers'
+ * computed client-side (see AmenityPanelCard) — so there is nothing left to
+ * fetch for any of the six. `useExplanation` still exists, but only
+ * VerdictBanner calls it now, for the one whole-report AI summary.
+ */
+export function useReportPanels(
+  coords: Coords | undefined,
+  report: ReportResponse | undefined,
+): Record<CategoryKey, { complaints?: { data: Complaint[] | undefined; isLoading: boolean } }> {
+  const buildingComplaints = useNearbyComplaints(
+    coords,
+    report?.buildingHealth.radiusMeters,
+    "building",
+  );
+  const blockComplaints = useNearbyComplaints(
+    coords,
+    report?.blockQuality.radiusMeters,
+    "block",
+  );
+
+  return {
+    buildingHealth: {
+      complaints: {
+        data: buildingComplaints.data,
+        isLoading: buildingComplaints.isLoading,
+      },
+    },
+    blockQuality: {
+      complaints: {
+        data: blockComplaints.data,
+        isLoading: blockComplaints.isLoading,
+      },
+    },
+    transitAccess: {},
+    parksAccess: {},
+    bikeAccess: {},
+    walkabilityAccess: {},
+  };
+}
+
+/**
+ * Every real instance of one amenity bucket within its tier's radius — what
+ * backs an amenity row's `>` affordance (AmenityBrowserModal) and the map's
+ * extra markers while that modal is open.
+ *
+ * Keyed on (coords, tier, bucket) so the SAME entry is shared — and fetched
+ * only once — whether it is the modal or ReportBody (feeding MapPanel's
+ * extraMarkers) that asks for it first, the same dedup `useReport`'s doc
+ * comment describes for two ScorePanelCards. `tier`/`bucket` undefined
+ * (nothing currently open) is how the caller says "don't fetch" — same null-
+ * key convention every other hook here uses.
+ */
+export function useNearbyAmenities(
+  coords: Coords | undefined,
+  tier: CategoryId | undefined,
+  bucket: string | undefined,
+) {
+  return useSWRImmutable<AmenityNearbyResponse>(
+    coords && tier && bucket
+      ? (["amenities-nearby", coords.lat, coords.lng, tier, bucket] as const)
+      : null,
+    ([, lat, lng, t, b]: readonly [string, number, number, CategoryId, string]) =>
+      fetchAmenityNearby(lat, lng, t, b),
+    NO_RETRY,
+  );
 }
 
 /**

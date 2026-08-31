@@ -13,6 +13,9 @@
     "baseline": "node --env-file-if-exists=.env scripts/buildBaseline.js",
     "warm:showcase": "node --env-file-if-exists=.env scripts/warmShowcase.js",
     "verify:dataset": "node --env-file-if-exists=.env scripts/verifyDataset.js",
+    "verify:amenities": "node --env-file-if-exists=.env scripts/verifyAmenities.js",
+    "build:amenities": "node --env-file-if-exists=.env scripts/buildAmenities.js",
+    "baseline:amenities": "node --env-file-if-exists=.env scripts/buildAmenityBaseline.js",
     "verify:cache": "node --env-file-if-exists=.env scripts/verifyCache.js",
     "verify:scoring": "node --env-file-if-exists=.env scripts/verifyScoring.js",
     "verify:explanations": "node --env-file-if-exists=.env scripts/verifyExplanations.js"

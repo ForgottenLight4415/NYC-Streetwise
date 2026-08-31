@@ -10,6 +10,7 @@ import {
   COMPLAINT_FILL_TIMEOUT_MS,
   COMPLAINT_FILL_RETRIES,
   KNOWN_STATUSES,
+  STATUS_BUCKET_NAMES,
   rawStatusesForBucket,
   statusBucket,
   windowCutoffISO,
@@ -125,44 +126,69 @@ export async function query(
   );
 }
 
+/** Zero-filled `{open: 0, "in-progress": 0, closed: 0}` — one status breakdown. */
+function zeroStatusCounts() {
+  return Object.fromEntries(STATUS_BUCKET_NAMES.map((name) => [name, 0]));
+}
+
 /**
  * Counts complaints for ONE radius tier around a point: a single HTTP call that
- * groups by complaint_type, whose per-string rows are then summed into buckets.
+ * groups by (complaint_type, status), whose per-string rows are then summed
+ * into buckets — both a plain per-bucket total (`counts`, for scoring, exactly
+ * as before) and a per-bucket status breakdown (`bucketStatusCounts`, for the
+ * frontend's status-segmented category bar).
+ *
+ * `status` rides along in the SAME $select/$group rather than a second query —
+ * still ONE HTTP call per tier, which is what CLAUDE.md's "two Socrata calls
+ * per uncached address" budget depends on.
  *
  * Summing into buckets here (rather than scoring per string) is required —
  * buckets hold different numbers of string variants, so per-string averaging
  * would silently underweight noise (4 strings) against plumbing (2).
  *
- * @returns {Promise<Record<string, number>>} every bucket for the tier, zero-filled
+ * @returns {Promise<{
+ *   counts: Record<string, number>,
+ *   bucketStatusCounts: Record<string, Record<"open"|"in-progress"|"closed", number>>
+ * }>} `counts` is zero-filled per bucket, exactly as before. `bucketStatusCounts`
+ *   is zero-filled the same way, one status breakdown per bucket.
  */
 export async function fetchCountsForTier(lat, lng, tierName, { now } = {}) {
   const { radiusMeters, buckets } = RADIUS_TIERS[tierName];
   const types = Object.values(buckets).flat();
 
   const rows = await query({
-    $select: "complaint_type, count(*) AS count",
+    $select: "complaint_type, status, count(*) AS count",
     $where: [
       `within_circle(${LOCATION_FIELD}, ${lat}, ${lng}, ${radiusMeters})`,
       typeInClause(types),
       `created_date > ${soqlString(windowCutoffISO(now))}`,
     ].join(" AND "),
-    $group: "complaint_type",
+    $group: "complaint_type, status",
     $limit: String(SOCRATA_ROW_LIMIT),
   });
 
   // Zero-fill first: a bucket with no complaints returns no row at all, and a
   // missing bucket would otherwise become NaN downstream.
   const counts = Object.fromEntries(BUCKET_NAMES[tierName].map((b) => [b, 0]));
+  const bucketStatusCounts = Object.fromEntries(
+    BUCKET_NAMES[tierName].map((b) => [b, zeroStatusCounts()])
+  );
   for (const row of rows) {
     const bucket = TYPE_TO_BUCKET[row.complaint_type];
-    if (bucket && bucket in counts) counts[bucket] += Number(row.count);
+    if (!bucket || !(bucket in counts)) continue;
+    const n = Number(row.count);
+    counts[bucket] += n;
+    bucketStatusCounts[bucket][statusBucket(row.status)] += n;
   }
-  return counts;
+  return { counts, bucketStatusCounts };
 }
 
 /**
  * Both tiers for one point — the two HTTP calls per uncached address that
  * CLAUDE.md specifies (not six, not twelve). Issued in parallel.
+ *
+ * @returns {Promise<{building: object, block: object}>} each value is
+ *   fetchCountsForTier's `{counts, bucketStatusCounts}` shape.
  */
 export async function fetchAllCounts(lat, lng, options) {
   const [building, block] = await Promise.all([

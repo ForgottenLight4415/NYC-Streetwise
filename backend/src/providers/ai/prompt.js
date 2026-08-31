@@ -13,15 +13,29 @@ const BUCKET_LABELS = {
   streetCondition: "street and sidewalk condition",
 };
 
-/** What each band is supposed to mean to a renter, in plain words. */
-const BAND_MEANING = {
-  good: "better than most of New York City",
-  fair: "about typical for New York City",
-  poor: "worse than most of New York City",
-};
-
 export function bucketLabel(bucket) {
   return BUCKET_LABELS[bucket] ?? bucket;
+}
+
+/** Human-readable amenity bucket names, the amenity-tier analogue of BUCKET_LABELS. */
+const AMENITY_BUCKET_LABELS = {
+  subway: "subway station",
+  bus: "bus stop",
+  rail: "commuter rail station",
+  park: "park",
+  playground: "playground",
+  garden: "garden",
+  bikeShare: "Citi Bike dock",
+  bikeLane: "bike lane",
+  protectedLane: "protected bike lane",
+  grocery: "grocery store",
+  restaurant: "restaurant",
+  cafe: "cafe",
+  school: "school",
+};
+
+export function amenityBucketLabel(bucket) {
+  return AMENITY_BUCKET_LABELS[bucket] ?? bucket;
 }
 
 /** "12 heat and hot water, 3 plumbing, 0 unsanitary conditions" */
@@ -31,54 +45,66 @@ function formatCounts(counts) {
     .join(", ");
 }
 
+/** "subway station 320m away (14 St-Union Sq), bus stop 120m away, rail station: none within 2000m" */
+function formatMetrics(metrics) {
+  return Object.entries(metrics ?? {})
+    .map(([bucket, metric]) => {
+      const noun = amenityBucketLabel(bucket);
+      if (metric?.meters === null || metric?.meters === undefined) {
+        return `${noun}: none found nearby`;
+      }
+      const named = metric.name ? ` (${metric.name})` : "";
+      return `${noun} ${metric.meters}m away${named}`;
+    })
+    .join(", ");
+}
+
+/** "Building Health: 12 heat and hot water, 3 plumbing, 0 unsanitary conditions" */
+function formatSection({ label, counts, metrics }) {
+  return `${label}: ${metrics ? formatMetrics(metrics) : formatCounts(counts)}`;
+}
+
 /**
- * Builds the full prompt for one sub-score.
+ * Builds the full prompt for the WHOLE-REPORT summary — one blurb synthesizing
+ * across every section the report has (both complaint tiers, plus whichever
+ * amenity tiers are present), rather than one prompt per section.
+ *
+ * This is the ONLY prompt the AI adapters build — building/block/transit/
+ * parks/bike/walkability each get a deterministic "Why this score?" instead
+ * (see explainFromTemplate in services/explain.js and its frontend mirrors),
+ * so there is no per-section AI prompt to keep consistent with this one.
  *
  * @param {object} input
- * @param {string} input.label        e.g. "Building Health"
- * @param {string} input.band         "good" | "fair" | "poor"
- * @param {object} input.counts       bucket -> count
- * @param {string} input.radiusLabel  e.g. "this building (25m)"
+ * @param {Array<{label: string, band: string, counts?: object, metrics?: object}>} input.sections
  * @returns {string}
  */
-export function buildPrompt({ label, band, counts, radiusLabel }) {
+export function buildOverallSummaryPrompt({ sections }) {
   return [
-    "You explain a neighborhood quality score to someone deciding whether to rent an apartment in New York City.",
+    "You summarize a full neighborhood report for someone deciding whether to rent an apartment in New York City.",
+    "The report below is several independently rated sections. Each has already been labeled with a rating word for the reader elsewhere on the page (complaint sections: good, fair, or poor; amenity sections: excellent, typical, or car-dependent) — your job is not to rate anything, only to say what is actually worth knowing.",
     "",
-    `Score name: ${label}`,
-    `Rating: ${band} — ${BAND_MEANING[band] ?? "typical for New York City"}`,
-    `Area covered: ${radiusLabel}`,
-    `311 complaints filed in the last 24 months: ${formatCounts(counts)}`,
+    ...sections.map(formatSection),
     "",
-    "Write 1-2 short sentences explaining what this rating means for someone living here.",
+    "Write ONE summary, under 120 words total (roughly 3-5 short sentences), covering only what stands out.",
     "",
     "Rules:",
-    // Cross-provider consistency rules. These exist because llama3.1:8b and
-    // gemini-3.5-flash-lite drifted apart on exactly these three points when
-    // given the earlier, looser prompt — Gemini restated the rating and quoted
-    // the counts, Llama ran to three sentences. Tightening the SHARED prompt is
-    // what keeps one product; per-adapter patches would guarantee two.
-    "- Maximum 2 sentences. Stop after the second.",
-    `- Never state the rating word ("${band}") or repeat the comparison to the rest of New York City. The reader can already see the rating.`,
-    "- Do not put quotation marks around the complaint types or the numbers.",
-    // This is the main defense against hallucinated specifics. An invented
-    // address or incident in a renting decision is the worst thing this feature
-    // could produce, so it is stated first and stated twice.
-    "- Use ONLY the complaint numbers given above. Do not invent addresses, dates, street names, landlords, or specific incidents.",
-    "- Do not mention any fact that is not in the numbers above.",
-    // Observed: llama3.1 called 2876-vs-1253 "nearly three times as many" (it is
-    // 2.3x). Small models do arithmetic badly, and a wrong ratio is a factual
-    // error in a renting decision. Quote the counts, do not derive from them.
-    "- Quote the counts as given. Do not calculate ratios, percentages, averages, or 'X times more' comparisons.",
-    "- Name the complaint types that stand out, or say complaints are low if they are.",
-    "- Do not use the words percentile, score, baseline, median, data, or dataset.",
+    "- Mention only what is unusual: a notably high or low complaint count, or a notably close or far amenity. Most of the sections above will not be worth a sentence — do not describe every one of them.",
+    "- If nothing stands out anywhere, say the area is generally unremarkable rather than listing numbers.",
+    // Observed failure: a zero count rendered as "There is no heat or hot
+    // water in the building" — a claim that the building HAS no heat, which
+    // is the opposite of what a zero-complaint record means. The counts above
+    // are a count of COMPLAINTS FILED, never a description of the physical
+    // building or block, and the word "complaints" is what keeps that
+    // distinction in the sentence.
+    "- Every count above is a count of complaints FILED, not a fact about the building or block itself. When mentioning one, say so explicitly — \"no heat or hot water complaints\", never \"no heat or hot water\" — so a zero count never reads as a claim that the condition itself is absent or present.",
+    "- Use ONLY the facts listed above. Do not invent addresses, dates, cross streets, landlords, or incidents.",
+    "- Do not put quotation marks around complaint types, amenity names, counts, or distances.",
+    "- Quote counts and distances exactly as given. Do not calculate ratios, percentages, averages, or 'X times more' comparisons, and do not convert metres to minutes, blocks, or miles.",
+    "- Do not use the words good, fair, poor, excellent, typical, car-dependent, percentile, score, baseline, median, band, rating, data, or dataset.",
     "- Plain, calm, factual. No marketing language, no emoji, no bullet points, no headings.",
-    // Small models reliably open with "The <score name> rating indicates that…"
-    // unless told concretely what NOT to write. Naming the exact bad opening
-    // works where "do not restate the rating name" alone did not.
-    `- Do not begin with "The ${label}" or any restatement of the score name. Start with what a resident would notice.`,
-    "- Do not use a greeting.",
+    "- Do not begin with a greeting, or with \"This report\", \"Overall\", or \"In summary\". Start with what a resident would actually notice.",
+    "- Stay under 120 words total, no matter how many sections are listed above.",
     "",
-    "Explanation:",
+    "Summary:",
   ].join("\n");
 }

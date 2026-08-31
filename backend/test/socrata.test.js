@@ -65,11 +65,11 @@ describe("query construction", () => {
     expect(where).not.toMatch(/within_circle\(latitude/);
   });
 
-  it("groups by complaint_type so one HTTP call covers every bucket in the tier", async () => {
+  it("groups by complaint_type AND status so one HTTP call covers every bucket AND its status breakdown", async () => {
     await fetchCountsForTier(40.7484, -73.9857, "block");
     const params = calls()[0].searchParams;
-    expect(params.get("$select")).toBe("complaint_type, count(*) AS count");
-    expect(params.get("$group")).toBe("complaint_type");
+    expect(params.get("$select")).toBe("complaint_type, status, count(*) AS count");
+    expect(params.get("$group")).toBe("complaint_type, status");
     expect(Number(params.get("$limit"))).toBeGreaterThanOrEqual(50000);
   });
 
@@ -132,18 +132,19 @@ describe("bucket summing", () => {
     // Percentiling per string and averaging would underweight noise.
     fetchMock.mockResolvedValue(
       jsonResponse([
-        { complaint_type: "Noise - Residential", count: "100" },
-        { complaint_type: "Noise - Street/Sidewalk", count: "50" },
-        { complaint_type: "Noise - Vehicle", count: "20" },
-        { complaint_type: "Noise - Commercial", count: "5" },
-        { complaint_type: "Illegal Parking", count: "7" },
-        { complaint_type: "Blocked Driveway", count: "3" },
-        { complaint_type: "Street Condition", count: "11" },
-        { complaint_type: "Sidewalk Condition", count: "4" },
+        { complaint_type: "Noise - Residential", status: "Closed", count: "100" },
+        { complaint_type: "Noise - Street/Sidewalk", status: "Closed", count: "50" },
+        { complaint_type: "Noise - Vehicle", status: "Closed", count: "20" },
+        { complaint_type: "Noise - Commercial", status: "Closed", count: "5" },
+        { complaint_type: "Illegal Parking", status: "Closed", count: "7" },
+        { complaint_type: "Blocked Driveway", status: "Closed", count: "3" },
+        { complaint_type: "Street Condition", status: "Closed", count: "11" },
+        { complaint_type: "Sidewalk Condition", status: "Closed", count: "4" },
       ])
     );
 
-    expect(await fetchCountsForTier(40.7, -73.9, "block")).toEqual({
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "block");
+    expect(counts).toEqual({
       noise: 175,
       parking: 10,
       streetCondition: 15,
@@ -154,10 +155,10 @@ describe("bucket summing", () => {
     // Socrata returns no row for an empty group; a missing key becomes NaN in
     // the scoring mean, which silently poisons the whole sub-score.
     fetchMock.mockResolvedValue(
-      jsonResponse([{ complaint_type: "HEAT/HOT WATER", count: "42" }])
+      jsonResponse([{ complaint_type: "HEAT/HOT WATER", status: "Open", count: "42" }])
     );
 
-    const counts = await fetchCountsForTier(40.7, -73.9, "building");
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
     expect(counts).toEqual({
       heatHotWater: 42,
       unsanitaryCondition: 0,
@@ -170,7 +171,8 @@ describe("bucket summing", () => {
 
   it("returns all-zero counts rather than {} for an empty response", async () => {
     fetchMock.mockResolvedValue(jsonResponse([]));
-    expect(await fetchCountsForTier(40.7, -73.9, "building")).toEqual({
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
+    expect(counts).toEqual({
       heatHotWater: 0,
       unsanitaryCondition: 0,
       plumbing: 0,
@@ -180,25 +182,73 @@ describe("bucket summing", () => {
   it("ignores complaint types outside our buckets", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse([
-        { complaint_type: "HEAT/HOT WATER", count: "5" },
-        { complaint_type: "Rodent", count: "999" },
+        { complaint_type: "HEAT/HOT WATER", status: "Open", count: "5" },
+        { complaint_type: "Rodent", status: "Open", count: "999" },
       ])
     );
-    const counts = await fetchCountsForTier(40.7, -73.9, "building");
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
     expect(counts.heatHotWater).toBe(5);
     expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(5);
   });
 
   it("does not let a block-tier row land in a building-tier result", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse([{ complaint_type: "Illegal Parking", count: "80" }])
+      jsonResponse([{ complaint_type: "Illegal Parking", status: "Open", count: "80" }])
     );
-    const counts = await fetchCountsForTier(40.7, -73.9, "building");
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
     expect(counts).toEqual({
       heatHotWater: 0,
       unsanitaryCondition: 0,
       plumbing: 0,
     });
+  });
+});
+
+describe("bucketStatusCounts", () => {
+  it("buckets rows by statusBucket() and sums into the same bucket the count went to", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { complaint_type: "HEAT/HOT WATER", status: "Open", count: "3" },
+        { complaint_type: "HEAT/HOT WATER", status: "Assigned", count: "2" },
+        { complaint_type: "Heat/Hot Water", status: "Closed", count: "10" },
+        { complaint_type: "PLUMBING", status: "Unspecified", count: "1" },
+      ])
+    );
+
+    const { counts, bucketStatusCounts } = await fetchCountsForTier(40.7, -73.9, "building");
+    expect(counts).toEqual({ heatHotWater: 15, unsanitaryCondition: 0, plumbing: 1 });
+    expect(bucketStatusCounts).toEqual({
+      // "Assigned" sits with in-progress; "Unspecified" sits with open — see
+      // STATUS_TO_BUCKET in constants.js.
+      heatHotWater: { open: 3, "in-progress": 2, closed: 10 },
+      unsanitaryCondition: { open: 0, "in-progress": 0, closed: 0 },
+      plumbing: { open: 1, "in-progress": 0, closed: 0 },
+    });
+  });
+
+  it("zero-fills every bucket's status breakdown, not just the buckets that had rows", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    const { bucketStatusCounts } = await fetchCountsForTier(40.7, -73.9, "block");
+    expect(bucketStatusCounts).toEqual({
+      noise: { open: 0, "in-progress": 0, closed: 0 },
+      parking: { open: 0, "in-progress": 0, closed: 0 },
+      streetCondition: { open: 0, "in-progress": 0, closed: 0 },
+    });
+  });
+
+  it("each bucket's status triple sums back to that bucket's own count", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { complaint_type: "Illegal Parking", status: "Open", count: "4" },
+        { complaint_type: "Blocked Driveway", status: "Pending", count: "6" },
+        { complaint_type: "Illegal Parking", status: "Cancel", count: "2" },
+      ])
+    );
+    const { counts, bucketStatusCounts } = await fetchCountsForTier(40.7, -73.9, "block");
+    for (const bucket of Object.keys(counts)) {
+      const total = Object.values(bucketStatusCounts[bucket]).reduce((a, b) => a + b, 0);
+      expect(total).toBe(counts[bucket]);
+    }
   });
 });
 
@@ -214,13 +264,18 @@ describe("fetchAllCounts", () => {
     expect(radii.map(Number).sort((a, b) => a - b)).toEqual([25, 350]);
   });
 
-  it("returns both tiers keyed by name", async () => {
+  it("returns both tiers keyed by name, each carrying counts and bucketStatusCounts", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse([{ complaint_type: "HEAT/HOT WATER", count: "3" }])
+      jsonResponse([{ complaint_type: "HEAT/HOT WATER", status: "Closed", count: "3" }])
     );
     const { building, block } = await fetchAllCounts(40.7484, -73.9857);
-    expect(building.heatHotWater).toBe(3);
-    expect(block).toEqual({ noise: 0, parking: 0, streetCondition: 0 });
+    expect(building.counts.heatHotWater).toBe(3);
+    expect(building.bucketStatusCounts.heatHotWater).toEqual({
+      open: 0,
+      "in-progress": 0,
+      closed: 3,
+    });
+    expect(block.counts).toEqual({ noise: 0, parking: 0, streetCondition: 0 });
   });
 
   it("issues the two calls in parallel, not in sequence", async () => {
@@ -245,7 +300,7 @@ describe("retry policy", () => {
         jsonResponse([{ complaint_type: "PLUMBING", count: "2" }])
       );
 
-    const counts = await fetchCountsForTier(40.7, -73.9, "building");
+    const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
     expect(counts.plumbing).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

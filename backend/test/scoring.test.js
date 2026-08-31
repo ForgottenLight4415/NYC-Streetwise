@@ -276,6 +276,35 @@ describe("scoreTier", () => {
     expect(Number.isInteger(tier.score)).toBe(true);
     expect(tier.counts).toEqual({ noise: 1000, parking: 0, streetCondition: 0 });
   });
+
+  // bucketStatusCounts — pure pass-through, no scoring logic reads it.
+  it("attaches bucketStatusCounts verbatim when provided", () => {
+    const statusCounts = {
+      noise: { open: 400, "in-progress": 100, closed: 500 },
+      parking: { open: 200, "in-progress": 50, closed: 750 },
+      streetCondition: { open: 10, "in-progress": 5, closed: 85 },
+    };
+    const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE, statusCounts);
+    expect(tier.bucketStatusCounts).toEqual(statusCounts);
+    // Passing it must not change the score itself — it is purely descriptive.
+    expect(tier.score).toBe(scoreTier("block", TYPICAL_BLOCK, BASELINE).score);
+  });
+
+  it("omits bucketStatusCounts entirely when not provided, rather than defaulting to zeros", () => {
+    const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE);
+    expect(tier).not.toHaveProperty("bucketStatusCounts");
+    // The existing frozen-shape assertion above must keep passing untouched.
+    expect(Object.keys(tier).sort()).toEqual([
+      "band",
+      "bucketConfidence",
+      "bucketScores",
+      "confidence",
+      "confidenceReason",
+      "counts",
+      "radiusMeters",
+      "score",
+    ]);
+  });
 });
 
 describe("buildReport", () => {
@@ -324,6 +353,30 @@ describe("buildReport", () => {
       CONFIDENCE_REASONS.noBaseline
     );
     expect(report.meta.baselineVersion).toBeNull();
+  });
+
+  it("threads per-tier statusCounts into each section as bucketStatusCounts", () => {
+    const statusCounts = {
+      building: {
+        heatHotWater: { open: 0, "in-progress": 0, closed: 0 },
+        unsanitaryCondition: { open: 0, "in-progress": 0, closed: 0 },
+        plumbing: { open: 0, "in-progress": 0, closed: 0 },
+      },
+      block: {
+        noise: { open: 300, "in-progress": 100, closed: 600 },
+        parking: { open: 50, "in-progress": 50, closed: 900 },
+        streetCondition: { open: 10, "in-progress": 10, closed: 80 },
+      },
+    };
+    const report = buildReport(counts, BASELINE, {}, null, null, statusCounts);
+    expect(report.buildingHealth.bucketStatusCounts).toEqual(statusCounts.building);
+    expect(report.blockQuality.bucketStatusCounts).toEqual(statusCounts.block);
+  });
+
+  it("omits bucketStatusCounts from every section when statusCounts is not passed", () => {
+    const report = buildReport(counts, BASELINE);
+    expect(report.buildingHealth).not.toHaveProperty("bucketStatusCounts");
+    expect(report.blockQuality).not.toHaveProperty("bucketStatusCounts");
   });
 });
 

@@ -6,6 +6,9 @@ const ICON: Record<ScoreBand, React.ComponentType<{ className?: string }>> = {
   good: CheckCircleIcon,
   fair: AlertTriangleIcon,
   poor: XCircleIcon,
+  excellent: CheckCircleIcon,
+  typical: AlertTriangleIcon,
+  carDependent: XCircleIcon,
 };
 
 export function StatusBadge({

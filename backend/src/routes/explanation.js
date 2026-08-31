@@ -1,19 +1,24 @@
 import { Router } from "express";
 import { RATE_LIMIT_AI } from "../config/constants.js";
 import { rateLimit } from "../lib/rateLimit.js";
-import { validateCoords, validateTier } from "../lib/validate.js";
+import { validateCoords, validateExplanationTier } from "../lib/validate.js";
 import { buildExplanation, isMockMode } from "../services/scoreService.js";
 import { EXPLANATION_SOURCES } from "../config/constants.js";
 
 export const explanationRouter = Router();
 
 /**
- * GET /api/explanation?lat=&lng=&tier=building|block
+ * GET /api/explanation?lat=&lng=&tier=overall
  *
- * THE SLOW PATH. The frontend calls this only when /api/score came back with
- * `explanationSource: "template"`, then swaps the text in place. Synchronous —
- * the client waits on this one call, no polling. That is a deliberate hackathon
- * simplification, and it is what keeps the AI latency off the score request.
+ * THE SLOW PATH, and the ONLY explanation in the app that ever calls the AI —
+ * building/block/transit/parks/bike/walkability each get a deterministic
+ * "Why this score?" attached directly on /api/score instead (see
+ * explainFromTemplate in services/explain.js), so `tier` here accepts no
+ * other value. The frontend calls this only when /api/score's `summary` came
+ * back with `explanationSource: "template"`, then swaps the text in place.
+ * Synchronous — the client waits on this one call, no polling. That is a
+ * deliberate hackathon simplification, and it is what keeps the AI latency
+ * off the score request.
  *
  * Always 200 with a usable explanation. If the AI call fails, the response
  * carries the template text and `explanationSource: "template"` — the frontend
@@ -28,7 +33,10 @@ explanationRouter.get(
   async (req, res, next) => {
   try {
     const { lat, lng } = validateCoords(req.query);
-    const tier = validateTier(req.query.tier);
+    // Only ever "overall" — see validateExplanationTier. The result is
+    // otherwise unused; validating it is what turns a stale `tier=block`
+    // link (or a typo) into a clear 400 instead of silently ignoring it.
+    validateExplanationTier(req.query.tier);
 
     if (isMockMode()) {
       // Mock mode has no adapter to call, but the frontend's swap-in-place flow
@@ -42,7 +50,7 @@ explanationRouter.get(
       });
     }
 
-    const { explanation, explanationSource } = await buildExplanation(lat, lng, tier);
+    const { explanation, explanationSource } = await buildExplanation(lat, lng);
     res.json({ explanation, explanationSource });
   } catch (err) {
     next(err);

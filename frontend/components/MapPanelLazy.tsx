@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import type { MapExtraMarker, MapRing } from "./MapPanel";
 
 const MapPanel = dynamic(() => import("./MapPanel").then((m) => m.MapPanel), {
   ssr: false,
@@ -25,8 +26,9 @@ const MapPanel = dynamic(() => import("./MapPanel").then((m) => m.MapPanel), {
 export function MapPanelLazy(props: {
   centerLat: number;
   centerLng: number;
-  buildingRadiusMeters: number;
-  blockRadiusMeters: number;
+  rings: MapRing[];
+  extraMarkers?: MapExtraMarker[];
+  extraMarkersColorVar?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);

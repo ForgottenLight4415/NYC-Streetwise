@@ -5,6 +5,10 @@ import {
   TREND_CACHE_COLLECTION,
   COMPLAINT_GROUPS_COLLECTION,
   BUCKET_NAMES,
+  AMENITY_DISTANCE_CACHE_RADIUS_TIER,
+  WALKABILITY_CACHE_COLLECTION,
+  WALKABILITY_CACHE_PRECISION,
+  WALKABILITY_CACHE_TTL_SECONDS,
 } from "../config/constants.js";
 import { getDb, isMongoConfigured } from "./mongo.js";
 
@@ -112,8 +116,9 @@ function isCompleteCounts(counts, radiusTier) {
  * it describes, so reading them together costs nothing extra and guarantees
  * they cannot disagree.
  *
- * @returns {Promise<Record<string, {counts: object, explanation: string|null,
- *   explanationSource: string|null}|null>>} `null` for any tier not cached.
+ * @returns {Promise<Record<string, {counts: object, bucketStatusCounts: object|null,
+ *   explanation: string|null, explanationSource: string|null}|null>>} `null`
+ *   for any tier not cached.
  */
 export async function readEntries(lat, lng, radiusTiers) {
   const result = Object.fromEntries(radiusTiers.map((tier) => [tier, null]));
@@ -135,8 +140,17 @@ export async function readEntries(lat, lng, radiusTiers) {
       if (isCompleteCounts(doc.counts, doc.radiusTier)) {
         result[doc.radiusTier] = {
           counts: doc.counts,
+          // null (not zero-filled) on a document written before this field
+          // existed — a real "nothing computed" rather than a claim that
+          // every status bucket was actually zero.
+          bucketStatusCounts: doc.bucketStatusCounts ?? null,
           explanation: doc.explanation ?? null,
           explanationSource: doc.explanationSource ?? null,
+          // When these counts were last (re)written — see writeCounts' sliding
+          // TTL. scoreService.js uses this to tell whether the cached overall
+          // summary (a SEPARATE document, own TTL) was generated from THESE
+          // counts or from an earlier version of them.
+          createdAt: doc.createdAt ?? null,
         };
       }
     }
@@ -164,10 +178,22 @@ export async function readCounts(lat, lng, radiusTiers) {
  * Upserts one tier's counts. Refreshing `createdAt` on every write is what makes
  * the TTL a sliding 24h window rather than a hard expiry on first insert.
  *
+ * `bucketStatusCounts` is a trailing optional option, same convention as
+ * `now` beside it — omitted, the field is simply not written, rather than
+ * being defaulted to a zero-filled object that would claim a breakdown was
+ * computed when it wasn't (e.g. a caller that hasn't been updated to compute
+ * it yet).
+ *
  * Returns true if the write landed; false if it was skipped or failed. Callers
  * do not branch on this — a failed cache write must not fail the request.
  */
-export async function writeCounts(lat, lng, radiusTier, counts, { now } = {}) {
+export async function writeCounts(
+  lat,
+  lng,
+  radiusTier,
+  counts,
+  { now, bucketStatusCounts } = {}
+) {
   if (!isMongoConfigured()) return false;
   await ready(ensureCacheIndexes);
 
@@ -184,7 +210,12 @@ export async function writeCounts(lat, lng, radiusTier, counts, { now } = {}) {
       // This REPLACES the document, so any cached explanation is dropped along
       // with the counts it described. That is correct: an explanation written
       // about last week's counts must not survive onto this week's.
-      { ...key, counts, createdAt: now ?? new Date() },
+      {
+        ...key,
+        counts,
+        ...(bucketStatusCounts ? { bucketStatusCounts } : {}),
+        createdAt: now ?? new Date(),
+      },
       { upsert: true }
     );
     return true;
@@ -229,6 +260,146 @@ export async function writeExplanation(lat, lng, radiusTier, explanation, source
     return result.matchedCount > 0;
   } catch (err) {
     console.warn("[cache] explanation write failed:", err.message);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Amenity explanation cache
+// ---------------------------------------------------------------------------
+//
+// Amenity DATA is never cached (amenityService.js's getAmenityMetrics is a
+// local lookup, cheaper than a cache round trip). The AI EXPLANATION for an
+// amenity tier is a different cost entirely — a metered call against a
+// rate-limited free-tier key (see CLAUDE.md's Gemini RPD note) — so it still
+// needs caching, same as a complaint tier's explanation.
+//
+// Reuses this SAME collection and its indexes (one doc per {lat,lng,
+// radiusTier}, same TTL), with radiusTier values "transit"/"parks"/"bike".
+// Deliberately NOT routed through writeExplanation/readEntries above: those
+// assume a `counts` document already exists to attach the explanation to
+// (isCompleteCounts() indexes BUCKET_NAMES[radiusTier], which has no entry
+// for an amenity tier and would throw). An amenity explanation document has
+// no counts to begin with — the explanation IS the whole document — so this
+// upserts directly rather than updating an existing one.
+
+/**
+ * @returns {Promise<{explanation: string, explanationSource: string, basedOn: Date|null}|null>}
+ */
+export async function readAmenityExplanation(lat, lng, radiusTier) {
+  if (!isMongoConfigured()) return null;
+  await ready(ensureCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const doc = await db.collection(CACHE_COLLECTION).findOne(cacheKey(lat, lng, radiusTier));
+    if (!doc?.explanation) return null;
+    return {
+      explanation: doc.explanation,
+      explanationSource: doc.explanationSource ?? null,
+      // Only ever set on the "overall" summary doc — see the `basedOn` param
+      // on writeAmenityExplanation below. `null` for every other radiusTier
+      // that reuses this same function (transit/parks/bike had no use for it).
+      basedOn: doc.basedOn ?? null,
+    };
+  } catch (err) {
+    console.warn("[cache] amenity explanation read failed, treating as miss:", err.message);
+    return null;
+  }
+}
+
+/**
+ * @param {{now?: Date, basedOn?: Date}} [options]
+ *   `basedOn` is the whole-report summary's own freshness stamp — the
+ *   timestamp of the complaint counts it was generated from, so a later
+ *   caller can tell a stored summary apart from one written about counts that
+ *   have since been refreshed (see scoreService.js's resolveCachedOverallSummary).
+ *   Meaningless for the other radiusTier values (transit/parks/bike) this
+ *   function also serves, which simply omit it.
+ * @returns {Promise<boolean>} whether the write landed.
+ */
+export async function writeAmenityExplanation(
+  lat,
+  lng,
+  radiusTier,
+  explanation,
+  source,
+  { now, basedOn } = {}
+) {
+  if (!isMongoConfigured()) return false;
+  await ready(ensureCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const key = cacheKey(lat, lng, radiusTier);
+    await db.collection(CACHE_COLLECTION).replaceOne(
+      key,
+      {
+        ...key,
+        explanation,
+        explanationSource: source,
+        ...(basedOn ? { basedOn } : {}),
+        createdAt: now ?? new Date(),
+      },
+      { upsert: true }
+    );
+    return true;
+  } catch (err) {
+    console.warn("[cache] amenity explanation write failed:", err.message);
+    return false;
+  }
+}
+
+// Real (Google-routed) walking distances per amenity bucket, cached for the
+// opposite reason amenity DATA above is never cached: a Routes API call
+// costs money and network time, so a repeat view of the same address — a
+// page refresh, the AI explanation fetch landing right after, a compare page
+// — must not re-bill it the way the free grid lookup never needed to worry
+// about.
+//
+// One document per coordinate covers ALL THREE amenity tiers, keyed on
+// AMENITY_DISTANCE_CACHE_RADIUS_TIER rather than a real tier name — Google is
+// called once with every bucket's candidates batched into a single request
+// (see providers/googleRoutes.js), so there is one correction to cache per
+// coordinate, not one per tier.
+
+/** @returns {Promise<Record<string, Record<string, number|null>>|null>} tier -> bucket -> corrected metres, or null on a miss. */
+export async function readAmenityDistances(lat, lng) {
+  if (!isMongoConfigured()) return null;
+  await ready(ensureCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const doc = await db
+      .collection(CACHE_COLLECTION)
+      .findOne(cacheKey(lat, lng, AMENITY_DISTANCE_CACHE_RADIUS_TIER));
+    return doc?.distances ?? null;
+  } catch (err) {
+    console.warn("[cache] amenity distance read failed, treating as miss:", err.message);
+    return null;
+  }
+}
+
+/** @returns {Promise<boolean>} whether the write landed. */
+export async function writeAmenityDistances(lat, lng, distances, { now } = {}) {
+  if (!isMongoConfigured()) return false;
+  await ready(ensureCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const key = cacheKey(lat, lng, AMENITY_DISTANCE_CACHE_RADIUS_TIER);
+    await db.collection(CACHE_COLLECTION).replaceOne(
+      key,
+      { ...key, distances, createdAt: now ?? new Date() },
+      { upsert: true }
+    );
+    return true;
+  } catch (err) {
+    console.warn("[cache] amenity distance write failed:", err.message);
     return false;
   }
 }
@@ -403,6 +574,106 @@ export async function writeComplaintGroups(lat, lng, radiusTier, groups, truncat
     return true;
   } catch (err) {
     console.warn("[cache] groups write failed, continuing uncached:", err.message);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Walkability places cache (`walkability_cache`)
+// ---------------------------------------------------------------------------
+//
+// A dedicated collection, not a slot in CACHE_COLLECTION, for one reason:
+// this needs its OWN TTL. Mongo ties expireAfterSeconds to the collection's
+// index, not to individual documents, so a 30-day shelf life for grocery
+// stores and schools cannot share an index with 311 complaint counts that
+// self-refresh every 24h.
+//
+// Also its own (coarser) coordinate rounding — see WALKABILITY_CACHE_PRECISION —
+// since maximising the hit rate on a BILLED call matters here in a way it
+// never did for the free grid lookups the rest of this file caches.
+
+let walkabilityIndexPromise = null;
+
+export async function ensureWalkabilityCacheIndexes() {
+  if (!walkabilityIndexPromise) {
+    walkabilityIndexPromise = (async () => {
+      const db = await getDb();
+      if (!db) return false;
+      await db.collection(WALKABILITY_CACHE_COLLECTION).createIndexes([
+        {
+          key: { lat: 1, lng: 1 },
+          name: "coord",
+          unique: true,
+        },
+        {
+          key: { createdAt: 1 },
+          name: "createdAt_ttl",
+          expireAfterSeconds: WALKABILITY_CACHE_TTL_SECONDS,
+        },
+      ]);
+      return true;
+    })().catch((err) => {
+      walkabilityIndexPromise = null;
+      throw err;
+    });
+  }
+  return walkabilityIndexPromise;
+}
+
+/** Test seam, mirroring resetCacheIndexMemo. */
+export function resetWalkabilityCacheIndexMemo() {
+  walkabilityIndexPromise = null;
+}
+
+/** The exact-match key for one point, at walkability's own coarser precision. */
+function walkabilityCacheKey(lat, lng) {
+  const factor = 10 ** WALKABILITY_CACHE_PRECISION;
+  return {
+    lat: Math.round(lat * factor) / factor,
+    lng: Math.round(lng * factor) / factor,
+  };
+}
+
+/**
+ * @returns {Promise<{lat:number,lng:number,types:string[],name:string|null}[]|null>}
+ *   `null` on a miss — NOT the same as `[]`, which means "we asked Google and
+ *   it genuinely found nothing here". A caller on a cache-only path (the
+ *   homepage/showcase render) must be able to tell "unknown" from "known
+ *   empty" and omit the section only for the former.
+ */
+export async function readWalkabilityPlaces(lat, lng) {
+  if (!isMongoConfigured()) return null;
+  await ready(ensureWalkabilityCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const doc = await db
+      .collection(WALKABILITY_CACHE_COLLECTION)
+      .findOne(walkabilityCacheKey(lat, lng));
+    if (!doc || !Array.isArray(doc.places)) return null;
+    return doc.places;
+  } catch (err) {
+    console.warn("[cache] walkability read failed, treating as miss:", err.message);
+    return null;
+  }
+}
+
+/** Never throws. A failed write costs one repeat (billed) lookup, not a request. */
+export async function writeWalkabilityPlaces(lat, lng, places, { now } = {}) {
+  if (!isMongoConfigured()) return false;
+  await ready(ensureWalkabilityCacheIndexes);
+
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const key = walkabilityCacheKey(lat, lng);
+    await db
+      .collection(WALKABILITY_CACHE_COLLECTION)
+      .replaceOne(key, { ...key, places, createdAt: now ?? new Date() }, { upsert: true });
+    return true;
+  } catch (err) {
+    console.warn("[cache] walkability write failed, continuing uncached:", err.message);
     return false;
   }
 }

@@ -50,23 +50,19 @@ import {
   ALL_COMPLAINT_TYPES,
   BUILDING_HEALTH_TYPES,
   BASELINE_ID,
-  BASELINE_MIN_BOROUGH_SHARE,
   BASELINE_SAMPLE_CONCURRENCY,
   BASELINE_SAMPLE_SEED,
   BASELINE_SAMPLE_SIZE,
-  BASELINE_THINNING_GRID_DEGREES,
-  BOROUGHS,
   BUCKET_NAMES,
-  LOCATION_FIELD,
   RADIUS_TIERS,
   WINDOW_MONTHS,
   windowCutoffISO,
 } from "../src/config/constants.js";
-import { query } from "../src/providers/socrata.js";
 import { getCounts } from "../src/services/scoreService.js";
 import { ensureCacheIndexes } from "../src/providers/cache.js";
 import { closeMongo, isMongoConfigured } from "../src/providers/mongo.js";
 import { saveBaseline, BASELINE_FILE_PATH } from "../src/providers/baseline.js";
+import { seededRandom, boroughQuotas, sampleCoordinates } from "./lib/sampleCoords.js";
 
 // --- args --------------------------------------------------------------------
 
@@ -86,35 +82,14 @@ const CHUNK_WINDOW_DAYS = 21;
 const SAMPLING_TIMEOUT_MS = 30000;
 
 // --- deterministic RNG -------------------------------------------------------
-
-/** Mulberry32. Seeded so a rerun samples the SAME points and hits the cache. */
-function seededRandom(seed) {
-  let state = seed >>> 0;
-  return function next() {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+//
+// ONE seeded RNG instance for this script's whole run, threaded through every
+// sampleCoordinates() call in scripts/lib/sampleCoords.js in the same order
+// as before this was extracted (building's chunks, then block's) — this is
+// what keeps a rerun byte-for-byte reproducible. See that module's header.
 
 const rand = seededRandom(BASELINE_SAMPLE_SEED);
 
-function shuffle(items) {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-// --- SoQL helpers ------------------------------------------------------------
-
-const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-const typeInClause = (types) =>
-  `complaint_type in (${types.map(quote).join(",")})`;
 const CUTOFF = windowCutoffISO();
 
 /**
@@ -133,137 +108,19 @@ const SAMPLE_SOURCES = {
   },
 };
 
-// --- step 1: borough quotas --------------------------------------------------
-
-/**
- * Quotas proportional to each borough's share of the relevant 311 records, with
- * a floor. Pure proportional sampling would nearly erase Staten Island and the
- * baseline would describe dense Brooklyn/Queens instead of the city; pure equal
- * sampling would over-represent it. The floor is the compromise.
- */
-async function boroughQuotas() {
-  const rows = await query(
-    {
-      $select: "borough, count(*) AS count",
-      $where: [
-        typeInClause(ALL_COMPLAINT_TYPES),
-        `created_date > ${quote(CUTOFF)}`,
-      ].join(" AND "),
-      $group: "borough",
-    },
-    { timeoutMs: SAMPLING_TIMEOUT_MS }
-  );
-
-  const counts = new Map(
-    rows
-      .filter((row) => BOROUGHS.includes(row.borough))
-      .map((row) => [row.borough, Number(row.count)])
-  );
-  const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
-
-  // Floor first, then hand the remainder out proportionally.
-  const floorShare = BASELINE_MIN_BOROUGH_SHARE;
-  const remaining = 1 - floorShare * BOROUGHS.length;
-  const quotas = BOROUGHS.map((borough) => {
-    const share = total === 0 ? 1 / BOROUGHS.length : (counts.get(borough) ?? 0) / total;
-    return [borough, Math.max(1, Math.round(SAMPLE_SIZE * (floorShare + remaining * share)))];
-  });
-
-  console.log("=== Borough quotas ===");
-  for (const [borough, quota] of quotas) {
-    const share = total === 0 ? 0 : ((counts.get(borough) ?? 0) / total) * 100;
-    console.log(
-      `  ${borough.padEnd(14)} ${String(quota).padStart(4)} points` +
-        `   (${share.toFixed(1)}% of records)`
-    );
-  }
-  return quotas;
-}
-
-// --- step 2: candidate coordinates ------------------------------------------
-
-/**
- * Pulls candidate coordinates for one borough from several random slices of the
- * time window rather than one contiguous page. Deep `$offset` paging is slow on
- * a dataset this size, and a single page would be one moment in time; random
- * date slices are cheap and spread the sample temporally as well as spatially.
- */
-async function candidateCoords(borough, wanted, types) {
-  const cutoffMs = new Date(`${CUTOFF}Z`).getTime();
-  const windowMs = Date.now() - cutoffMs;
-  const sliceMs = CHUNK_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const perChunk = Math.ceil((wanted * OVERSAMPLE) / CHUNKS_PER_BOROUGH);
-
-  const coords = [];
-  for (let chunk = 0; chunk < CHUNKS_PER_BOROUGH; chunk++) {
-    const start = cutoffMs + rand() * Math.max(0, windowMs - sliceMs);
-    const startISO = new Date(start).toISOString().slice(0, 19);
-    const endISO = new Date(start + sliceMs).toISOString().slice(0, 19);
-
-    const rows = await query(
-      {
-        $select: "latitude, longitude",
-        $where: [
-          `borough = ${quote(borough)}`,
-          typeInClause(types),
-          `created_date between ${quote(startISO)} and ${quote(endISO)}`,
-          // within_circle already ignores null-geo rows; be explicit here so a
-          // null coordinate can never become a sample point.
-          `${LOCATION_FIELD} IS NOT NULL`,
-        ].join(" AND "),
-        // Deliberately UNORDERED. `$order=unique_key` on this filter measured
-        // 9.7s against 0.23s unordered — it sorts the whole matched set — and
-        // blew the sampling timeout. Reproducibility comes from the seeded date
-        // slices, not from ordering.
-        $limit: String(perChunk),
-      },
-      { timeoutMs: SAMPLING_TIMEOUT_MS }
-    );
-
-    for (const row of rows) {
-      const lat = Number(row.latitude);
-      const lng = Number(row.longitude);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) coords.push({ lat, lng });
-    }
-  }
-  return coords;
-}
-
-/**
- * Keeps at most one point per ~330m grid cell. Without this, a single
- * complaint-heavy building contributes dozens of near-identical points and
- * drags the median toward its own numbers.
- */
-function thin(coords) {
-  const grid = BASELINE_THINNING_GRID_DEGREES;
-  const seen = new Set();
-  const kept = [];
-  for (const coord of coords) {
-    const cell = `${Math.round(coord.lat / grid)}:${Math.round(coord.lng / grid)}`;
-    if (seen.has(cell)) continue;
-    seen.add(cell);
-    kept.push(coord);
-  }
-  return kept;
-}
-
 async function buildSample(quotas, tier) {
   const { label, types } = SAMPLE_SOURCES[tier];
-  const sample = [];
-
-  console.log(`\n=== Sampling ${tier}-tier coordinates from ${label} ===`);
-  for (const [borough, quota] of quotas) {
-    const candidates = await candidateCoords(borough, quota, types);
-    const thinned = thin(candidates);
-    const picked = shuffle(thinned).slice(0, quota);
-    sample.push(...picked.map((coord) => ({ ...coord, borough })));
-    console.log(
-      `  ${borough.padEnd(14)} ${String(candidates.length).padStart(5)} candidates` +
-        ` -> ${String(thinned.length).padStart(4)} after thinning` +
-        ` -> ${String(picked.length).padStart(4)} sampled`
-    );
-  }
-  return sample;
+  return sampleCoordinates({
+    quotas,
+    types,
+    label: `${tier}-tier coordinates from ${label}`,
+    cutoffISO: CUTOFF,
+    rand,
+    chunksPerBorough: CHUNKS_PER_BOROUGH,
+    chunkWindowDays: CHUNK_WINDOW_DAYS,
+    oversample: OVERSAMPLE,
+    timeoutMs: SAMPLING_TIMEOUT_MS,
+  });
 }
 
 // --- step 3: counts ----------------------------------------------------------
@@ -399,7 +256,11 @@ if (isMongoConfigured()) {
   );
 }
 
-const quotas = await boroughQuotas();
+const quotas = await boroughQuotas({
+  size: SAMPLE_SIZE,
+  cutoffISO: CUTOFF,
+  timeoutMs: SAMPLING_TIMEOUT_MS,
+});
 
 const countsByTier = {};
 for (const tier of Object.keys(RADIUS_TIERS)) {

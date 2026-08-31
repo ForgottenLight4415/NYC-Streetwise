@@ -15,6 +15,51 @@ declare global {
   }
 }
 
+export interface MapRing {
+  radiusMeters: number;
+  /** CSS custom property (sans `var()`), e.g. "--series-building". */
+  colorVar: string;
+  label: string;
+}
+
+interface ResolvedRing {
+  radiusMeters: number;
+  colorVar: string;
+  label: string;
+}
+
+/** One secondary pin — an amenity instance shown while its browser modal is open. */
+export interface MapExtraMarker {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
+/**
+ * Collapses rings that share a radius into one circle and one legend row.
+ *
+ * All four amenity tiers (transit/parks/bike/walkability) use the same 800m
+ * walkshed, so a naive per-category draw would paint four identical circles
+ * on top of each other and list four identical legend rows. Grouped by
+ * radius instead: the merged label says which categories share it, and the
+ * circle draws once.
+ */
+function dedupeRings(rings: MapRing[]): ResolvedRing[] {
+  const byRadius = new Map<number, MapRing[]>();
+  for (const ring of rings) {
+    const group = byRadius.get(ring.radiusMeters) ?? [];
+    group.push(ring);
+    byRadius.set(ring.radiusMeters, group);
+  }
+  return [...byRadius.values()]
+    .map((group) => ({
+      radiusMeters: group[0].radiusMeters,
+      colorVar: group[0].colorVar,
+      label: group.map((r) => r.label).join(" · "),
+    }))
+    .sort((a, b) => a.radiusMeters - b.radiusMeters);
+}
+
 /**
  * Resolves once the Maps SDK has attached itself to `window`.
  *
@@ -42,14 +87,41 @@ function whenMapsReady(timeoutMs = 10000): Promise<typeof google | null> {
 export function MapPanel({
   centerLat,
   centerLng,
-  buildingRadiusMeters,
-  blockRadiusMeters,
+  rings,
+  extraMarkers = [],
+  extraMarkersColorVar,
 }: {
   centerLat: number;
   centerLng: number;
-  buildingRadiusMeters: number;
-  blockRadiusMeters: number;
+  rings: MapRing[];
+  /** Secondary pins — e.g. every instance of one amenity bucket while its
+   *  browser modal is open. Empty/omitted draws none, same as before this
+   *  prop existed. */
+  extraMarkers?: MapExtraMarker[];
+  /** CSS custom property (sans `var()`) tinting every extra marker — the
+   *  open bucket's own tier color, so the pins read as "these belong to the
+   *  card/modal you just opened" rather than an unrelated overlay. Falls
+   *  back to a neutral token when omitted. */
+  extraMarkersColorVar?: string;
 }) {
+  const resolvedRings = dedupeRings(rings);
+  // A serialised key, not the array itself: `rings` gets a fresh identity on
+  // every render, and depending on it directly would rebuild the WebGL
+  // context and the whole tile chain every time. This only changes when a
+  // radius or color actually does.
+  const ringsKey = resolvedRings
+    .map((r) => `${r.radiusMeters}:${r.colorVar}`)
+    .join(",");
+
+  // Same trick, same reason, for the secondary pins: `extraMarkers` is a
+  // fresh array every render (it's derived from an SWR result one level up),
+  // so the effect below depends on this serialised key instead — it only
+  // actually changes when the open bucket, or the instances it resolved to,
+  // changes, which is exactly when the pins need to be redrawn.
+  const extraMarkersKey = extraMarkers
+    .map((m) => `${m.lat.toFixed(6)},${m.lng.toFixed(6)}`)
+    .join("|");
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,24 +230,44 @@ export function MapPanel({
           title: "Searched address",
         });
 
-        new maps.maps.Circle({
-          map,
-          center: { lat: centerLat, lng: centerLng },
-          radius: buildingRadiusMeters,
-          strokeColor: token("--series-building", "#2f6fe0"),
-          strokeOpacity: 0.7,
-          strokeWeight: 2,
-          fillOpacity: 0,
+        // Secondary pins — every real instance of one amenity bucket while
+        // its browser modal is open. Deliberately smaller and tinted with
+        // the bucket's own tier color (not --status-critical) so they read
+        // as "the thing you're browsing," never mistaken for the searched
+        // address itself. A fresh PinElement per marker: content is a DOM
+        // node, so one instance cannot be shared across markers the way the
+        // color token above is.
+        extraMarkers.forEach((marker) => {
+          const extraPin = new PinElement({
+            background: token(extraMarkersColorVar ?? "--text-muted", "#8a929e"),
+            borderColor: token(
+              extraMarkersColorVar ? `${extraMarkersColorVar}-ink` : "--text-secondary",
+              "#626b77",
+            ),
+            glyphColor: token("--surface-1", "#ffffff"),
+            scale: 0.75,
+          });
+
+          new AdvancedMarkerElement({
+            map,
+            position: { lat: marker.lat, lng: marker.lng },
+            content: extraPin,
+            title: marker.label,
+          });
         });
 
-        new maps.maps.Circle({
-          map,
-          center: { lat: centerLat, lng: centerLng },
-          radius: blockRadiusMeters,
-          strokeColor: token("--series-block", "#7a5af5"),
-          strokeOpacity: 0.55,
-          strokeWeight: 2,
-          fillOpacity: 0,
+        resolvedRings.forEach((ring, i) => {
+          new maps.maps.Circle({
+            map,
+            center: { lat: centerLat, lng: centerLng },
+            radius: ring.radiusMeters,
+            strokeColor: token(ring.colorVar, "#888888"),
+            // Innermost ring drawn most opaque, same falloff the original
+            // building(0.7)/block(0.55) pair used, generalised to N rings.
+            strokeOpacity: Math.max(0.35, 0.7 - i * 0.15),
+            strokeWeight: 2,
+            fillOpacity: 0,
+          });
         });
 
         setIsLoading(false);
@@ -196,7 +288,15 @@ export function MapPanel({
     return () => {
       cancelled = true;
     };
-  }, [centerLat, centerLng, buildingRadiusMeters, blockRadiusMeters, theme]);
+    // resolvedRings/extraMarkers deliberately omitted: both are fresh arrays
+    // every render, and their *Key strings already capture everything about
+    // them the effect draws (radius/color for rings; lat/lng for markers) —
+    // see the comments on ringsKey and extraMarkersKey above. extraMarkersColorVar
+    // IS a dependency in its own right (a primitive, and the effect reads it
+    // directly when building each pin), so it's listed rather than folded
+    // into the key string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerLat, centerLng, ringsKey, extraMarkersKey, extraMarkersColorVar, theme]);
 
   return (
     <div
@@ -250,7 +350,7 @@ export function MapPanel({
         )}
       </div>
 
-      {/* flex-wrap: the two legend entries together run past 320px. */}
+      {/* flex-wrap: legend entries run past 320px once there are more than two. */}
       <div
         className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t px-4 py-2.5 text-xs text-(--text-secondary)"
         style={{ borderColor: "var(--border-hairline)" }}
@@ -258,26 +358,18 @@ export function MapPanel({
         {/* The label is one flex item, not three: as loose text plus a nested
             span, the parent's gap-1.5 was applied inside the parentheses and
             rendered as "( 25m )". */}
-        <span className="flex items-center gap-1.5">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ background: "var(--series-building)" }}
-          />
-          <span>
-            Building radius (
-            <span className="font-data">{buildingRadiusMeters}m</span>)
+        {resolvedRings.map((ring) => (
+          <span key={ring.label} className="flex items-center gap-1.5">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: `var(${ring.colorVar})` }}
+            />
+            <span>
+              {ring.label} (
+              <span className="font-data">{ring.radiusMeters}m</span>)
+            </span>
           </span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ background: "var(--series-block)" }}
-          />
-          <span>
-            Block radius (
-            <span className="font-data">{blockRadiusMeters}m</span>)
-          </span>
-        </span>
+        ))}
       </div>
     </div>
   );

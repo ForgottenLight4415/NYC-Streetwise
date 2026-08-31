@@ -1,5 +1,6 @@
 import {
   BAND_THRESHOLDS,
+  AMENITY_BAND_THRESHOLDS,
   BUCKET_NAMES,
   BUCKET_WEIGHTS,
   RADIUS_TIERS,
@@ -10,6 +11,10 @@ import {
   CONFIDENCE,
   CONFIDENCE_REASONS,
   WINDOW_MONTHS,
+  AMENITY_TIERS,
+  AMENITY_BUCKET_NAMES,
+  AMENITY_WEIGHTS,
+  AMENITY_MAX_METERS,
 } from "../config/constants.js";
 
 // Pure scoring. No network, no Mongo, no clock — everything here is a function
@@ -27,6 +32,18 @@ export function bandFor(score) {
   if (score >= BAND_THRESHOLDS.good) return "good";
   if (score >= BAND_THRESHOLDS.fair) return "fair";
   return "poor";
+}
+
+/**
+ * Maps an amenity sub-score to its band. Deliberately a different vocabulary
+ * and different cutoffs from bandFor() above — see AMENITY_BAND_THRESHOLDS'
+ * comment for why a citywide-percentile distance score needs its own scale
+ * rather than reusing the complaint one.
+ */
+export function amenityBandFor(score) {
+  if (score >= AMENITY_BAND_THRESHOLDS.excellent) return "excellent";
+  if (score >= AMENITY_BAND_THRESHOLDS.typical) return "typical";
+  return "carDependent";
 }
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -134,20 +151,26 @@ export function bucketScore(count, bucketBaseline) {
 }
 
 /**
- * Weighted mean of the bucket scores. Weights are all 1 today, so this is a
- * plain mean — it goes through BUCKET_WEIGHTS so that changing a bucket's
- * influence is an explicit edit there rather than padding its complaint_type
- * list, which is the failure mode CLAUDE.md decision 6 warns about.
+ * Weighted mean of a {key: score} map against a {key: weight} table. Shared
+ * by complaint scoring (BUCKET_WEIGHTS, all 1 today) and amenity scoring
+ * (AMENITY_WEIGHTS, subway weighted 2x) — extracted so a bucket's influence
+ * is an explicit edit to its weight table rather than padding its
+ * complaint_type/bucket list, the failure mode CLAUDE.md decision 6 warns
+ * about.
  */
-function aggregate(bucketScores) {
+function weightedMean(scores, weights) {
   let weighted = 0;
   let totalWeight = 0;
-  for (const [bucket, score] of Object.entries(bucketScores)) {
-    const weight = BUCKET_WEIGHTS[bucket] ?? 1;
+  for (const [key, score] of Object.entries(scores)) {
+    const weight = weights[key] ?? 1;
     weighted += score * weight;
     totalWeight += weight;
   }
   return totalWeight === 0 ? 0 : weighted / totalWeight;
+}
+
+function aggregate(bucketScores) {
+  return weightedMean(bucketScores, BUCKET_WEIGHTS);
 }
 
 /**
@@ -156,8 +179,17 @@ function aggregate(bucketScores) {
  * @param {"building"|"block"} tierName
  * @param {Record<string, number>} counts   summed per bucket (never per string)
  * @param {object|null} baseline            full baseline doc, or null if absent
+ * @param {Record<string, Record<"open"|"in-progress"|"closed", number>>|null} [statusCounts]
+ *   Per-bucket status breakdown from fetchCountsForTier/mockData, attached
+ *   verbatim as `bucketStatusCounts` — purely descriptive, no scoring logic
+ *   (bucketScore/aggregate/confidence) reads it. Trailing optional param, same
+ *   convention as buildReport's `amenities`/`amenityBaseline` below, so every
+ *   existing call site and test compiles unchanged. Omitted, the field is
+ *   simply absent from the returned object rather than defaulted to a
+ *   zero-filled one — that would claim a breakdown was computed when it
+ *   wasn't (an old cache doc, or a caller that hasn't been updated).
  */
-export function scoreTier(tierName, counts, baseline) {
+export function scoreTier(tierName, counts, baseline, statusCounts = null) {
   const buckets = BUCKET_NAMES[tierName];
   const { radiusMeters } = RADIUS_TIERS[tierName];
   const perBucket = baseline?.perBucket ?? null;
@@ -201,10 +233,108 @@ export function scoreTier(tierName, counts, baseline) {
     }
   }
 
-  return {
+  const result = {
     score,
     band: bandFor(score),
     counts: safeCounts,
+    radiusMeters,
+    confidence,
+    confidenceReason,
+    bucketScores,
+    bucketConfidence,
+  };
+  if (statusCounts) result.bucketStatusCounts = statusCounts;
+  return result;
+}
+
+/**
+ * Scores one amenity tier (transit/parks/bike). Structurally parallel to
+ * scoreTier above, with `metrics` in place of `counts`.
+ *
+ * Distances go through the SAME inverted percentile curve as complaint
+ * counts, via bucketScore() — completely unmodified. 0m means standing on
+ * it, which scores 100, exactly as 0 complaints does. That is not a
+ * coincidence worth being clever about; it is why distance was chosen as the
+ * amenity metric over, say, a count.
+ *
+ * A null distance (nothing within AMENITY_MAX_METERS) scores as the cap —
+ * the worst measurable distance, not an invented worse-than-worst value —
+ * and is flagged low-confidence per bucket. Reporting 0 for "none nearby"
+ * would be indistinguishable from "one right here"; reporting the metric as
+ * missing would silently zero it out of the weighted mean instead of scoring
+ * it as genuinely bad.
+ *
+ * @param {"transit"|"parks"|"bike"} tierName
+ * @param {Record<string, {meters: number|null, within: number, name: string|null}>} metrics
+ * @param {object|null} amenityBaseline
+ */
+export function scoreAmenityTier(tierName, metrics, amenityBaseline) {
+  const buckets = AMENITY_BUCKET_NAMES[tierName];
+  const { radiusMeters } = AMENITY_TIERS[tierName];
+  const perBucket = amenityBaseline?.perBucket ?? null;
+
+  const safeMetrics = {};
+  const bucketScores = {};
+  for (const bucket of buckets) {
+    const metric = metrics?.[bucket];
+    safeMetrics[bucket] =
+      metric && Number.isFinite(metric.within)
+        ? metric
+        : {
+            meters: metric?.meters ?? null,
+            within: metric?.within ?? 0,
+            name: metric?.name ?? null,
+            // Additive — see CLAUDE.md's routes contract-change note. Only
+            // subway/bus metrics ever carry a real routes array; every other
+            // bucket that lands in this fallback just gets an empty one, so
+            // the field survives this reconstruction path too.
+            routes: metric?.routes ?? [],
+          };
+
+    const distanceValue = safeMetrics[bucket].meters ?? AMENITY_MAX_METERS;
+    bucketScores[bucket] = Math.round(bucketScore(distanceValue, perBucket?.[bucket]));
+  }
+
+  // Rail (LIRR/Metro-North) is a fallback transit mode, not a third leg
+  // equal to subway/bus — most NYC addresses have no station within range,
+  // and that absence means "not near commuter rail," not "no transit here."
+  // Once subway or bus already answers "can this person get around," a
+  // missing rail station stops being a strike against the tier, so it is
+  // dropped from the average rather than scored as the worst-measurable
+  // distance at full weight.
+  const weights = { ...AMENITY_WEIGHTS };
+  if (
+    tierName === "transit" &&
+    safeMetrics.rail?.meters === null &&
+    (safeMetrics.subway?.meters !== null || safeMetrics.bus?.meters !== null)
+  ) {
+    weights.rail = 0;
+  }
+
+  const score = Math.round(weightedMean(bucketScores, weights));
+
+  let confidence = CONFIDENCE.normal;
+  let confidenceReason = null;
+
+  if (!perBucket) {
+    confidence = CONFIDENCE.low;
+    confidenceReason = CONFIDENCE_REASONS.noBaseline;
+  } else if (buckets.every((bucket) => safeMetrics[bucket].meters === null)) {
+    confidence = CONFIDENCE.low;
+    confidenceReason = CONFIDENCE_REASONS.noneNearby;
+  }
+
+  // Only non-normal buckets are listed, so an empty object means "all solid" —
+  // same convention as scoreTier's bucketConfidence.
+  const bucketConfidence = {};
+  for (const bucket of buckets) {
+    if (safeMetrics[bucket].meters === null) bucketConfidence[bucket] = CONFIDENCE.low;
+  }
+
+  return {
+    score,
+    band: amenityBandFor(score),
+    metrics: safeMetrics,
     radiusMeters,
     confidence,
     confidenceReason,
@@ -225,18 +355,55 @@ function baselineRadiusMismatch(baseline, tierName) {
   return sampled !== RADIUS_TIERS[tierName].radiusMeters;
 }
 
+/** tier name -> the ReportResponse field it scores into. */
+const AMENITY_REPORT_KEYS = {
+  transit: "transitAccess",
+  parks: "parksAccess",
+  bike: "bikeAccess",
+  walkability: "walkabilityAccess",
+};
+
 /**
  * The full POST /api/score payload. `address` is always null — we do not geocode.
  *
  * @param {{building: object, block: object}} counts  bucket counts per tier
  * @param {object|null} baseline                      baseline doc, or null
- * @param {object} [meta]                             non-scoring extras (cache, etc.)
+ * @param {object} [meta]                              non-scoring extras (cache, etc.)
+ * @param {{transit: object|null, parks: object|null, bike: object|null}|null} [amenities]
+ *   getAmenityMetrics() result. Trailing optional param, so every existing
+ *   call site and test compiles unchanged.
+ * @param {object|null} [amenityBaseline]
+ * @param {{building: object, block: object}|null} [statusCounts]
+ *   Per-tier bucketStatusCounts (see scoreTier), passed straight through to
+ *   each complaint tier. Trailing optional param, same convention as
+ *   `amenities`/`amenityBaseline` above.
  */
-export function buildReport(counts, baseline, meta = {}) {
+export function buildReport(
+  counts,
+  baseline,
+  meta = {},
+  amenities = null,
+  amenityBaseline = null,
+  statusCounts = null
+) {
+  // Each amenity tier is included only when ITS OWN dataset loaded — not
+  // gated on the other two, and not gated on `amenities` as a whole. A
+  // dataset failing to load is not the same fact as "no subway/park/bike
+  // nearby", so a tier whose dataset is absent is OMITTED from the response
+  // rather than scored as if everything were maximally far away. See
+  // CLAUDE.md's Amenity Scores section.
+  const amenitySections = {};
+  for (const [tierName, reportKey] of Object.entries(AMENITY_REPORT_KEYS)) {
+    if (amenities?.[tierName]) {
+      amenitySections[reportKey] = scoreAmenityTier(tierName, amenities[tierName], amenityBaseline);
+    }
+  }
+
   return {
     address: null,
-    buildingHealth: scoreTier("building", counts?.building, baseline),
-    blockQuality: scoreTier("block", counts?.block, baseline),
+    buildingHealth: scoreTier("building", counts?.building, baseline, statusCounts?.building),
+    blockQuality: scoreTier("block", counts?.block, baseline, statusCounts?.block),
+    ...amenitySections,
     meta: {
       windowMonths: WINDOW_MONTHS,
       baselineVersion: baseline?._id ?? null,

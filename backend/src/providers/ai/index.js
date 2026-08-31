@@ -25,7 +25,7 @@ export function activeProvider() {
  * Vercel env var would otherwise mean every explanation is a template and
  * nobody notices until someone asks why the AI feature looks static.
  *
- * @returns {(input: {label: string, band: string, counts: object, radiusLabel: string}) => Promise<string>}
+ * @returns {(input: {sections: Array<{label: string, band: string, counts?: object, metrics?: object}>}) => Promise<string>}
  */
 export function getAdapter() {
   const provider = activeProvider();

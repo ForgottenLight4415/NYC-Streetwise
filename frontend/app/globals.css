@@ -49,6 +49,19 @@
   --series-block: #7a5af5; /* graphic fill */
   --series-block-ink: #5b34d6; /* same hue, legible as text */
 
+  /* Amenity categories. Picked to stay distinct from --status-good (a
+     saturated green) in both hue and shade — a green Parks icon beside a red
+     "Poor" badge would read as a contradiction. --parks is moss rather than
+     leaf for exactly that reason. */
+  --transit: #0e7490;
+  --transit-ink: #0b5568;
+  --parks: #4f7a21;
+  --parks-ink: #3d5f19;
+  --bike: #b83280;
+  --bike-ink: #932968;
+  --walkability: #b45309;
+  --walkability-ink: #92400e;
+
   --seq-100: #cde2fb;
   --seq-250: #86b6ef;
   --seq-400: #3987e5;
@@ -144,6 +157,15 @@
   --series-building-ink: #8ab8fc;
   --series-block: #a98bff;
   --series-block-ink: #bfa8ff;
+
+  --transit: #38bdd8;
+  --transit-ink: #7dd7e8;
+  --parks: #8fc44a;
+  --parks-ink: #b1d97e;
+  --bike: #e879b8;
+  --bike-ink: #f2a8d2;
+  --walkability: #f59e0b;
+  --walkability-ink: #fbbf24;
 
   --seq-100: #16294a;
   --seq-250: #1f3f70;
@@ -306,6 +328,27 @@ body {
   }
 }
 
+/* A lighter lift for the dense KPI tiles in the report's stat strip —
+   card-pop's -8px/1.025 read as too much motion at this size. */
+.tile-pop {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tile-pop:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* Defers off-screen rows in the activity feed — see rendering-content-visibility. */
+.activity-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 56px;
+}
+
 /* Entrance for the hero, staggered by --delay on each child. */
 @keyframes rise {
   from {
@@ -339,7 +382,8 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .card-pop:hover {
+  .card-pop:hover,
+  .tile-pop:hover {
     transform: none;
   }
 }

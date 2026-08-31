@@ -5,7 +5,7 @@ import {
   AI_MAX_OUTPUT_TOKENS,
   AI_TIMEOUT_MS,
 } from "../../config/constants.js";
-import { buildPrompt } from "./prompt.js";
+import { buildOverallSummaryPrompt } from "./prompt.js";
 import { AIError, cleanExplanation } from "./shared.js";
 
 // Local-dev adapter. Talks to an Ollama server on localhost.
@@ -14,11 +14,11 @@ import { AIError, cleanExplanation } from "./shared.js";
 // That is the whole reason the gemini adapter exists; see providers/ai/index.js.
 
 /**
- * @param {{label: string, band: string, counts: object, radiusLabel: string}} input
+ * @param {{sections: Array<{label: string, band: string, counts?: object, metrics?: object}>}} input
  * @returns {Promise<string>}
  */
 export async function generateExplanation(input) {
-  const prompt = buildPrompt(input);
+  const prompt = buildOverallSummaryPrompt(input);
 
   let res;
   try {
