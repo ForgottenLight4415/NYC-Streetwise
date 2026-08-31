@@ -70,8 +70,9 @@ export interface SectionBase {
   confidenceReason: string | null;
 }
 
-export interface ScoreSection<TCounts extends Record<string, number>>
-  extends SectionBase {
+export interface ScoreSection<
+  TCounts extends Record<string, number>,
+> extends SectionBase {
   // Narrows SectionBase's `band: ScoreBand` — a complaint tier only ever
   // produces a ComplaintBand.
   band: ComplaintBand;
@@ -96,7 +97,9 @@ export interface ScoreSection<TCounts extends Record<string, number>>
    * client must fall back to a plain count when this is missing, never invent
    * or infer a breakdown client-side — see ComplaintBreakdownBars.
    */
-  bucketStatusCounts?: Partial<Record<keyof TCounts, Record<ComplaintStatus, number>>>;
+  bucketStatusCounts?: Partial<
+    Record<keyof TCounts, Record<ComplaintStatus, number>>
+  >;
   recentComplaints?: Complaint[];
 }
 
@@ -125,8 +128,9 @@ export interface AmenityMetric {
   routes?: string[];
 }
 
-export interface AmenitySection<TMetrics extends Record<string, AmenityMetric>>
-  extends SectionBase {
+export interface AmenitySection<
+  TMetrics extends Record<string, AmenityMetric>,
+> extends SectionBase {
   // Narrows SectionBase's `band: ScoreBand` — an amenity tier only ever
   // produces an AmenityBand.
   band: AmenityBand;
@@ -135,9 +139,21 @@ export interface AmenitySection<TMetrics extends Record<string, AmenityMetric>>
   bucketConfidence: Partial<Record<keyof TMetrics, "low">>;
 }
 
-export type TransitMetrics = { subway: AmenityMetric; bus: AmenityMetric; rail: AmenityMetric };
-export type ParksMetrics = { park: AmenityMetric; playground: AmenityMetric; garden: AmenityMetric };
-export type BikeMetrics = { bikeShare: AmenityMetric; bikeLane: AmenityMetric; protectedLane: AmenityMetric };
+export type TransitMetrics = {
+  subway: AmenityMetric;
+  bus: AmenityMetric;
+  rail: AmenityMetric;
+};
+export type ParksMetrics = {
+  park: AmenityMetric;
+  playground: AmenityMetric;
+  garden: AmenityMetric;
+};
+export type BikeMetrics = {
+  bikeShare: AmenityMetric;
+  bikeLane: AmenityMetric;
+  protectedLane: AmenityMetric;
+};
 export type WalkabilityMetrics = {
   grocery: AmenityMetric;
   restaurant: AmenityMetric;
@@ -268,14 +284,21 @@ export interface AmenityInstance {
    *  concept as AmenityMetric.routes. Absent (not `[]`) on every other
    *  bucket, since those have no route concept at all. */
   routes?: string[];
+  /** Only present on `subway` — each raw entrance's own distance (meters),
+   *  ascending, that this one instance collapses into a single station
+   *  complex (see the backend's groupSubwayComplexes). `meters` above is
+   *  always this array's first/smallest value. Absent on every other
+   *  bucket, since those are already one point per real, distinct place. */
+  entrances?: number[];
 }
 
 /**
  * GET /api/amenities/nearby's response shape.
  *
- * `truncated` is true when the real count inside `radiusMeters` exceeds the
- * backend's own cap (50) — the response still lists the closest ones, just
- * not all of them.
+ * `truncated` is true when there are more real, distinct places within
+ * `radiusMeters` than this response lists — either past the backend's raw
+ * cap (50, for most buckets) or past the deliberate per-station/per-pole cap
+ * on subway/bus (AMENITY_SUBWAY_COMPLEX_CAP / AMENITY_BUS_STOP_CAP).
  */
 export interface AmenityNearbyResponse {
   instances: AmenityInstance[];

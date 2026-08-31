@@ -17,6 +17,32 @@ export function haversineMeters(lat1, lng1, lat2, lng2) {
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+const METERS_PER_FOOT = 0.3048;
+const METERS_PER_MILE = 1609.344;
+
+/** Below this, format as feet; at or above it, as miles. ~0.1 mile. */
+const MILE_THRESHOLD_METERS = METERS_PER_MILE / 10;
+
+/**
+ * "70 ft" under ~0.1 mile, "0.3 mi" at or above it — the imperial-unit
+ * counterpart to the frontend's `formatDistance` (lib/amenities.ts), for the
+ * few deterministic explanation sentences and AI-prompt inputs that embed a
+ * raw distance in their own generated text (templateOverallSummary.js,
+ * templateAmenityExplanation.js, providers/ai/prompt.js, explain.js's
+ * radiusLabelFor). Every internal computation still works in metres — the
+ * haversine functions above, the spatial index, the cached scores — this is
+ * presentation-only, applied at the one point each of those strings is
+ * assembled, same rule the frontend follows.
+ */
+export function formatDistanceImperial(meters) {
+  if (meters < MILE_THRESHOLD_METERS) {
+    const feet = Math.round(meters / METERS_PER_FOOT / 10) * 10;
+    return `${feet} ft`;
+  }
+  const miles = meters / METERS_PER_MILE;
+  return `${miles.toFixed(1)} mi`;
+}
+
 /**
  * Resamples a LineString into points spaced `spacingMeters` apart along its
  * length, always including the first and last vertex. Input/output

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MapPinIcon } from "./icons";
+import { formatDistance } from "../lib/amenities";
 import { mapId } from "../lib/maps-keys";
 import { getResolvedTheme, subscribeResolvedTheme } from "../lib/theme";
 
@@ -144,7 +145,10 @@ export function MapPanel({
   const [theme, setTheme] = useState<string>(() =>
     typeof document === "undefined" ? "light" : getResolvedTheme(),
   );
-  useEffect(() => subscribeResolvedTheme(() => setTheme(getResolvedTheme())), []);
+  useEffect(
+    () => subscribeResolvedTheme(() => setTheme(getResolvedTheme())),
+    [],
+  );
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -239,9 +243,14 @@ export function MapPanel({
         // color token above is.
         extraMarkers.forEach((marker) => {
           const extraPin = new PinElement({
-            background: token(extraMarkersColorVar ?? "--text-muted", "#8a929e"),
+            background: token(
+              extraMarkersColorVar ?? "--text-muted",
+              "#8a929e",
+            ),
             borderColor: token(
-              extraMarkersColorVar ? `${extraMarkersColorVar}-ink` : "--text-secondary",
+              extraMarkersColorVar
+                ? `${extraMarkersColorVar}-ink`
+                : "--text-secondary",
               "#626b77",
             ),
             glyphColor: token("--surface-1", "#ffffff"),
@@ -296,7 +305,14 @@ export function MapPanel({
     // directly when building each pin), so it's listed rather than folded
     // into the key string.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerLat, centerLng, ringsKey, extraMarkersKey, extraMarkersColorVar, theme]);
+  }, [
+    centerLat,
+    centerLng,
+    ringsKey,
+    extraMarkersKey,
+    extraMarkersColorVar,
+    theme,
+  ]);
 
   return (
     <div
@@ -366,7 +382,10 @@ export function MapPanel({
             />
             <span>
               {ring.label} (
-              <span className="font-data">{ring.radiusMeters}m</span>)
+              <span className="font-data">
+                {formatDistance(ring.radiusMeters)}
+              </span>
+              )
             </span>
           </span>
         ))}

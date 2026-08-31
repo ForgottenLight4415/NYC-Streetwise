@@ -1,3 +1,4 @@
+import { formatDistance } from "@/lib/amenities";
 import { CITYWIDE_BASELINE } from "@/lib/citywide-baseline";
 import { CATEGORY_LABEL } from "@/lib/score";
 
@@ -32,7 +33,7 @@ export function CitywideBaselinePanel() {
                 {tier.label}
               </h3>
               <span className="font-data text-xs text-(--text-muted)">
-                {tier.radiusMeters}m radius
+                {formatDistance(tier.radiusMeters)} radius
               </span>
             </div>
 

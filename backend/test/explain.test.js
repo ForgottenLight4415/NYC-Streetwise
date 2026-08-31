@@ -140,8 +140,8 @@ describe("explainFromTemplate", () => {
 
 describe("tier labelling", () => {
   it("describes each tier's real radius", () => {
-    expect(radiusLabelFor("building")).toContain("25m");
-    expect(radiusLabelFor("block")).toContain("350m");
+    expect(radiusLabelFor("building")).toContain("80 ft");
+    expect(radiusLabelFor("block")).toContain("0.2 mi");
     expect(radiusLabelFor("nonsense")).toBeTypeOf("string");
   });
 

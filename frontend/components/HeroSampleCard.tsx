@@ -1,11 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { formatDistance } from "@/lib/amenities";
 import { AMENITY_CATEGORIES } from "@/lib/categories";
 import { useReport } from "@/lib/hooks";
 import { RENTING_FACTS } from "@/lib/renting-facts";
-import { ACCESS_VERDICT, BAND_VAR, BAND_VERDICT, overallAmenityBand, overallBand } from "@/lib/score";
-import type { ReportResponse, ShowcaseFallback, ShowcaseItem } from "@/lib/types";
+import {
+  ACCESS_VERDICT,
+  BAND_VAR,
+  BAND_VERDICT,
+  overallAmenityBand,
+  overallBand,
+} from "@/lib/score";
+import type {
+  ReportResponse,
+  ShowcaseFallback,
+  ShowcaseItem,
+} from "@/lib/types";
 import { FactRotator } from "./FactRotator";
 import { ArrowRightIcon } from "./icons";
 
@@ -156,13 +167,13 @@ function Card({
         <ScoreReadout
           label="Building"
           score={data.buildingHealth.score}
-          radius={`${data.buildingHealth.radiusMeters}m`}
+          radius={formatDistance(data.buildingHealth.radiusMeters) ?? ""}
           inkVar="--series-building-ink"
         />
         <ScoreReadout
           label="Block"
           score={data.blockQuality.score}
-          radius={`${data.blockQuality.radiusMeters}m`}
+          radius={formatDistance(data.blockQuality.radiusMeters) ?? ""}
           inkVar="--series-block-ink"
         />
       </div>

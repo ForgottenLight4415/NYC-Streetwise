@@ -2,6 +2,8 @@ import {
   AMENITY_TIERS,
   AMENITY_MAX_METERS,
   AMENITY_ROUTE_CANDIDATES,
+  AMENITY_SUBWAY_COMPLEX_CAP,
+  AMENITY_BUS_STOP_CAP,
   NON_DISCRETE_AMENITY_BUCKETS,
   WALKABILITY_TYPE_TO_BUCKET,
 } from "../config/constants.js";
@@ -236,6 +238,122 @@ export async function getWalkabilityMetrics(lat, lng, { cacheOnly = false } = {}
   return metrics;
 }
 
+// Raw entrance pool fetched before subway grouping/dedup collapses them to
+// AMENITY_SUBWAY_COMPLEX_CAP complexes — generous on purpose. A dense hub
+// like Herald Sq alone has 15 entrances; this pool needs to hold every
+// entrance across however many DISTINCT complexes fall within radius before
+// grouping can even see them all, not just the default 50-raw-point cap
+// allWithin() uses for every other bucket.
+const SUBWAY_ENTRANCE_POOL_LIMIT = 200;
+
+/**
+ * Folds raw entrance-level matches (one per physical door, each tagged with
+ * the `complexId` baked in at build time — see scripts/buildAmenities.js's
+ * buildSubwayBucket) into one result per station complex, positioned at
+ * whichever of its entrances is nearest, then applies the same-line dedup
+ * rule and caps to AMENITY_SUBWAY_COMPLEX_CAP.
+ *
+ * Same-line dedup: after sorting complexes by distance, a farther complex
+ * whose ENTIRE route set is already covered by closer, already-kept
+ * complexes is dropped — it adds no line a renter could not already reach
+ * on a shorter walk. Coverage accumulates across every kept complex, not
+ * just the nearest one, so a complex is only dropped once all its lines are
+ * already reachable closer. A complex with no route data at all (routes:
+ * []) is never dropped by this rule — there's nothing to compare, so it's
+ * always kept rather than guessed at.
+ *
+ * Every member entrance's own distance is kept too, on `entrances` — not
+ * shown as separate rows (that's the density problem this whole grouping
+ * exists to solve), but the frontend's "[N entrances]" tag hovers to reveal
+ * them. `instances` arrives nearest-first overall, so appending to a group
+ * in that same order — rather than only on a new minimum — leaves each
+ * group's own `entrances` naturally ascending too, no second sort needed.
+ *
+ * @param {{meters:number, name:string|null, lat:number, lng:number, routes?:string[], complexId?:string|null}[]} instances
+ * @returns {{complexes: object[], totalComplexes: number}} `totalComplexes`
+ *   is the count BEFORE the cap (but after dedup), for the caller's
+ *   `truncated` flag.
+ */
+function groupSubwayComplexes(instances) {
+  // Two indexes into the SAME group objects — by complexId and by name. An
+  // entrance with no reliable complexId (buildSubwayBucket's geographic
+  // outlier guard sets it to null) still needs to land in the SAME group as
+  // the real complex it belongs to, not a second, disconnected one — it and
+  // that complex's other entrances share an identical name, so matching by
+  // name is exactly the fallback that reunites them.
+  //
+  // The name fallback must NOT fire for an entrance that already has its
+  // OWN valid complexId, even when that id hasn't been seen yet — two
+  // genuinely different official complexes can share a display name (34
+  // St-Penn Station's 1/2/3 side and its separate A/C/E side are two
+  // different complex_ids). So a name match is only trusted when the
+  // candidate group hasn't already been claimed by a DIFFERENT real
+  // complexId — `group.complexId` tracks whichever one first claimed it
+  // (null while the group is still outlier-only), stripped from the
+  // returned shape at the end.
+  const groupsById = new Map();
+  const groupsByName = new Map();
+  const ordered = [];
+
+  for (const inst of instances) {
+    let group = inst.complexId ? groupsById.get(inst.complexId) : undefined;
+
+    if (!group && inst.name) {
+      const candidate = groupsByName.get(inst.name);
+      if (candidate && (candidate.complexId == null || candidate.complexId === inst.complexId)) {
+        group = candidate;
+      }
+    }
+
+    if (!group) {
+      // `instances` is nearest-first, so the first occurrence of a given
+      // complex/name is necessarily its own nearest entrance — safe to seed
+      // the group's representative name/meters/lat/lng/routes from it
+      // directly.
+      group = {
+        name: inst.name,
+        meters: inst.meters,
+        lat: inst.lat,
+        lng: inst.lng,
+        routes: inst.routes ?? [],
+        entrances: [],
+        complexId: inst.complexId ?? null,
+      };
+      ordered.push(group);
+    } else if (group.complexId == null && inst.complexId) {
+      // The group was seeded by an outlier (no complexId of its own yet) —
+      // a real complexId showing up for the same name claims it, so a
+      // THIRD entrance can now also find it directly by that id.
+      group.complexId = inst.complexId;
+    }
+
+    if (inst.complexId) groupsById.set(inst.complexId, group);
+    if (inst.name) groupsByName.set(inst.name, group);
+    group.entrances.push(inst.meters);
+  }
+
+  const sorted = ordered.sort((a, b) => a.meters - b.meters);
+
+  const covered = new Set();
+  const deduped = [];
+  for (const group of sorted) {
+    if (deduped.length > 0 && group.routes.length > 0) {
+      const addsNothing = group.routes.every((route) => covered.has(route));
+      if (addsNothing) continue;
+    }
+    for (const route of group.routes) covered.add(route);
+    deduped.push(group);
+  }
+
+  // `complexId` above is internal bookkeeping for the merge logic, not part
+  // of the documented response shape — strip it before handing groups back.
+  const complexes = deduped
+    .slice(0, AMENITY_SUBWAY_COMPLEX_CAP)
+    .map(({ complexId, ...group }) => group);
+
+  return { complexes, totalComplexes: deduped.length };
+}
+
 /**
  * Every real instance of one bucket within its tier's radius — what backs
  * an amenity row's `>` affordance (GET /api/amenities/nearby), as opposed to
@@ -249,6 +367,21 @@ export async function getWalkabilityMetrics(lat, lng, { cacheOnly = false } = {}
  * buckets are served by getNearbyWalkabilityInstances() below instead, since
  * their data comes from a live-then-cached Places call, not a preloaded
  * spatial index.
+ *
+ * `subway` and `bus` get bucket-specific post-processing before the result
+ * goes out — everything else (rail, parks, bike) is untouched, since neither
+ * has the "one place, many raw points" density problem these two solve:
+ * - `subway`: grouped into complexes, same-line-deduped, capped to
+ *   AMENITY_SUBWAY_COMPLEX_CAP — see groupSubwayComplexes above.
+ * - `bus`: already one point per physical pole from build-time clustering
+ *   (buildAmenities.js's buildBusBucket), so this just caps to
+ *   AMENITY_BUS_STOP_CAP, closest first.
+ * Neither changes the response TYPE beyond one additive field — a grouped/
+ * capped instance is still `{name, meters, lat, lng, routes}`, the same
+ * shape as any other bucket's instance, just one per complex/pole instead of
+ * one per raw point; `subway` instances also carry `entrances: number[]`,
+ * every member entrance's own distance ascending, for the frontend's
+ * "[N entrances]" hover breakdown (see groupSubwayComplexes above).
  *
  * @param {string} tierName one of AMENITY_TIERS' keys (transit/parks/bike)
  * @param {string} bucket must belong to that tier and not be one of
@@ -270,14 +403,30 @@ export async function getNearbyAmenityInstances(tierName, bucket, lat, lng, { li
   if (!index) return null;
 
   const radiusMeters = tierConfig.radiusMeters;
+  const rawLimit = bucket === "subway" ? Math.max(limit ?? 0, SUBWAY_ENTRANCE_POOL_LIMIT) : limit;
   // countWithin is O(cells in the square), not O(matches) — cheap enough to
   // run alongside allWithin purely to detect truncation, without allWithin
   // itself having to return an unbounded array just to know its own length
-  // was capped.
+  // was capped. Unused for subway/bus below, which compute their own
+  // post-grouping/capping truncation flag instead.
   const total = index.countWithin(lat, lng, radiusMeters);
-  const instances = index.allWithin(lat, lng, radiusMeters, limit ? { limit } : undefined);
+  const rawInstances = index.allWithin(lat, lng, radiusMeters, rawLimit ? { limit: rawLimit } : undefined);
 
-  return { instances, radiusMeters, truncated: total > instances.length };
+  if (bucket === "subway") {
+    const { complexes, totalComplexes } = groupSubwayComplexes(rawInstances);
+    return { instances: complexes, radiusMeters, truncated: totalComplexes > complexes.length };
+  }
+
+  if (bucket === "bus") {
+    // `total` (countWithin) already counts POLES, not raw GTFS stop records —
+    // the index itself was built from build-time-clustered points, so this
+    // is the exact distinct-pole count within radius, not an approximation
+    // capped at allWithin's own 50-point default.
+    const stops = rawInstances.slice(0, AMENITY_BUS_STOP_CAP);
+    return { instances: stops, radiusMeters, truncated: total > stops.length };
+  }
+
+  return { instances: rawInstances, radiusMeters, truncated: total > rawInstances.length };
 }
 
 /**

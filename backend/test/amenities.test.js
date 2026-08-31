@@ -81,6 +81,26 @@ describe("isValidDataset", () => {
     doc.subway.n = 1;
     expect(isValidDataset("transit", doc)).toBe(false);
   });
+
+  it("accepts a subway bucket with a valid complexIds/complexIdIdx pair", () => {
+    const doc = transitFixture();
+    doc.subway.complexIds = ["607"];
+    doc.subway.complexIdIdx = [0];
+    expect(isValidDataset("transit", doc)).toBe(true);
+  });
+
+  it("rejects complexIdIdx present without complexIds (or vice versa)", () => {
+    const doc = transitFixture();
+    doc.subway.complexIdIdx = [0];
+    expect(isValidDataset("transit", doc)).toBe(false);
+  });
+
+  it("rejects a complexIdIdx pointing past the end of complexIds", () => {
+    const doc = transitFixture();
+    doc.subway.complexIds = ["607"];
+    doc.subway.complexIdIdx = [5]; // only one complexId exists
+    expect(isValidDataset("transit", doc)).toBe(false);
+  });
 });
 
 describe("the committed amenity datasets", () => {

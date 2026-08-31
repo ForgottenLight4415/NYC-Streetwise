@@ -101,7 +101,7 @@ export function PanelShell({
           {summary}
           {confidenceMessage && (
             <p
-              className="rounded-lg my-1 px-3 py-2 text-xs"
+              className="rounded-lg my-1 px-4 py-1 text-xs w-fit"
               style={{
                 color: "var(--status-warning-ink)",
                 background:

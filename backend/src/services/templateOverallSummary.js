@@ -1,6 +1,7 @@
 import { dominantBucket } from "./templateExplanation.js";
 import { bucketLabel, amenityBucketLabel } from "../providers/ai/prompt.js";
 import { AMENITY_WALK_METERS_PER_MIN } from "../config/constants.js";
+import { formatDistanceImperial } from "../lib/geo.js";
 
 // The deterministic fallback for the whole-report summary — the combined-blurb
 // analogue of templateExplanation.js / templateAmenityExplanation.js. Same two
@@ -122,7 +123,7 @@ function amenityTopicClause(sections, topic) {
   const noun = amenityBucketLabel(nearest.bucket);
   const named = nearest.name ? ` (${nearest.name})` : "";
   const minutes = walkMinutes(nearest.meters);
-  return `${topic.lead} is a ${noun}${named}, about a ${minutes}-minute walk away (${nearest.meters}m)`;
+  return `${topic.lead} is a ${noun}${named}, about a ${minutes}-minute walk away (${formatDistanceImperial(nearest.meters)})`;
 }
 
 /**

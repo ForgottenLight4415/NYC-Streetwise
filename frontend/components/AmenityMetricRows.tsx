@@ -1,4 +1,8 @@
-import { AMENITY_BUCKET_LABEL, formatWalk } from "@/lib/amenities";
+import {
+  AMENITY_BUCKET_LABEL,
+  formatDistance,
+  formatWalk,
+} from "@/lib/amenities";
 import type { AmenityMetric } from "@/lib/types";
 import { ChevronRightIcon } from "./icons";
 import { TransitLineBadge } from "./TransitLineBadge";
@@ -24,6 +28,11 @@ const NON_DISCRETE_BUCKETS = new Set(["bikeLane", "protectedLane"]);
  * a "None within Xm" row — a row with nothing to check isn't information,
  * and the panel's own summary already covers the "nothing nearby at all"
  * case for the tier as a whole.
+ *
+ * The whole row is the click target when a bucket can be browsed — not just
+ * the trailing chevron, which used to be the only ~24px of real hit area.
+ * The chevron itself stays, but goes passive (faint, decorative) now that it
+ * isn't the only thing announcing "there's more here."
  */
 export function AmenityMetricRows({
   metrics,
@@ -50,16 +59,18 @@ export function AmenityMetricRows({
     ([, metric]) => metric.meters != null,
   );
 
+  const radiusLabel = formatDistance(radiusMeters);
+
   return (
     <div className="flex flex-col gap-2.5">
       {entries.map(([bucket, metric]) => {
         const walk = formatWalk(metric.meters);
-        const canBrowse = Boolean(onOpenBucket) && !NON_DISCRETE_BUCKETS.has(bucket);
-        return (
-          <div
-            key={bucket}
-            className="flex items-center justify-between gap-3 py-1 text-sm"
-          >
+        const distance = formatDistance(metric.meters);
+        const canBrowse =
+          Boolean(onOpenBucket) && !NON_DISCRETE_BUCKETS.has(bucket);
+
+        const row = (
+          <>
             <div className="min-w-0">
               <p className="text-(--text-secondary)">
                 {AMENITY_BUCKET_LABEL[bucket] ?? bucket}
@@ -78,7 +89,11 @@ export function AmenityMetricRows({
                 metric.routes.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {metric.routes.map((route) => (
-                      <TransitLineBadge key={route} route={route} mode={bucket} />
+                      <TransitLineBadge
+                        key={route}
+                        route={route}
+                        mode={bucket}
+                      />
                     ))}
                   </div>
                 )}
@@ -86,25 +101,37 @@ export function AmenityMetricRows({
             <div className="flex shrink-0 items-center gap-1.5">
               <div className="text-right">
                 <p className="font-data text-(--text-primary)">{walk}</p>
-                {metric.within > 0 && (
+                {distance && (
                   <p className="font-data text-xs text-(--text-muted)">
-                    {metric.within} within {radiusMeters}m
+                    {distance}
                   </p>
                 )}
               </div>
               {canBrowse && (
-                <button
-                  type="button"
-                  onClick={() => onOpenBucket!(bucket)}
-                  onPointerEnter={onHoverBucket}
-                  onFocus={onHoverBucket}
-                  aria-label={`See every ${AMENITY_BUCKET_LABEL[bucket] ?? bucket} within ${radiusMeters}m`}
-                  className="shrink-0 rounded-full p-1.5 text-(--text-muted) transition-colors hover:bg-(--surface-2) hover:text-(--text-primary)"
-                >
-                  <ChevronRightIcon className="h-3.5 w-3.5" />
-                </button>
+                <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-(--text-muted) opacity-45" />
               )}
             </div>
+          </>
+        );
+
+        return canBrowse ? (
+          <button
+            key={bucket}
+            type="button"
+            onClick={() => onOpenBucket!(bucket)}
+            onPointerEnter={onHoverBucket}
+            onFocus={onHoverBucket}
+            aria-label={`See every ${AMENITY_BUCKET_LABEL[bucket] ?? bucket} within ${radiusLabel}`}
+            className="-mx-1.5 flex items-center justify-between gap-3 rounded-lg px-1.5 py-1 text-left text-sm transition-colors hover:bg-(--surface-2)"
+          >
+            {row}
+          </button>
+        ) : (
+          <div
+            key={bucket}
+            className="flex items-center justify-between gap-3 py-1 text-sm"
+          >
+            {row}
           </div>
         );
       })}

@@ -186,7 +186,7 @@ export function compareToBaseline(
 export function explainVerdict(
   complaintSections: ScoreSection<Record<string, number>>[],
   overall: ScoreBand,
-  windowMonths: number
+  windowMonths: number,
 ): string {
   const sections = complaintSections.filter((s) => s.band === overall);
 
@@ -197,10 +197,10 @@ export function explainVerdict(
         .map(([category, count]) => {
           const label = CATEGORY_LABEL[category] ?? category;
           const unresolved = (section.recentComplaints ?? []).filter(
-            (c) => c.label === label && c.status !== "closed"
+            (c) => c.label === label && c.status !== "closed",
           ).length;
           return { category, count, label, unresolved };
-        })
+        }),
     )
     .sort((a, b) => b.count - a.count);
 
@@ -212,7 +212,10 @@ export function explainVerdict(
       : `Rated ${label} based on limited complaint data in the last ${windowMonths} months.`;
   }
 
-  const top = contributors.slice(0, contributors[1] && contributors[1].count > 0 ? 2 : 1);
+  const top = contributors.slice(
+    0,
+    contributors[1] && contributors[1].count > 0 ? 2 : 1,
+  );
   const totalCount = top.reduce((sum, t) => sum + t.count, 0);
   const unresolved = top.reduce((sum, t) => sum + t.unresolved, 0);
 
@@ -222,7 +225,8 @@ export function explainVerdict(
       ? `${top[0].count} ${lower(top[0].label)} and ${top[1].count} ${lower(top[1].label)}`
       : `${top[0].count} ${lower(top[0].label)}`;
   const complaintWord = totalCount === 1 ? "complaint" : "complaints";
-  const unresolvedClause = unresolved > 0 ? `, including ${unresolved} unresolved` : "";
+  const unresolvedClause =
+    unresolved > 0 ? `, including ${unresolved} unresolved` : "";
   const connector = overall === "good" ? "with" : "due to";
 
   return `Rated ${label} ${connector} ${contributorsText} ${complaintWord} in the last ${windowMonths} months${unresolvedClause}.`;
@@ -237,14 +241,20 @@ export function explainVerdict(
  * independently check against a map.
  */
 export function explainAccess(
-  amenitySections: { label: string; section: AmenitySection<Record<string, AmenityMetric>> }[],
+  amenitySections: {
+    label: string;
+    section: AmenitySection<Record<string, AmenityMetric>>;
+  }[],
   overall: AmenityBand,
 ): string {
   const verdict = ACCESS_VERDICT[overall];
-  const matching = amenitySections.filter(({ section }) => section.band === overall);
+  const matching = amenitySections.filter(
+    ({ section }) => section.band === overall,
+  );
   const pool = matching.length > 0 ? matching : amenitySections;
 
-  let best: { label: string; bucket: string; metric: AmenityMetric } | null = null;
+  let best: { label: string; bucket: string; metric: AmenityMetric } | null =
+    null;
   for (const { label, section } of pool) {
     const nearest = nearestMetric(section.metrics);
     if (!nearest) continue;
@@ -258,7 +268,10 @@ export function explainAccess(
     return `${verdict} — nothing tracked within any of the access radii nearby.`;
   }
 
-  const name = best.metric.name ?? AMENITY_BUCKET_LABEL[best.bucket] ?? "the nearest option";
+  const name =
+    best.metric.name ??
+    AMENITY_BUCKET_LABEL[best.bucket] ??
+    "the nearest option";
   const walk = formatWalk(best.metric.meters);
   return `${verdict} — ${name} (${best.label.toLowerCase()}) is the closest, ${walk}.`;
 }
@@ -276,6 +289,6 @@ export function explainAccess(
 // has no user-facing message; surface it to the team instead.
 export const CONFIDENCE_MESSAGE: Record<string, string> = {
   no_complaints_found:
-    "Make sure this is a building address.",
-  no_baseline: "Score is not comparable to the rest of the city.",
+    "",
+  no_baseline: "Score is not comparable to the rest of the city",
 };

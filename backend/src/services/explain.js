@@ -1,4 +1,5 @@
 import { RADIUS_TIERS, AMENITY_TIERS, EXPLANATION_SOURCES } from "../config/constants.js";
+import { formatDistanceImperial } from "../lib/geo.js";
 import { generateExplanation } from "../providers/ai/index.js";
 import { templateExplanation } from "./templateExplanation.js";
 import { amenityTemplateExplanation } from "./templateAmenityExplanation.js";
@@ -44,11 +45,11 @@ const RADIUS_SUBJECTS = {
   walkability: "this location",
 };
 
-/** "this building (25m radius)" — gives the model the area it is describing. */
+/** "this building (80 ft radius)" — gives the model the area it is describing. */
 export function radiusLabelFor(tier) {
   const meters = RADIUS_TIERS[tier]?.radiusMeters ?? AMENITY_TIERS[tier]?.radiusMeters;
   const subject = RADIUS_SUBJECTS[tier] ?? "this location";
-  return meters ? `${subject} (${meters}m radius)` : subject;
+  return meters ? `${subject} (${formatDistanceImperial(meters)} radius)` : subject;
 }
 
 /**

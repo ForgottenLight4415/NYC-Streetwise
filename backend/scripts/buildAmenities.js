@@ -45,6 +45,14 @@
  * bikeLane, protectedLane) has neither field, unchanged from before this
  * existed — see providers/amenities/bikeShare.js's encodeBucket.
  *
+ * COMPLEX ID (transit.subway ONLY): a third, equally additive pair,
+ * `complexIds`/`complexIdIdx`, same shape/semantics as `routeSets`/`routeIdx`
+ * above — the official MTA station-complex identifier each subway entrance
+ * belongs to, read straight off the source dataset (no join). Lets
+ * amenityService.js group individual entrances back into whole complexes at
+ * query time — see buildSubwayBucket below and CLAUDE.md's complex-
+ * clustering note.
+ *
  * SANITY GUARD: refuses to write if any bucket's point count falls more than
  * 30% below the currently-committed file's — the entire defense against a
  * truncated download (a redirect gone stale, a GTFS feed 404ing silently)
@@ -64,9 +72,9 @@ import { promisify } from "node:util";
 import {
   AMENITY_SOURCES,
   AMENITY_LANE_SPACING_METERS,
+  BUS_STOP_CLUSTER_RADIUS_METERS,
   PARKS_TYPECATEGORY_TO_BUCKET,
   SOCRATA_ROW_LIMIT,
-  SUBWAY_ROUTE_MATCH_RADIUS_METERS,
   NYC_BOUNDS,
 } from "../src/config/constants.js";
 import { densifyLine, haversineMeters, multiPolygonCentroid } from "../src/lib/geo.js";
@@ -140,62 +148,160 @@ async function buildPointBucket(source) {
   return encodeBucket(points);
 }
 
-// --- subway route join (i9wp-a4ja entrances x 39hk-dx4f station routes) -----
+// --- subway (i9wp-a4ja entrances only) --------------------------------------
 //
-// The entrances dataset has no route info; the separate "MTA Subway
-// Stations" dataset does (`daytime_routes`), but at the STATION's own
-// coordinate, not the entrance's — the two never share an exact point or a
-// key, so this is a nearest-within-radius join, not a lookup. Brute-force
-// (every entrance x every station) is fine here: ~2,120 entrances against a
-// few hundred stations is on the order of 10^6 comparisons, trivial for a
-// one-off build script.
+// The entrance dataset already carries the complex-level truth on every
+// row — `complex_id` (the official MTA grouping riders think of as "one
+// station"; two adjacent-but-separately-tracked complexes like Herald Sq's
+// 6th Ave and Broadway sides both use it) and `daytime_routes` already
+// scoped to that whole complex. No second dataset, no proximity join.
+//
+// Grouping is by complex_id, but the NAME and ROUTES written for every point
+// under one complex_id are canonicalized (most-common value across that
+// complex's rows, first-seen breaking ties) rather than trusted per-row —
+// MTA's own data has minor variance across entrances at the same complex
+// (confirmed live: "34 St-Herald Sq" and "34 St-Herald Square" both under
+// complex_id 607).
+//
+// GEOGRAPHIC OUTLIER GUARD — this is load-bearing, not defensive
+// programming for a hypothetical: confirmed live, complex_id 607 (Herald
+// Sq's own id) also has 4 rows whose `stop_name` is "14 St-Union Sq" at
+// Union Square's REAL coordinates, ~1.9km from Herald Sq — MTA's own
+// entrance-to-complex_id assignment is wrong for these specific rows, not a
+// one-off. Trusting complex_id blindly would silently relabel a Union
+// Square entrance as Herald Sq (and vice versa: Herald Sq entrances would
+// pull Union Sq's routes into their canonical vote). Any entrance more than
+// COMPLEX_OUTLIER_METERS from its claimed complex's OTHER entrances'
+// centroid is excluded from that complex's name/route vote AND does not
+// inherit the complex's canonical values — it keeps its OWN row's
+// (confirmed reliable) name and routes instead, and gets no complexId, so
+// it becomes its own single-entrance group downstream rather than
+// corrupting — or being corrupted by — an unrelated complex.
 
-async function buildSubwayBucketWithRoutes(entranceSource, stationSource) {
-  const [entranceRows, stationRows] = await Promise.all([
-    fetchAllSocrataRows(entranceSource.domain, entranceSource.datasetId),
-    fetchAllSocrataRows(stationSource.domain, stationSource.datasetId),
-  ]);
+/** No real MTA complex spans anywhere near this; two "entrances" farther
+ *  apart than this cannot be the same physical station. */
+const COMPLEX_OUTLIER_METERS = 1000;
 
-  const stations = [];
-  for (const row of stationRows) {
-    const lat = Number(row[stationSource.latField]);
-    const lng = Number(row[stationSource.lngField]);
+/** The most frequent key in a Map<key, count>, first-seen breaking ties. */
+function mostCommon(counts) {
+  let best = null;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+async function buildSubwayBucket(source) {
+  const rows = await fetchAllSocrataRows(source.domain, source.datasetId);
+
+  // Pass 1: parse every in-bounds row once, and collect coordinates per
+  // complex_id for the outlier check below.
+  const parsed = [];
+  const complexCoords = new Map(); // complexId -> [{lat, lng}, ...]
+  for (const row of rows) {
+    const lat = Number(row[source.latField]);
+    const lng = Number(row[source.lngField]);
     if (!inBounds(lat, lng)) continue;
-    const routes = String(row[stationSource.routesField] || "")
-      .split(/\s+/)
-      .map((r) => r.trim())
-      .filter(Boolean);
-    if (routes.length === 0) continue; // nothing usable to join
-    stations.push({ lat, lng, routes });
+
+    const complexId = row[source.complexIdField] || null;
+    const name = row[source.nameField] || null;
+    const routesStr = String(row[source.routesField] || "").trim();
+    parsed.push({ lat, lng, complexId, name, routesStr });
+
+    if (complexId) {
+      if (!complexCoords.has(complexId)) complexCoords.set(complexId, []);
+      complexCoords.get(complexId).push({ lat, lng });
+    }
   }
 
-  const points = [];
-  let matched = 0;
-  for (const row of entranceRows) {
-    const lat = Number(row[entranceSource.latField]);
-    const lng = Number(row[entranceSource.lngField]);
-    if (!inBounds(lat, lng)) continue;
+  const complexCentroids = new Map();
+  for (const [complexId, coords] of complexCoords) {
+    complexCentroids.set(complexId, {
+      lat: coords.reduce((sum, c) => sum + c.lat, 0) / coords.length,
+      lng: coords.reduce((sum, c) => sum + c.lng, 0) / coords.length,
+    });
+  }
+  for (const p of parsed) {
+    const centroid = p.complexId ? complexCentroids.get(p.complexId) : null;
+    p.isOutlier = centroid ? haversineMeters(p.lat, p.lng, centroid.lat, centroid.lng) > COMPLEX_OUTLIER_METERS : false;
+  }
 
-    let best = null;
-    let bestMeters = Infinity;
-    for (const station of stations) {
-      const meters = haversineMeters(lat, lng, station.lat, station.lng);
-      if (meters < bestMeters) {
-        bestMeters = meters;
-        best = station;
-      }
+  // Pass 2: tally name/routes strings per complex_id, outliers excluded —
+  // an outlier's own (wrong) location must not drag the REST of its
+  // claimed complex's canonical vote off course either.
+  const nameCounts = new Map(); // complexId -> Map<name, count>
+  const routeCounts = new Map(); // complexId -> Map<"B D F M", count>
+  for (const p of parsed) {
+    if (!p.complexId || p.isOutlier) continue;
+    if (p.name) {
+      const counts = nameCounts.get(p.complexId) ?? new Map();
+      counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
+      nameCounts.set(p.complexId, counts);
     }
+    if (p.routesStr) {
+      const counts = routeCounts.get(p.complexId) ?? new Map();
+      counts.set(p.routesStr, (counts.get(p.routesStr) ?? 0) + 1);
+      routeCounts.set(p.complexId, counts);
+    }
+  }
 
-    const routes =
-      best && bestMeters <= SUBWAY_ROUTE_MATCH_RADIUS_METERS ? [...best.routes].sort() : [];
-    if (routes.length > 0) matched++;
+  const canonicalName = new Map();
+  for (const [complexId, counts] of nameCounts) {
+    canonicalName.set(complexId, mostCommon(counts));
+  }
+  const canonicalRoutes = new Map();
+  for (const [complexId, counts] of routeCounts) {
+    const routesStr = mostCommon(counts);
+    canonicalRoutes.set(
+      complexId,
+      routesStr
+        .split(/\s+/)
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .sort()
+    );
+  }
 
-    points.push({ lat, lng, name: row[entranceSource.nameField] || null, routes });
+  // Pass 3: one point per entrance. A non-outlier inherits its complex's
+  // canonical name/routes; an outlier (or an entrance with no complex_id at
+  // all) falls back to its own row's values and no complexId.
+  const points = [];
+  let routed = 0;
+  let outliers = 0;
+  for (const p of parsed) {
+    let name;
+    let routes;
+    let complexId;
+    if (p.complexId && !p.isOutlier) {
+      name = canonicalName.get(p.complexId) ?? p.name;
+      routes = canonicalRoutes.get(p.complexId) ?? [];
+      complexId = p.complexId;
+    } else {
+      name = p.name;
+      routes = p.routesStr
+        ? p.routesStr
+            .split(/\s+/)
+            .map((r) => r.trim())
+            .filter(Boolean)
+            .sort()
+        : [];
+      complexId = null;
+      if (p.isOutlier) outliers++;
+    }
+    if (routes.length > 0) routed++;
+    points.push({ lat: p.lat, lng: p.lng, name, routes, complexId });
   }
 
   console.log(
-    `    route join: ${matched}/${points.length} subway entrances matched a station ` +
-      `within ${SUBWAY_ROUTE_MATCH_RADIUS_METERS}m (${stations.length} stations with usable routes)`
+    `    ${points.length} subway entrances across ${canonicalName.size} complexes, ` +
+      `${routed} with route data` +
+      (outliers > 0
+        ? `, ${outliers} excluded as complex_id outliers (>${COMPLEX_OUTLIER_METERS}m from their claimed complex)`
+        : "")
   );
 
   return encodeBucket(points);
@@ -318,6 +424,103 @@ async function buildStopRoutesMap(dir, tripToRoute, routeToShortName) {
   return stopRoutes;
 }
 
+/**
+ * Physical-pole clustering: the GTFS feed gives every route its own stop
+ * record even when several routes (e.g. M1/M2/M3/M4) board from the same
+ * curb, so raw stops.txt rows over-count "places to catch a bus" relative to
+ * what a rider standing there actually sees. Groups points within
+ * `radiusMeters` of each other transitively (a flood-fill, not just each
+ * point's immediate neighbors, so a short chain of stops each ~5m apart all
+ * end up in one cluster) and merges each group into one point with a
+ * unioned route list.
+ *
+ * Grid-bucketed first, the same cell-hash idea spatialIndex.js's buildIndex
+ * uses for its query-time index — built once here instead of queried
+ * repeatedly — so this stays fast at bus-stop-corpus scale (~11k points)
+ * instead of degrading to the O(n²) a naive pairwise scan would be.
+ *
+ * @returns {number[][]} arrays of indices into `points`, one per cluster.
+ */
+function clusterNearbyPoints(points, radiusMeters) {
+  const gridDegrees = radiusMeters / 111320; // ~meters per degree of latitude
+  const cells = new Map();
+  points.forEach((p, i) => {
+    const key = `${Math.floor(p.lat / gridDegrees)},${Math.floor(p.lng / gridDegrees)}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(i);
+  });
+
+  const visited = new Array(points.length).fill(false);
+  const clusters = [];
+
+  for (let i = 0; i < points.length; i++) {
+    if (visited[i]) continue;
+    visited[i] = true;
+    const members = [i];
+    const queue = [i];
+
+    while (queue.length > 0) {
+      const cur = queue.pop();
+      const row = Math.floor(points[cur].lat / gridDegrees);
+      const col = Math.floor(points[cur].lng / gridDegrees);
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const cell = cells.get(`${row + dr},${col + dc}`);
+          if (!cell) continue;
+          for (const j of cell) {
+            if (visited[j]) continue;
+            if (haversineMeters(points[cur].lat, points[cur].lng, points[j].lat, points[j].lng) <= radiusMeters) {
+              visited[j] = true;
+              members.push(j);
+              queue.push(j);
+            }
+          }
+        }
+      }
+    }
+    clusters.push(members);
+  }
+
+  return clusters;
+}
+
+/**
+ * Merges one cluster's member points into a single pole: routes = the union
+ * of every member's routes (sorted), name = whichever member's name is most
+ * common in the cluster, position = the member closest to the cluster's own
+ * centroid — a real stop's coordinates, not a synthetic average that could
+ * land in the middle of an intersection.
+ */
+function mergeCluster(points, memberIndices) {
+  const members = memberIndices.map((i) => points[i]);
+
+  const centroidLat = members.reduce((sum, p) => sum + p.lat, 0) / members.length;
+  const centroidLng = members.reduce((sum, p) => sum + p.lng, 0) / members.length;
+  let closest = members[0];
+  let closestMeters = Infinity;
+  for (const p of members) {
+    const meters = haversineMeters(p.lat, p.lng, centroidLat, centroidLng);
+    if (meters < closestMeters) {
+      closestMeters = meters;
+      closest = p;
+    }
+  }
+
+  const nameCounts = new Map();
+  const routeSet = new Set();
+  for (const p of members) {
+    if (p.name) nameCounts.set(p.name, (nameCounts.get(p.name) ?? 0) + 1);
+    for (const route of p.routes ?? []) routeSet.add(route);
+  }
+
+  return {
+    lat: closest.lat,
+    lng: closest.lng,
+    name: mostCommon(nameCounts),
+    routes: [...routeSet].sort(),
+  };
+}
+
 async function buildBusBucket(source) {
   const dir = await mkdtemp(path.join(tmpdir(), "amenity-gtfs-"));
   const seen = new Set();
@@ -380,7 +583,15 @@ async function buildBusBucket(source) {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return encodeBucket(points);
+
+  const clusters = clusterNearbyPoints(points, BUS_STOP_CLUSTER_RADIUS_METERS);
+  const poles = clusters.map((members) => mergeCluster(points, members));
+  console.log(
+    `    bus: ${points.length} deduped stops -> ${poles.length} physical poles ` +
+      `after ${BUS_STOP_CLUSTER_RADIUS_METERS}m clustering`
+  );
+
+  return encodeBucket(poles);
 }
 
 // --- parks (Socrata MultiPolygon, split by typecategory) --------------------
@@ -474,8 +685,8 @@ function checkSanity(filename, previous, next) {
 console.log("=== transit ===");
 const [subway, rail, bus] = await Promise.all([
   (async () => {
-    console.log("  fetching subway entrances + station routes...");
-    return buildSubwayBucketWithRoutes(AMENITY_SOURCES.subway, AMENITY_SOURCES.subwayStations);
+    console.log("  fetching subway entrances...");
+    return buildSubwayBucket(AMENITY_SOURCES.subway);
   })(),
   buildPointBucket(AMENITY_SOURCES.rail),
   (async () => {

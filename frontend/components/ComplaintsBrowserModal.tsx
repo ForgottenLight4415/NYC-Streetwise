@@ -9,6 +9,7 @@ import {
   fetchNearbyComplaints,
   type TrendWindow,
 } from "@/lib/api";
+import { formatDistance } from "@/lib/amenities";
 import { CATEGORY_LABEL, STATUS_LABEL, STATUS_VAR } from "@/lib/score";
 import { useDialog } from "@/lib/useDialog";
 import type {
@@ -22,6 +23,7 @@ import { ComplaintDetailModal } from "./ComplaintDetailModal";
 import { FactRotator } from "./FactRotator";
 import { FilterChips } from "./FilterChips";
 import { Pager } from "./Pager";
+import { Portal } from "./Portal";
 
 /** The buckets each tier actually has, so the type filter never offers an empty one. */
 const TIER_BUCKETS = {
@@ -216,175 +218,177 @@ export function ComplaintsBrowserModal({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-60 flex items-center justify-center p-4"
-      style={{ background: "color-mix(in srgb, black 50%, transparent)" }}
-      onClick={onClose}
-    >
+    <Portal>
       <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`All ${panelLabel} complaints`}
-        className="flex max-h-[85dvh] w-full max-w-2xl flex-col rounded-lg outline-none"
-        style={{
-          background: "var(--surface-1)",
-          boxShadow: "var(--shadow-lg)",
-          border: "1px solid var(--border-hairline)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-60 flex items-center justify-center p-4"
+        style={{ background: "color-mix(in srgb, black 50%, transparent)" }}
+        onClick={onClose}
       >
         <div
-          className="flex shrink-0 items-start justify-between gap-4 border-b p-5 sm:p-6"
-          style={{ borderColor: "var(--border-hairline)" }}
+          ref={panelRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`All ${panelLabel} complaints`}
+          className="flex max-h-[85dvh] w-full max-w-2xl flex-col rounded-lg outline-none"
+          style={{
+            background: "var(--surface-1)",
+            boxShadow: "var(--shadow-lg)",
+            border: "1px solid var(--border-hairline)",
+          }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold text-(--text-primary)">
-              {drill ? drill.group.type : `${panelLabel} complaints`}
-            </h2>
-            <p className="text-xs text-(--text-muted)">
-              {drill
-                ? `${formatDay(drill.group.day)} · ${drill.total.toLocaleString()} ${drill.total === 1 ? "complaint" : "complaints"}`
-                : `Within ${radiusMeters}m`}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="shrink-0 rounded-full p-1 text-(--text-secondary) transition-colors hover:bg-(--gridline) hover:text-(--text-primary)"
+          <div
+            className="flex shrink-0 items-start justify-between gap-4 border-b p-5 sm:p-6"
+            style={{ borderColor: "var(--border-hairline)" }}
           >
-            <CloseIcon className="h-5 w-5" />
-          </button>
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-semibold text-(--text-primary)">
+                {drill ? drill.group.type : `${panelLabel} complaints`}
+              </h2>
+              <p className="text-xs text-(--text-muted)">
+                {drill
+                  ? `${formatDay(drill.group.day)} · ${drill.total.toLocaleString()} ${drill.total === 1 ? "complaint" : "complaints"}`
+                  : `Within ${formatDistance(radiusMeters)}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="shrink-0 rounded-full p-1 text-(--text-secondary) transition-colors hover:bg-(--gridline) hover:text-(--text-primary)"
+            >
+              <CloseIcon className="h-5 w-5" />
+            </button>
+          </div>
+
+          {drill ? (
+            <DrillInPane
+              drill={drill}
+              pageSize={pageSize}
+              onBack={() => setDrill(null)}
+              onOffsetChange={(next) =>
+                setDrill({ ...drill, offset: next, items: null })
+              }
+              onSelect={setSelected}
+            />
+          ) : (
+            <>
+              <div
+                className="flex shrink-0 flex-wrap items-center gap-2 border-b px-5 py-3 sm:px-6"
+                style={{ borderColor: "var(--border-hairline)" }}
+                // Hidden on the fallback path: these filter the grouped data,
+                // which is exactly what failed to load, so offering them would
+                // promise something the fallback cannot do.
+                hidden={Boolean(error)}
+              >
+                <FilterChips
+                  label="Time window"
+                  options={TREND_WINDOW_OPTIONS.map((m) => ({
+                    value: m,
+                    label: String(m),
+                  }))}
+                  value={months}
+                  onChange={changeFilter((m: number) =>
+                    setMonths(m as TrendWindow),
+                  )}
+                  suffix="mo"
+                />
+                <FilterChips
+                  label="Complaint type"
+                  options={bucketOptions}
+                  value={bucket}
+                  onChange={changeFilter(setBucket)}
+                />
+                <FilterChips
+                  label="Status"
+                  options={statusOptions}
+                  value={status}
+                  onChange={changeFilter(setStatus)}
+                />
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 sm:px-6">
+                {error ? (
+                  <FallbackList
+                    error={error}
+                    items={fallback}
+                    onSelect={setSelected}
+                  />
+                ) : groups === null ? (
+                  <FactRotator />
+                ) : groups.length === 0 ? (
+                  <p className="py-16 text-center text-sm text-(--text-muted)">
+                    No complaints match these filters.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col divide-y divide-(--gridline)">
+                    {groups.map((g) => (
+                      <li key={`${g.day}|${g.type}`}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDrill({
+                              group: g,
+                              items: null,
+                              total: g.total,
+                              offset: 0,
+                            })
+                          }
+                          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md py-2.5 text-left text-sm transition-colors hover:bg-(--surface-2)"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-(--text-primary)">
+                              {g.type}
+                            </p>
+                            <p className="font-data text-xs text-(--text-muted)">
+                              {formatDay(g.day)}
+                            </p>
+                          </div>
+                          <span className="flex shrink-0 items-center gap-2.5">
+                            <StatusDots counts={g.counts} />
+                            <span className="font-data text-xs font-medium text-(--text-primary)">
+                              {g.total}
+                            </span>
+                            <ChevronRightIcon className="h-3.5 w-3.5 text-(--text-muted)" />
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="shrink-0 px-5 pb-5 sm:px-6 sm:pb-6">
+                {truncated && (
+                  <p className="pb-2 text-[11px] text-(--text-muted)">
+                    This address has more history than we can hold — showing the
+                    most recent records only.
+                  </p>
+                )}
+                {groups !== null && !error && (
+                  <Pager
+                    offset={offset}
+                    pageSize={pageSize}
+                    total={total}
+                    label={{ one: "day", many: "days" }}
+                    onOffsetChange={setOffset}
+                    onPageSizeChange={changeFilter(setPageSize)}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
 
-        {drill ? (
-          <DrillInPane
-            drill={drill}
-            pageSize={pageSize}
-            onBack={() => setDrill(null)}
-            onOffsetChange={(next) =>
-              setDrill({ ...drill, offset: next, items: null })
-            }
-            onSelect={setSelected}
+        {selected && (
+          <ComplaintDetailModal
+            complaint={selected}
+            onClose={() => setSelected(null)}
           />
-        ) : (
-          <>
-            <div
-              className="flex shrink-0 flex-wrap items-center gap-2 border-b px-5 py-3 sm:px-6"
-              style={{ borderColor: "var(--border-hairline)" }}
-              // Hidden on the fallback path: these filter the grouped data,
-              // which is exactly what failed to load, so offering them would
-              // promise something the fallback cannot do.
-              hidden={Boolean(error)}
-            >
-              <FilterChips
-                label="Time window"
-                options={TREND_WINDOW_OPTIONS.map((m) => ({
-                  value: m,
-                  label: String(m),
-                }))}
-                value={months}
-                onChange={changeFilter((m: number) =>
-                  setMonths(m as TrendWindow),
-                )}
-                suffix="mo"
-              />
-              <FilterChips
-                label="Complaint type"
-                options={bucketOptions}
-                value={bucket}
-                onChange={changeFilter(setBucket)}
-              />
-              <FilterChips
-                label="Status"
-                options={statusOptions}
-                value={status}
-                onChange={changeFilter(setStatus)}
-              />
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 sm:px-6">
-              {error ? (
-                <FallbackList
-                  error={error}
-                  items={fallback}
-                  onSelect={setSelected}
-                />
-              ) : groups === null ? (
-                <FactRotator />
-              ) : groups.length === 0 ? (
-                <p className="py-16 text-center text-sm text-(--text-muted)">
-                  No complaints match these filters.
-                </p>
-              ) : (
-                <ul className="flex flex-col divide-y divide-(--gridline)">
-                  {groups.map((g) => (
-                    <li key={`${g.day}|${g.type}`}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDrill({
-                            group: g,
-                            items: null,
-                            total: g.total,
-                            offset: 0,
-                          })
-                        }
-                        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md py-2.5 text-left text-sm transition-colors hover:bg-(--surface-2)"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-(--text-primary)">
-                            {g.type}
-                          </p>
-                          <p className="font-data text-xs text-(--text-muted)">
-                            {formatDay(g.day)}
-                          </p>
-                        </div>
-                        <span className="flex shrink-0 items-center gap-2.5">
-                          <StatusDots counts={g.counts} />
-                          <span className="font-data text-xs font-medium text-(--text-primary)">
-                            {g.total}
-                          </span>
-                          <ChevronRightIcon className="h-3.5 w-3.5 text-(--text-muted)" />
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="shrink-0 px-5 pb-5 sm:px-6 sm:pb-6">
-              {truncated && (
-                <p className="pb-2 text-[11px] text-(--text-muted)">
-                  This address has more history than we can hold — showing the
-                  most recent records only.
-                </p>
-              )}
-              {groups !== null && !error && (
-                <Pager
-                  offset={offset}
-                  pageSize={pageSize}
-                  total={total}
-                  label={{ one: "day", many: "days" }}
-                  onOffsetChange={setOffset}
-                  onPageSizeChange={changeFilter(setPageSize)}
-                />
-              )}
-            </div>
-          </>
         )}
       </div>
-
-      {selected && (
-        <ComplaintDetailModal
-          complaint={selected}
-          onClose={() => setSelected(null)}
-        />
-      )}
-    </div>
+    </Portal>
   );
 }
 

@@ -3,6 +3,8 @@
 // like one product is that they are asked the same question in the same words.
 // Do not fork this per adapter — tighten it here instead.
 
+import { formatDistanceImperial } from "../../lib/geo.js";
+
 /** Human-readable bucket names. The model should never see our camelCase keys. */
 const BUCKET_LABELS = {
   heatHotWater: "heat and hot water",
@@ -45,7 +47,7 @@ function formatCounts(counts) {
     .join(", ");
 }
 
-/** "subway station 320m away (14 St-Union Sq), bus stop 120m away, rail station: none within 2000m" */
+/** "subway station 0.2 mi away (14 St-Union Sq), bus stop 130 ft away, rail station: none found nearby" */
 function formatMetrics(metrics) {
   return Object.entries(metrics ?? {})
     .map(([bucket, metric]) => {
@@ -54,7 +56,7 @@ function formatMetrics(metrics) {
         return `${noun}: none found nearby`;
       }
       const named = metric.name ? ` (${metric.name})` : "";
-      return `${noun} ${metric.meters}m away${named}`;
+      return `${noun} ${formatDistanceImperial(metric.meters)} away${named}`;
     })
     .join(", ");
 }
@@ -99,7 +101,7 @@ export function buildOverallSummaryPrompt({ sections }) {
     "- Every count above is a count of complaints FILED, not a fact about the building or block itself. When mentioning one, say so explicitly — \"no heat or hot water complaints\", never \"no heat or hot water\" — so a zero count never reads as a claim that the condition itself is absent or present.",
     "- Use ONLY the facts listed above. Do not invent addresses, dates, cross streets, landlords, or incidents.",
     "- Do not put quotation marks around complaint types, amenity names, counts, or distances.",
-    "- Quote counts and distances exactly as given. Do not calculate ratios, percentages, averages, or 'X times more' comparisons, and do not convert metres to minutes, blocks, or miles.",
+    "- Quote counts and distances exactly as given, in the feet/miles already provided. Do not calculate ratios, percentages, averages, or 'X times more' comparisons, and do not convert the given distance to a different unit or to a walking-time estimate.",
     "- Do not use the words good, fair, poor, excellent, typical, car-dependent, percentile, score, baseline, median, band, rating, data, or dataset.",
     "- Plain, calm, factual. No marketing language, no emoji, no bullet points, no headings.",
     "- Do not begin with a greeting, or with \"This report\", \"Overall\", or \"In summary\". Start with what a resident would actually notice.",

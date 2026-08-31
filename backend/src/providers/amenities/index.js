@@ -70,6 +70,24 @@ function isValidBucket(bucket) {
     }
   }
 
+  // complexIds/complexIdIdx are OPTIONAL and additive, same shape/pairing
+  // rule as routeSets/routeIdx above — only transit.subway carries them (see
+  // bikeShare.js's encodeBucket and scripts/buildAmenities.js's
+  // buildSubwayBucket).
+  const hasComplexIds = "complexIds" in bucket;
+  const hasComplexIdIdx = "complexIdIdx" in bucket;
+  if (hasComplexIds !== hasComplexIdIdx) return false;
+  if (hasComplexIds) {
+    if (!Array.isArray(bucket.complexIds) || !Array.isArray(bucket.complexIdIdx)) return false;
+    if (bucket.complexIdIdx.length !== bucket.n) return false;
+    if (!bucket.complexIds.every((id) => typeof id === "string")) return false;
+    for (const idx of bucket.complexIdIdx) {
+      if (idx !== -1 && !(Number.isInteger(idx) && idx >= 0 && idx < bucket.complexIds.length)) {
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 
@@ -135,6 +153,8 @@ function indexDataset(doc) {
     indexed[bucket] = buildIndex(data.pts, data.names, {
       routeSets: data.routeSets ?? null,
       routeIdx: data.routeIdx ?? null,
+      complexIds: data.complexIds ?? null,
+      complexIdIdx: data.complexIdIdx ?? null,
     });
   }
   return indexed;

@@ -75,7 +75,7 @@ describe("buildOverallSummaryPrompt", () => {
   it("formats each section by whichever shape it carries, counts or metrics", () => {
     expect(prompt).toContain("Building Health: 1 heat and hot water");
     expect(prompt).toContain("Block Quality: 2876 noise");
-    expect(prompt).toContain("Transit Access: subway station 240m away (14 St-Union Sq)");
+    expect(prompt).toContain("Transit Access: subway station 0.1 mi away (14 St-Union Sq)");
   });
 
   it("asks for one summary under 120 words, not a per-section rating", () => {

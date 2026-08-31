@@ -50,7 +50,7 @@ describe("radiusLabelFor / explanationInputFor for amenity tiers", () => {
   });
 
   it("uses 'this location' as the subject, not 'this block' (the old ternary's fallback)", () => {
-    expect(radiusLabelFor("transit")).toBe("this location (800m radius)");
+    expect(radiusLabelFor("transit")).toBe("this location (0.5 mi radius)");
   });
 
   it("passes metrics, not counts, for an amenity tier", () => {

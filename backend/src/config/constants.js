@@ -628,6 +628,16 @@ export const NYC_BOUNDS = {
 // routes) matched the original guess exactly.
 
 export const AMENITY_SOURCES = {
+  // The entrances dataset carries the COMPLEX-level truth directly on every
+  // row — complex_id (the official MTA grouping riders think of as "one
+  // station"), and daytime_routes already scoped to that whole complex (e.g.
+  // every Herald Sq entrance reads "B D F M N Q R W", not just its nearest
+  // platform's lines). scripts/buildAmenities.js used to join this dataset
+  // against a SEPARATE stations dataset by 250m proximity just to get routes;
+  // that join is gone — see CLAUDE.md's complex-clustering note for why
+  // reading daytime_routes straight off each row is both simpler and more
+  // correct (down to a documented complex_id data bug the old join couldn't
+  // have caught either).
   subway: {
     kind: "socrata",
     domain: "data.ny.gov",
@@ -635,22 +645,8 @@ export const AMENITY_SOURCES = {
     latField: "entrance_latitude",
     lngField: "entrance_longitude",
     nameField: "stop_name",
-  },
-  // Route-join source ONLY — never becomes a bucket of its own. The entrances
-  // dataset above (i9wp-a4ja) has no route info; this SEPARATE data.ny.gov
-  // dataset does (`daytime_routes`, e.g. "4 5 6"), keyed by station centroid,
-  // not by entrance. scripts/buildAmenities.js joins the two by nearest-point
-  // proximity (SUBWAY_ROUTE_MATCH_RADIUS_METERS) since an entrance's own
-  // coordinates never exactly match a station centroid. Confirmed via this
-  // dataset's own Socrata API metadata — see CLAUDE.md.
-  subwayStations: {
-    kind: "socrata",
-    domain: "data.ny.gov",
-    datasetId: "39hk-dx4f", // "MTA Subway Stations"
-    latField: "gtfs_latitude",
-    lngField: "gtfs_longitude",
-    nameField: "stop_name",
-    routesField: "daytime_routes", // space-separated, e.g. "4 5 6"
+    complexIdField: "complex_id",
+    routesField: "daytime_routes", // space-separated, e.g. "B D F M N Q R W"
   },
   rail: {
     kind: "socrata",
@@ -888,17 +884,30 @@ export const GOOGLE_ROUTES_TIMEOUT_MS = 4000;
 export const AMENITY_DISTANCE_CACHE_RADIUS_TIER = "amenityDistances";
 
 /**
- * scripts/buildAmenities.js's subway route join: how close an entrance point
- * (AMENITY_SOURCES.subway, i9wp-a4ja) must be to a station centroid
- * (AMENITY_SOURCES.subwayStations, 39hk-dx4f) to inherit that station's
- * `daytime_routes`. The two datasets describe different physical points (a
- * street-level entrance vs. a station's own coordinate) with no shared key,
- * so this is a proximity join, not an exact match — 250m comfortably covers
- * the longest real entrance-to-platform walk (e.g. a full-block station like
- * Times Sq-42 St) without reaching into a genuinely different station one or
- * two blocks over.
+ * Bus stops within this distance of each other are treated as one physical
+ * pole — e.g. the M1/M2/M3/M4 each get their own GTFS stop record even when
+ * they all board from the same corner — and merged into one point with a
+ * unioned, sorted route list at build time (scripts/buildAmenities.js's
+ * buildBusBucket). Small on purpose: this is "same curb," not "same
+ * intersection" — two stops on opposite corners of a wide avenue are still
+ * genuinely different places to stand.
  */
-export const SUBWAY_ROUTE_MATCH_RADIUS_METERS = 250;
+export const BUS_STOP_CLUSTER_RADIUS_METERS = 10;
+
+/**
+ * How many distinct subway complexes / bus stops GET /api/amenities/nearby
+ * returns for these two buckets, closest first, AFTER the same-line dedup in
+ * amenityService.js's getNearbyAmenityInstances — not a raw entrance/point
+ * cap. A dense transfer hub can have 50+ raw subway entrances or a dozen
+ * overlapping bus routes within 800m; once entrances are grouped into
+ * complexes and bus stops into poles (see BUS_STOP_CLUSTER_RADIUS_METERS
+ * above), the count that matters to a renter is "how many distinct places
+ * could I catch a train/bus," which stays small even at the densest hubs.
+ * Every other amenity bucket (rail, parks, bike, walkability) has no such
+ * density problem and is unaffected by either constant.
+ */
+export const AMENITY_SUBWAY_COMPLEX_CAP = 5;
+export const AMENITY_BUS_STOP_CAP = 5;
 
 // ---------------------------------------------------------------------------
 // Walkability — live Google Places lookup, NOT a static dataset

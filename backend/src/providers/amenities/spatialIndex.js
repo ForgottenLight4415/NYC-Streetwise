@@ -38,18 +38,24 @@ const SAFE_METERS_PER_DEGREE = METERS_PER_DEGREE_LAT * NYC_MIN_LNG_COS;
  *
  * @param {number[]} points flat [lat, lng, nameIdx, ...] triples
  * @param {string[]} names
- * @param {{gridDegrees?: number, routeSets?: string[][]|null, routeIdx?: number[]|null}} [options]
- *   `routeSets`/`routeIdx` are OPTIONAL and additive — the transit dataset's
- *   subway/bus buckets carry them (see providers/amenities/bikeShare.js's
- *   encodeBucket), every other bucket (parks, bike, rail) does not. When
- *   absent, nearestN()'s candidates carry NO `routes` key at all — not even
- *   an empty array — so a bucket with no route concept is byte-for-byte
- *   unchanged from before this field existed. `routeIdx` is parallel to
- *   points BY POINT INDEX (one entry per point, i.e. index i, not i*3),
- *   mirroring how `nameIdx` sits inside each point's own triple; -1 means
- *   "no route data for this point".
+ * @param {{gridDegrees?: number, routeSets?: string[][]|null, routeIdx?: number[]|null, complexIds?: string[]|null, complexIdIdx?: number[]|null}} [options]
+ *   `routeSets`/`routeIdx` and `complexIds`/`complexIdIdx` are each OPTIONAL
+ *   and additive — the transit dataset's subway bucket carries `complexIds`,
+ *   subway/bus both carry `routeSets` (see providers/amenities/bikeShare.js's
+ *   encodeBucket), every other bucket (parks, bike, rail) carries neither.
+ *   When absent, nearestN()/allWithin()'s candidates carry NO `routes`/
+ *   `complexId` key at all — not even an empty/null value — so a bucket with
+ *   neither concept is byte-for-byte unchanged from before these fields
+ *   existed. Both `Idx` arrays are parallel to points BY POINT INDEX (one
+ *   entry per point, i.e. index i, not i*3), mirroring how `nameIdx` sits
+ *   inside each point's own triple; -1 means "no data of that kind for this
+ *   point".
  */
-export function buildIndex(points, names, { gridDegrees = AMENITY_GRID_DEGREES, routeSets = null, routeIdx = null } = {}) {
+export function buildIndex(
+  points,
+  names,
+  { gridDegrees = AMENITY_GRID_DEGREES, routeSets = null, routeIdx = null, complexIds = null, complexIdIdx = null } = {}
+) {
   const cells = new Map();
   const n = points.length / 3;
 
@@ -82,7 +88,7 @@ export function buildIndex(points, names, { gridDegrees = AMENITY_GRID_DEGREES, 
    * stopping rule `nearest()` uses, generalised from "beat the one best" to
    * "beat the Nth best".
    *
-   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[]}[]}
+   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[], complexId?: string|null}[]}
    *   Includes each candidate's own coordinates — unlike a single nearest()
    *   answer, a caller of this (Google Routes matrix batching) needs a real
    *   destination to route to, not just a distance. `routes` is present only
@@ -119,12 +125,17 @@ export function buildIndex(points, names, { gridDegrees = AMENITY_GRID_DEGREES, 
               lat: points[i * 3],
               lng: points[i * 3 + 1],
             };
-            // Only set on an index actually built with route data — see the
-            // buildIndex JSDoc above. Keeps every other bucket's candidate
-            // shape identical to before this field existed.
+            // Only set on an index actually built with route/complex data —
+            // see the buildIndex JSDoc above. Keeps every other bucket's
+            // candidate shape identical to before these fields existed.
             if (routeIdx) {
               const rIdx = routeIdx[i];
               candidate.routes = rIdx !== undefined && rIdx !== -1 && routeSets ? routeSets[rIdx] : [];
+            }
+            if (complexIdIdx) {
+              const cIdx = complexIdIdx[i];
+              candidate.complexId =
+                cIdx !== undefined && cIdx !== -1 && complexIds ? complexIds[cIdx] : null;
             }
             candidates.push(candidate);
           }
@@ -181,7 +192,7 @@ export function buildIndex(points, names, { gridDegrees = AMENITY_GRID_DEGREES, 
    *   doesn't need an unbounded list. Use countWithin() alongside this to
    *   detect truncation cheaply, without materialising every match just to
    *   count them.
-   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[]}[]}
+   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[], complexId?: string|null}[]}
    */
   function allWithin(lat, lng, radiusMeters, { limit = 50 } = {}) {
     if (n === 0) return [];
@@ -204,11 +215,15 @@ export function buildIndex(points, names, { gridDegrees = AMENITY_GRID_DEGREES, 
             lat: points[i * 3],
             lng: points[i * 3 + 1],
           };
-          // Same routeIdx/routeSets passthrough as nearestN — see buildIndex's
-          // JSDoc above.
+          // Same routeIdx/routeSets and complexIdIdx/complexIds passthrough
+          // as nearestN — see buildIndex's JSDoc above.
           if (routeIdx) {
             const rIdx = routeIdx[i];
             match.routes = rIdx !== undefined && rIdx !== -1 && routeSets ? routeSets[rIdx] : [];
+          }
+          if (complexIdIdx) {
+            const cIdx = complexIdIdx[i];
+            match.complexId = cIdx !== undefined && cIdx !== -1 && complexIds ? complexIds[cIdx] : null;
           }
           matches.push(match);
         }

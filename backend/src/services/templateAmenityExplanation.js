@@ -1,5 +1,6 @@
 import { amenityBucketLabel } from "../providers/ai/prompt.js";
 import { AMENITY_WALK_METERS_PER_MIN } from "../config/constants.js";
+import { formatDistanceImperial } from "../lib/geo.js";
 
 // The deterministic fallback for amenity tiers (transit/parks/bike) —
 // amenityService.js's analogue of templateExplanation.js. Same two hard
@@ -53,8 +54,9 @@ export function amenityTemplateExplanation({ label, metrics = {} }) {
   const minutes = walkMinutes(nearest.meters);
   const walkPhrase = `about a ${minutes}-minute walk`;
 
+  const distance = formatDistanceImperial(nearest.meters);
   if (nearest.name) {
-    return `The nearest ${noun} is ${nearest.name}, ${walkPhrase} away (${nearest.meters}m).`;
+    return `The nearest ${noun} is ${nearest.name}, ${walkPhrase} away (${distance}).`;
   }
-  return `The nearest ${noun} is ${walkPhrase} away (${nearest.meters}m).`;
+  return `The nearest ${noun} is ${walkPhrase} away (${distance}).`;
 }

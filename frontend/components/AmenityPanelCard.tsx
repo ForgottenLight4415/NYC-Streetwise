@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { AmenityMetricRows } from "./AmenityMetricRows";
 import { PanelShell } from "./PanelShell";
 import { WhyThisScore } from "./WhyThisScore";
-import { explainAmenity, nearestMetric } from "@/lib/amenities";
+import { explainAmenity, formatDistance, nearestMetric } from "@/lib/amenities";
 import type { AmenityMetric, Confidence, ScoreBand } from "@/lib/types";
 
 /**
@@ -43,7 +43,9 @@ export function AmenityPanelCard({
   // sentence is needed here.
   const nearest = nearestMetric(panel.metrics);
 
-  const summary = nearest ? null : <p>Nothing within {panel.radiusMeters}m.</p>;
+  const summary = nearest ? null : (
+    <p>Nothing within {formatDistance(panel.radiusMeters)}.</p>
+  );
 
   const explanation = useMemo(
     () => explainAmenity(title, panel.score, panel.metrics),

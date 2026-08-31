@@ -3,6 +3,7 @@
 import { ComplaintBreakdownBars } from "./ComplaintBreakdownBars";
 import { PanelShell } from "./PanelShell";
 import { TrendSection } from "./TrendSection";
+import { formatDistance } from "@/lib/amenities";
 import type { TrendWindow } from "@/lib/api";
 import type {
   ComplaintStatus,
@@ -39,7 +40,10 @@ export function ScorePanelCard({
     // Per-category status breakdown, for the segmented category bar. Optional —
     // see the field's own doc on ScoreSection in lib/types.ts for when it's
     // absent and why ComplaintBreakdownBars must fall back cleanly then.
-    bucketStatusCounts?: Record<string, Record<ComplaintStatus, number> | undefined>;
+    bucketStatusCounts?: Record<
+      string,
+      Record<ComplaintStatus, number> | undefined
+    >;
   };
   colorVar: string;
   description: string;
@@ -68,7 +72,7 @@ export function ScorePanelCard({
       </span>{" "}
       complaints within{" "}
       <span className="font-data font-medium text-(--text-primary)">
-        {panel.radiusMeters}m
+        {formatDistance(panel.radiusMeters)}
       </span>
       .
     </p>
@@ -101,7 +105,13 @@ export function ScorePanelCard({
         />
       </div>
 
-      <TrendSection lat={lat} lng={lng} tier={tier} colorVar={colorVar} months={months} />
+      <TrendSection
+        lat={lat}
+        lng={lng}
+        tier={tier}
+        colorVar={colorVar}
+        months={months}
+      />
     </PanelShell>
   );
 }

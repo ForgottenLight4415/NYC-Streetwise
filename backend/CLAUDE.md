@@ -139,18 +139,89 @@ rather than just a name and distance. Additive and always present (an empty
 array, never a missing field) on every AmenityMetric across every tier —
 parks/bike/walkability buckets and `transit.rail` just never populate it,
 since they have no route concept or route-join source. Sourced at BUILD time
-(scripts/buildAmenities.js), not at request time: subway routes come from a
-nearest-station join against a second data.ny.gov dataset (39hk-dx4f, see the
-sources table below); bus routes come from the SAME per-borough GTFS zips
-`bus` already downloaded, additionally parsing `trips.txt`/`routes.txt`/
-`stop_times.txt` (the last one streamed line-by-line, never loaded whole —
-it is one row per stop-VISIT, not per stop, and far larger than the other
-three files). Committed in transit.json as an interned `routeSets`/`routeIdx`
-pair alongside each bucket's existing `pts`/`names` (see
-providers/amenities/bikeShare.js's `encodeBucket` and
+(scripts/buildAmenities.js), not at request time: subway routes are read
+straight off each entrance row's own `daytime_routes` field (see "Subway
+complex clustering" below — this replaced an earlier nearest-station join
+against a second dataset); bus routes come from the SAME per-borough GTFS
+zips `bus` already downloaded, additionally parsing `trips.txt`/
+`routes.txt`/`stop_times.txt` (the last one streamed line-by-line, never
+loaded whole — it is one row per stop-VISIT, not per stop, and far larger
+than the other three files). Committed in transit.json as an interned
+`routeSets`/`routeIdx` pair alongside each bucket's existing `pts`/`names`
+(see providers/amenities/bikeShare.js's `encodeBucket` and
 providers/amenities/spatialIndex.js's `buildIndex`) — parks.json and
 bike.json are byte-for-byte unaffected, since nothing in their build path
 ever attaches a `routes` array to a point.
+
+**CONTRACT CHANGE (post-freeze): subway complex clustering + bus pole
+clustering + GET /api/amenities/nearby cap/dedup.** Superseded the join
+described above. Two changes, both in `scripts/buildAmenities.js`:
+
+- **Subway.** The entrance dataset (`i9wp-a4ja`) already carries the
+  complex-level truth directly on every row — `complex_id` (the official MTA
+  grouping riders think of as "one station"; e.g. Herald Sq's 6th Ave and
+  Broadway sides share one `complex_id`) and `daytime_routes` already scoped
+  to that whole complex. `buildSubwayBucket` reads these straight off each
+  row — no second dataset, no proximity join — and canonicalizes the name
+  and routes per `complex_id` (most-common value across that complex's rows,
+  since MTA's own data has minor per-row variance, e.g. "34 St-Herald Sq" vs
+  "34 St-Herald Square"). **Geographic outlier guard, load-bearing, not
+  defensive programming for a hypothetical:** confirmed live, 11 of 2,120
+  entrances carry a `complex_id` that puts them under a complex whose OTHER
+  entrances are 1km+ away — e.g. four rows tagged `stop_name: "14 St-Union
+  Sq"` at Union Square's real coordinates carry Herald Sq's `complex_id`
+  (607). Trusting `complex_id` blindly would silently relabel these as the
+  wrong station in both directions (a Union Sq entrance reading "Herald Sq",
+  and dragging spurious routes into Herald Sq's own canonical vote). Any
+  entrance more than `COMPLEX_OUTLIER_METERS` (1000m) from its claimed
+  complex's other entrances' centroid is excluded from that complex's vote
+  and keeps its OWN row's name/routes instead, with no `complexId` — it
+  becomes its own single-entrance group downstream. Interned as a third
+  additive pair, `complexIds`/`complexIdIdx`, mirroring `routeSets`/
+  `routeIdx` exactly (providers/amenities/bikeShare.js's `encodeBucket`,
+  providers/amenities/spatialIndex.js's `buildIndex`/`nearestN`/`allWithin`)
+  — every other bucket is unaffected.
+- **Bus.** GTFS gives every route its own stop record even when several
+  (e.g. M1/M2/M3/M4) board from the same physical pole. `buildBusBucket` now
+  clusters stops within `BUS_STOP_CLUSTER_RADIUS_METERS` (10m, a flood-fill
+  over a grid bucketing, not a naive O(n²) scan) into one point per pole,
+  unioning routes and keeping whichever member sits closest to the cluster's
+  centroid. Measured 2026: ~11,421 deduped stops → ~11,156 poles.
+- **`providers/amenities/index.js`'s `indexDataset` must pass `complexIds`/
+  `complexIdIdx` into `buildIndex` too** — they sit on the committed dataset
+  doc right alongside `routeSets`/`routeIdx`, but the wiring is a THIRD,
+  separate pair of constructor options; forgetting it means every
+  `allWithin`/`nearestN` match silently comes back with no `complexId` at
+  all, and every subway entrance then falls through to
+  `groupSubwayComplexes`'s name-based fallback — which produced a real,
+  confirmed regression during this change: 34 St-Penn Station's two distinct
+  official complexes (1/2/3 at `complex_id` 318, A/C/E at 164) merged into
+  one 28-entrance card. `isValidBucket` validates this pair the same way it
+  already validates `routeSets`/`routeIdx`.
+- **`GET /api/amenities/nearby`**, `subway`/`bus` buckets only (every other
+  bucket's response is untouched): `amenityService.js`'s
+  `getNearbyAmenityInstances` groups raw subway entrance matches by
+  `complexId` (nearest entrance's own coordinates/distance represents the
+  whole complex; every member's own distance rides along on `entrances`,
+  ascending, for the frontend's "[N entrances]" hover breakdown), applies a
+  same-line dedup (a farther complex whose entire route set is already
+  covered by a closer, already-kept one is dropped — it adds no line not
+  already reachable on a shorter walk; a complex with no route data is never
+  dropped by this rule), then caps to `AMENITY_SUBWAY_COMPLEX_CAP` (5). Bus
+  is already one point per pole from the build-time clustering, so it's just
+  capped to `AMENITY_BUS_STOP_CAP` (3). `truncated` reflects distinct
+  complexes/poles found within radius, not raw point count.
+
+  **The name-based merge fallback (for a `complexId: null` outlier entrance
+  — see the outlier guard above) must never fire for an entrance that
+  already has its OWN valid, just-not-yet-seen `complexId`** — that's
+  exactly the Penn Station failure mode above. `groupSubwayComplexes` only
+  trusts a name match when the candidate group is still unclaimed
+  (`complexId == null`, meaning it was itself seeded by an outlier) or
+  already belongs to that same id; a group claimed by a DIFFERENT real
+  `complexId` never absorbs a same-named entrance from another one. This is
+  the one piece of this feature that is genuinely subtle — read
+  `groupSubwayComplexes`'s own doc comment before touching it.
 
 POST /api/score
   body: { lat: number, lng: number }
@@ -254,8 +325,13 @@ GET /api/refresh-amenities   header: Authorization: Bearer $CRON_SECRET
   to "kept last month's data", not to a bad write.
 
 GET /api/amenities/nearby?lat=&lng=&tier=&bucket=
-  returns: { instances: [{ name, meters, lat, lng, routes? }], radiusMeters,
+  returns: { instances: [{ name, meters, lat, lng, routes?, entrances? }], radiusMeters,
              truncated: boolean }
+  // entrances?: number[] — subway ONLY (see the subway complex clustering
+  // CONTRACT CHANGE above). Every member entrance's own distance, ascending;
+  // entrances[0] === meters always. Backs the frontend's "[N entrances]"
+  // hover breakdown on a grouped complex — every other bucket omits the
+  // field entirely, same optional-key convention as routes.
            400 invalid_tier | invalid_bucket | missing_tier | missing_bucket
            400 bucket_not_applicable   — bucket is bikeLane or protectedLane
            503 amenity_dataset_unavailable — tier's dataset failed to load
@@ -281,11 +357,23 @@ GET /api/amenities/nearby?lat=&lng=&tier=&bucket=
   no Mongo, no external call, and no new caching layer needed beyond that —
   same reason it is rate-limited under RATE_LIMIT_READ (with
   GET /api/showcase) rather than RATE_LIMIT_UPSTREAM. Capped at `limit`
-  (default 50 — a bucket can legitimately have more real instances than that
-  within 800m in dense Manhattan, and the browser modal has no use for an
-  unbounded list); `truncated` is set from a cheap `countWithin()` call run
-  alongside it, so detecting truncation costs an O(cells) pass, not
-  materialising every match just to measure the array.
+  (default 50 — a bucket can legitimately have more real raw points than
+  that within 800m in dense Manhattan); `truncated` is set from a cheap
+  `countWithin()` call run alongside it, so detecting truncation costs an
+  O(cells) pass, not materialising every match just to measure the array.
+
+  **`subway` and `bus` get further post-processing — see the subway complex
+  clustering / bus pole clustering CONTRACT CHANGE above.** Deliberately
+  scoped to just these two: they're the only buckets where a single real
+  place can legitimately produce dozens of raw points within radius (a
+  multi-entrance station complex, a multi-route bus pole); every other
+  bucket already has one point per real, distinct place. `subway` is grouped
+  by `complexId`, same-line-deduped, and capped to
+  `AMENITY_SUBWAY_COMPLEX_CAP` (5); `bus` — already one point per pole from
+  build-time clustering — is capped to `AMENITY_BUS_STOP_CAP` (3). Both stay
+  closest-first, and `truncated` for these two means "more distinct
+  complexes/poles exist within radius than the cap," not "more raw points
+  than `limit`."
 
   **Exclusion, not degradation: bikeLane/protectedLane 400 outright.**
   Those two buckets are not discrete amenities — they are a bike-route LINE
@@ -795,6 +883,14 @@ Prompt rules (baked into prompt.js, do not duplicate/diverge per adapter):
   against hallucinated specifics.
 - temperature 0.3 (consistency over creativity), short output cap (~120 words).
 - No mention of "percentile" or other technical scoring terms in the output.
+- **CONTRACT CHANGE: distances in the prompt (and in every deterministic
+  template) are feet/miles, not metres** — `formatDistanceImperial()` in
+  `lib/geo.js`, the backend counterpart to the frontend's `formatDistance()`
+  (`lib/amenities.ts`). Internal computation is still metres everywhere
+  (haversine, the spatial index, cached scores); this converts only at the
+  point each user-facing string is assembled. The prompt is explicitly told
+  to quote the given distance as-is and never convert or recompute it,
+  matching the existing "don't invent ratios/percentages" rule.
 - Every count is a count of COMPLAINTS FILED, never a fact about the building
   or block itself, and the prompt requires the word "complaints" whenever one
   is mentioned. Observed failure this guards against: a zero heat/hot-water
@@ -933,10 +1029,10 @@ two were wrong about *which* catalog, and bus has no Socrata dataset at all:
 
 | Bucket | Actual source | Rows | Notes |
 |---|---|---|---|
-| `subway` | Socrata **data.ny.gov** `i9wp-a4ja` — "MTA Subway Entrances and Exits: 2024" | 2,120 | NOT on the city catalog as first assumed. `entrance_latitude`/`entrance_longitude`, 100% usable in a 500-row sample. Has NO route info of its own — see `subwayStations` below for how `transit.subway`'s `routes` field is populated. |
-| `subwayStations` (route join, not its own bucket) | Socrata **data.ny.gov** `39hk-dx4f` — "MTA Subway Stations" | 496 | Confirmed via this dataset's own Socrata API metadata. `gtfs_latitude`/`gtfs_longitude`, `daytime_routes` (space-separated, e.g. `"4 5 6"`). Joined to `subway`'s 2,120 entrance points by nearest-station-within-`SUBWAY_ROUTE_MATCH_RADIUS_METERS` (250m) in scripts/buildAmenities.js's `buildSubwayBucketWithRoutes` — entrances and station centroids are different physical points with no shared key, so this is a proximity join, not a lookup. Measured 2026-08-30: 2,119/2,120 entrances (99.95%) matched a station within 250m; the one miss is a real outlier, not a bug — every one of the 496 stations has usable routes. |
+| `subway` | Socrata **data.ny.gov** `i9wp-a4ja` — "MTA Subway Entrances and Exits: 2024" | 2,120 | NOT on the city catalog as first assumed. `entrance_latitude`/`entrance_longitude`, 100% usable in a 500-row sample. Also carries `complex_id` and `daytime_routes` directly — **originally assumed to have no route info of its own** (see the removed `subwayStations` join this replaced, below), but both fields are right there on every row; `daytime_routes` reads at the COMPLEX level (e.g. every Herald Sq entrance reads `"B D F M N Q R W"`), confirmed via a live fetch. See the subway complex clustering CONTRACT CHANGE above for why `complex_id` is trusted for GROUPING but not blindly for the name/route VOTE (11 of 2,120 rows carry a `complex_id` whose other entrances are 1km+ away — a real mislabeling in MTA's own data, not ours). |
+| ~~`subwayStations`~~ (removed) | ~~Socrata **data.ny.gov** `39hk-dx4f` — "MTA Subway Stations"~~ | ~~496~~ | **No longer fetched.** Originally joined to `subway`'s entrance points by nearest-station-within-250m to borrow `daytime_routes`, because `subway` was assumed to have no route info of its own — see the subway complex clustering CONTRACT CHANGE above for why that assumption was wrong and the join is gone. Left here so a future "why did this dataset disappear" search finds the answer. |
 | `rail` | Socrata **data.ny.gov** `wxmd-5cpm` — "MTA Rail Stations" | 238 (126 LIRR + 112 MNR) | ONE dataset covers both LIRR and Metro-North — no need for two sources as originally planned. `latitude`/`longitude`. Only 26.5% fall inside `NYC_BOUNDS` — expected, not a data problem: most LIRR/MNR stations are in the suburbs. Do NOT filter amenity points to `NYC_BOUNDS` when building — a station just outside the city line can legitimately be the nearest one for a border address. Deliberately EXCLUDED from the routes join above — LIRR/Metro-North branch names aren't a comparable "route" concept to subway/bus line letters, and rail is already the fallback transit mode in scoring (see scoring.js). |
-| `bus` | **No Socrata dataset.** MTA GTFS static, 5 separate per-borough zips (`web.mta.info/developers/data/nyct/bus/google_transit_{bronx,brooklyn,manhattan,queens,staten_island}.zip`, redirecting to S3) | 11,605 total (1,884 Bronx / 4,558 Brooklyn / 1,825 Manhattan / 1,398 Queens / 1,940 Staten Island) | `stop_id` is NOT guaranteed globally unique across the 5 feeds — dedupe by rounded (lat,lng) when building, not by `stop_id`. `transit.bus`'s `routes` field comes from the SAME zips — `trips.txt` (trip_id -> route_id) and `routes.txt` (route_id -> route_short_name) are small and loaded whole; `stop_times.txt` (stop_id per stop-visit, one row per trip's every stop) is STREAMED line-by-line rather than loaded whole or into an array — see the routes CONTRACT CHANGE note above. |
+| `bus` | **No Socrata dataset.** MTA GTFS static, 5 separate per-borough zips (`web.mta.info/developers/data/nyct/bus/google_transit_{bronx,brooklyn,manhattan,queens,staten_island}.zip`, redirecting to S3) | 11,605 total (1,884 Bronx / 4,558 Brooklyn / 1,825 Manhattan / 1,398 Queens / 1,940 Staten Island) | `stop_id` is NOT guaranteed globally unique across the 5 feeds — dedupe by rounded (lat,lng) when building, not by `stop_id`. `transit.bus`'s `routes` field comes from the SAME zips — `trips.txt` (trip_id -> route_id) and `routes.txt` (route_id -> route_short_name) are small and loaded whole; `stop_times.txt` (stop_id per stop-visit, one row per trip's every stop) is STREAMED line-by-line rather than loaded whole or into an array — see the routes CONTRACT CHANGE note above. After dedup, stops within `BUS_STOP_CLUSTER_RADIUS_METERS` (10m) of each other are further merged into one physical pole with a unioned route list — see the bus pole clustering CONTRACT CHANGE above. Measured 2026: ~11,421 deduped stops -> ~11,156 poles. |
 | `park`/`playground`/`garden` | Socrata data.cityofnewyork.us `enfh-gkve` — "Parks Properties" | 2,064 | Matches original guess exactly. Geometry field is `multipolygon` (MultiPolygon, not a simple Polygon — centroid must handle multiple rings). Split on `typecategory`; 19 distinct values observed, e.g. "Neighborhood Park", "Playground", "Garden", "Jointly Operated Playground" — needs an explicit mapping table to the 3 buckets, not a 1:1 rename. |
 | `bikeShare` | Citi Bike GBFS `station_information.json` | 2,509 | Matches original guess exactly. `lat`/`lon` (not `lng`), 100% usable. |
 | `bikeLane`/`protectedLane` | Socrata data.cityofnewyork.us `mzxg-pwib` — "New York City Bike Routes" | 29,695 | Geometry field is `the_geom` (MultiLineString, not a simple LineString — densify every sub-line). Split on `facilitycl`: "I" (protected/sidewalk/boardwalk) -> `protectedLane`; "II"/"III" (conventional/curbside/shared/signed route) -> `bikeLane`; "L" (Link, 475 rows) excluded — a connector segment, not a route. |
