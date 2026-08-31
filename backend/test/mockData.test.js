@@ -4,6 +4,8 @@ import {
   BUCKET_NAMES,
   RADIUS_TIERS,
   TYPE_TO_BUCKET,
+  AMENITY_TIERS,
+  AMENITY_BUCKET_NAMES,
 } from "../src/config/constants.js";
 
 const TIMES_SQUARE = [40.7580, -73.9855];
@@ -15,9 +17,14 @@ describe("mockScoreReport", () => {
 
     expect(Object.keys(report).sort()).toEqual([
       "address",
+      "bikeAccess",
       "blockQuality",
       "buildingHealth",
       "meta",
+      "parksAccess",
+      "summary",
+      "transitAccess",
+      "walkabilityAccess",
     ]);
     expect(report.address).toBeNull(); // we never geocode
     // Mock mode must be obvious from the payload — nobody should demo mock
@@ -34,6 +41,27 @@ describe("mockScoreReport", () => {
       RADIUS_TIERS.building.radiusMeters
     );
     expect(report.blockQuality.radiusMeters).toBe(RADIUS_TIERS.block.radiusMeters);
+
+    // Mock mode's amenity sections must be present too — this test exists so
+    // mock and live payload shapes cannot silently drift apart, and that
+    // guarantee is only as good as this file actually checking every key.
+    for (const [tier, reportKey] of [
+      ["transit", "transitAccess"],
+      ["parks", "parksAccess"],
+      ["bike", "bikeAccess"],
+      ["walkability", "walkabilityAccess"],
+    ]) {
+      expect(Object.keys(report[reportKey].metrics).sort()).toEqual(
+        [...AMENITY_BUCKET_NAMES[tier]].sort()
+      );
+      expect(report[reportKey].radiusMeters).toBe(AMENITY_TIERS[tier].radiusMeters);
+      // Mock amenity names must be obviously synthetic, never real-looking —
+      // same rule as the "never show fabricated content as real" principle
+      // CLAUDE.md applies to the showcase carousel.
+      for (const metric of Object.values(report[reportKey].metrics)) {
+        if (metric.name !== null) expect(metric.name).toMatch(/^Mock /);
+      }
+    }
   });
 
   it("produces scores in range with a matching band", () => {

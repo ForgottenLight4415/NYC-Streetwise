@@ -16,6 +16,8 @@ import {
   readEntries,
   writeCounts,
   writeExplanation,
+  readAmenityDistances,
+  writeAmenityDistances,
   resetCacheIndexMemo,
   readComplaintGroups,
   writeComplaintGroups,
@@ -357,6 +359,50 @@ describe("explanation caching", () => {
     await expect(
       writeExplanation(LAT, LNG, "building", "text", "ai")
     ).resolves.toBe(false);
+
+    await closeMongo();
+    process.env.MONGODB_URI = uri;
+    delete process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS;
+  });
+});
+
+describe("amenity distance caching", () => {
+  const LAT = 40.7215;
+  const LNG = -73.9878;
+  const DISTANCES = { transit: { subway: { meters: 174, name: "2 Av" } } };
+
+  it("round-trips through Mongo", async () => {
+    const written = await writeAmenityDistances(LAT, LNG, DISTANCES);
+    expect(written).toBe(true);
+
+    const read = await readAmenityDistances(LAT, LNG);
+    expect(read).toEqual(DISTANCES);
+  });
+
+  it("reports a miss (null) when nothing has been written yet", async () => {
+    expect(await readAmenityDistances(LAT, LNG)).toBeNull();
+  });
+
+  it("does not collide with a complaint-count document for the same coordinate", async () => {
+    // Both live in CACHE_COLLECTION, keyed on {lat, lng, radiusTier} — this
+    // only stays safe because AMENITY_DISTANCE_CACHE_RADIUS_TIER ("amenityDistances")
+    // can never equal a real radiusTier value ("building", "block", "transit", ...).
+    await writeCounts(LAT, LNG, "building", { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
+    await writeAmenityDistances(LAT, LNG, DISTANCES);
+
+    const counts = await readCounts(LAT, LNG, ["building"]);
+    expect(counts.building).toEqual({ heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
+    expect(await readAmenityDistances(LAT, LNG)).toEqual(DISTANCES);
+  });
+
+  it("returns null / false rather than throwing when Mongo is unreachable", async () => {
+    const uri = process.env.MONGODB_URI;
+    await closeMongo();
+    process.env.MONGODB_URI = "mongodb://127.0.0.1:1/nope";
+    process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS = "150";
+
+    await expect(writeAmenityDistances(LAT, LNG, DISTANCES)).resolves.toBe(false);
+    await expect(readAmenityDistances(LAT, LNG)).resolves.toBeNull();
 
     await closeMongo();
     process.env.MONGODB_URI = uri;

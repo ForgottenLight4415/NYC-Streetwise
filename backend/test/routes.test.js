@@ -4,6 +4,8 @@ import { resetRateLimits } from "../src/lib/rateLimit.js";
 import {
   RADIUS_TIERS,
   BUCKET_NAMES,
+  AMENITY_TIERS,
+  AMENITY_BUCKET_NAMES,
   COMPLAINTS_DEFAULT_LIMIT,
   COMPLAINT_GROUPS_CACHE_LIMIT,
   CONFIDENCE,
@@ -47,6 +49,21 @@ vi.mock("../src/providers/ai/index.js", async (importOriginal) => {
   return { ...actual, generateExplanation: aiSpy };
 });
 
+// Defaults to the REAL implementation (importOriginal) — amenity data is
+// local, committed JSON, so most tests exercise it for real. Only the
+// degradation test below overrides it, to simulate every amenity dataset
+// failing to load without touching the committed files.
+const { loadAmenitiesSpy, actualLoadAmenities } = vi.hoisted(() => ({
+  loadAmenitiesSpy: vi.fn(),
+  actualLoadAmenities: {},
+}));
+
+vi.mock("../src/providers/amenities/index.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  actualLoadAmenities.fn = actual.loadAmenities;
+  return { ...actual, loadAmenities: loadAmenitiesSpy };
+});
+
 const { SocrataError } = await import("../src/providers/socrata.js");
 
 const COUNTS = {
@@ -88,10 +105,12 @@ beforeEach(() => {
   complaintsSpy.mockReset();
   aiSpy.mockReset();
   aiSpy.mockResolvedValue("A generated sentence about this location.");
-  countsSpy.mockImplementation(async (lat, lng, tier) => COUNTS[tier]);
+  countsSpy.mockImplementation(async (lat, lng, tier) => ({ counts: COUNTS[tier] }));
   complaintsSpy.mockImplementation(async (lat, lng, radius, { limit }) =>
     Array.from({ length: Math.min(25, limit) }, (_, i) => complaintRow(i))
   );
+  loadAmenitiesSpy.mockReset();
+  loadAmenitiesSpy.mockImplementation(actualLoadAmenities.fn);
 });
 
 describe("GET /health", () => {
@@ -177,11 +196,12 @@ describe("POST /api/score", () => {
 
   it("flags a building with no complaints as low confidence", async () => {
     // The score is honest to the data (100), the doubt rides alongside it.
-    countsSpy.mockImplementation(async (lat, lng, tier) =>
-      tier === "building"
-        ? { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 }
-        : COUNTS.block
-    );
+    countsSpy.mockImplementation(async (lat, lng, tier) => ({
+      counts:
+        tier === "building"
+          ? { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 }
+          : COUNTS.block,
+    }));
 
     const { body } = await server.request("/api/score", {
       method: "POST",
@@ -247,6 +267,93 @@ describe("POST /api/score", () => {
       body: { lat: 34.05, lng: -118.24 },
     });
     expect(countsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/score — amenity sections", () => {
+  // 123 Ludlow St — dense LES, real committed amenity data (no Socrata
+  // dependency) finds something in every bucket. Walkability has no
+  // committed dataset — it is a live Google Places lookup — and this test
+  // environment has no GOOGLE_MAPS_API_KEY, so it degrades to "nothing
+  // found" (searchNearbyPlaces returns [] without a network call) rather
+  // than finding real nearby amenities. That degrade is itself the thing
+  // worth asserting: the section must still be present, scored, and banded,
+  // not silently omitted just because the live call didn't fire.
+  const LUDLOW_ST = { lat: 40.7215, lng: -73.9878 };
+
+  it("returns the full six-section payload", async () => {
+    const { status, body } = await server.request("/api/score", {
+      method: "POST",
+      body: LUDLOW_ST,
+    });
+
+    expect(status).toBe(200);
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        "address",
+        "bikeAccess",
+        "blockQuality",
+        "buildingHealth",
+        "meta",
+        "parksAccess",
+        "summary",
+        "transitAccess",
+        "walkabilityAccess",
+      ].sort()
+    );
+
+    for (const [tier, reportKey] of [
+      ["transit", "transitAccess"],
+      ["parks", "parksAccess"],
+      ["bike", "bikeAccess"],
+      ["walkability", "walkabilityAccess"],
+    ]) {
+      const section = body[reportKey];
+      expect(section.radiusMeters).toBe(AMENITY_TIERS[tier].radiusMeters);
+      expect(Object.keys(section.metrics).sort()).toEqual([...AMENITY_BUCKET_NAMES[tier]].sort());
+      expect(section.score).toBeGreaterThanOrEqual(0);
+      expect(section.score).toBeLessThanOrEqual(100);
+      expect(["excellent", "typical", "carDependent"]).toContain(section.band);
+    }
+
+    // No API key in this environment: every walkability bucket degrades to
+    // "nothing found" rather than a real distance.
+    for (const metric of Object.values(body.walkabilityAccess.metrics)) {
+      expect(metric.meters).toBeNull();
+      expect(metric.within).toBe(0);
+    }
+  });
+
+  it("degrades to the two complaint sections plus walkability when every static dataset fails to load", async () => {
+    loadAmenitiesSpy.mockResolvedValue({ transit: null, parks: null, bike: null });
+
+    const { status, body } = await server.request("/api/score", {
+      method: "POST",
+      body: LUDLOW_ST,
+    });
+
+    expect(status).toBe(200);
+    // Walkability survives this failure because it does not depend on
+    // loadAmenities() at all — it is a wholly separate, live-Places code
+    // path. A failure of the three STATIC datasets is not a fact about
+    // whether Google Places is reachable.
+    expect(Object.keys(body).sort()).toEqual(
+      ["address", "blockQuality", "buildingHealth", "meta", "summary", "walkabilityAccess"].sort()
+    );
+    // The complaint side must be completely unaffected by the amenity failure.
+    expect(body.buildingHealth.score).toBeGreaterThanOrEqual(0);
+  });
+
+  it("omits only the failing tier, not the other two, on a partial amenity failure", async () => {
+    loadAmenitiesSpy.mockImplementation(async () => {
+      const real = await actualLoadAmenities.fn();
+      return { ...real, transit: null };
+    });
+
+    const { body } = await server.request("/api/score", { method: "POST", body: LUDLOW_ST });
+    expect(body).not.toHaveProperty("transitAccess");
+    expect(body).toHaveProperty("parksAccess");
+    expect(body).toHaveProperty("bikeAccess");
   });
 });
 
@@ -574,7 +681,7 @@ describe("app wiring", () => {
 // --- AI explanation layer ----------------------------------------------------
 
 describe("explanations on POST /api/score", () => {
-  it("always carries an explanation and an honest source label", async () => {
+  it("always carries a deterministic explanation — this endpoint never calls the AI", async () => {
     const { body } = await server.request("/api/score", {
       method: "POST",
       body: { lat: 40.7484, lng: -73.9857 },
@@ -583,7 +690,9 @@ describe("explanations on POST /api/score", () => {
     for (const sub of [body.buildingHealth, body.blockQuality]) {
       expect(sub.explanation).toBeTypeOf("string");
       expect(sub.explanation.length).toBeGreaterThan(20);
-      expect(["ai", "template"]).toContain(sub.explanationSource);
+      // Unlike `summary`, these six sections never get an AI upgrade — see
+      // GET /api/explanation below, which now accepts only tier=overall.
+      expect(sub.explanationSource).toBe("template");
     }
   });
 
@@ -613,9 +722,14 @@ describe("explanations on POST /api/score", () => {
 });
 
 describe("GET /api/explanation", () => {
-  it("returns the AI explanation when the adapter succeeds", async () => {
+  // The ONLY accepted tier now: building/block/transit/parks/bike/walkability
+  // each get a deterministic explanation attached directly on /api/score
+  // instead (see the describe block above) — none of them ever calls the AI,
+  // so this endpoint has no per-tier or per-amenity slow path left to serve.
+
+  it("returns the AI whole-report summary when the adapter succeeds", async () => {
     const { status, body } = await server.request(
-      "/api/explanation?lat=40.7484&lng=-73.9857&tier=block"
+      "/api/explanation?lat=40.7484&lng=-73.9857&tier=overall"
     );
     expect(status).toBe(200);
     expect(body.explanation).toBe("A generated sentence about this location.");
@@ -623,60 +737,55 @@ describe("GET /api/explanation", () => {
     expect(aiSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("passes only the four contract fields to the adapter", async () => {
-    await server.request("/api/explanation?lat=40.7484&lng=-73.9857&tier=block");
-    expect(Object.keys(aiSpy.mock.calls[0][0]).sort()).toEqual([
-      "band",
-      "counts",
-      "label",
-      "radiusLabel",
-    ]);
-  });
-
-  it("only fetches the tier it was asked about", async () => {
-    // The slow path must not pay for the tier nobody asked for.
-    await server.request("/api/explanation?lat=40.7101&lng=-74.0121&tier=building");
-    expect(countsSpy).toHaveBeenCalledTimes(1);
-    expect(countsSpy.mock.calls[0][2]).toBe("building");
+  it("sends a `sections` array spanning both complaint tiers, not one tier's counts", async () => {
+    await server.request("/api/explanation?lat=40.7484&lng=-73.9857&tier=overall");
+    const input = aiSpy.mock.calls[0][0];
+    expect(Object.keys(input)).toEqual(["sections"]);
+    const labels = input.sections.map((s) => s.label);
+    expect(labels).toContain("Building Health");
+    expect(labels).toContain("Block Quality");
   });
 
   it("200s with the template when the AI is unavailable, never an error", async () => {
     // CLAUDE.md: the demo must never show a broken state for this feature.
     aiSpy.mockRejectedValue(new Error("ollama unreachable"));
     const { status, body } = await server.request(
-      "/api/explanation?lat=40.7484&lng=-73.9857&tier=block"
+      "/api/explanation?lat=40.7484&lng=-73.9857&tier=overall"
     );
     expect(status).toBe(200);
     expect(body.explanationSource).toBe("template");
-    expect(body.explanation.length).toBeGreaterThan(20);
+    expect(body.explanation.length).toBeGreaterThan(10);
   });
 
   it("does not leak the internal failure reason to the client", async () => {
     aiSpy.mockRejectedValue(new Error("ECONNREFUSED 127.0.0.1:11434"));
     const { body } = await server.request(
-      "/api/explanation?lat=40.7484&lng=-73.9857&tier=block"
+      "/api/explanation?lat=40.7484&lng=-73.9857&tier=overall"
     );
     expect(Object.keys(body).sort()).toEqual(["explanation", "explanationSource"]);
   });
 
-  it("skips the AI when there is nothing to explain", async () => {
+  it("does NOT skip the AI call when every complaint count is zero (unlike a single complaint tier's template)", async () => {
     countsSpy.mockImplementation(async () => ({
-      heatHotWater: 0,
-      unsanitaryCondition: 0,
-      plumbing: 0,
+      counts: {
+        heatHotWater: 0,
+        unsanitaryCondition: 0,
+        plumbing: 0,
+        noise: 0,
+        parking: 0,
+        streetCondition: 0,
+      },
     }));
-    const { body } = await server.request(
-      "/api/explanation?lat=40.7484&lng=-73.9857&tier=building"
-    );
-    expect(aiSpy).not.toHaveBeenCalled();
-    expect(body.explanationSource).toBe("template");
+    await server.request("/api/explanation?lat=40.7484&lng=-73.9857&tier=overall");
+    expect(aiSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each([
     ["missing tier", "/api/explanation?lat=40.7484&lng=-73.9857"],
     ["invalid tier", "/api/explanation?lat=40.7484&lng=-73.9857&tier=roof"],
-    ["missing coords", "/api/explanation?tier=block"],
-    ["out of bounds", "/api/explanation?lat=34.05&lng=-118.24&tier=block"],
+    ["a per-tier value that is no longer accepted here", "/api/explanation?lat=40.7484&lng=-73.9857&tier=block"],
+    ["missing coords", "/api/explanation?tier=overall"],
+    ["out of bounds", "/api/explanation?lat=34.05&lng=-118.24&tier=overall"],
   ])("400s on %s", async (_label, path) => {
     const { status, body } = await server.request(path);
     expect(status).toBe(400);
@@ -686,7 +795,7 @@ describe("GET /api/explanation", () => {
   it("503s when the upstream counts cannot be fetched", async () => {
     countsSpy.mockRejectedValue(new SocrataError("socrata 503: down", { status: 503 }));
     const { status, body } = await server.request(
-      "/api/explanation?lat=40.7484&lng=-73.9857&tier=block"
+      "/api/explanation?lat=40.7484&lng=-73.9857&tier=overall"
     );
     expect(status).toBe(503);
     expect(body.error).toBe("upstream_unavailable");

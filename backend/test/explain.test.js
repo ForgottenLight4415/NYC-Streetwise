@@ -16,7 +16,7 @@ vi.mock("../src/providers/ai/index.js", async (importOriginal) => {
   return { ...actual, generateExplanation: generateSpy };
 });
 
-const { explainWithAI, explainFromTemplate, explanationInputFor, radiusLabelFor } =
+const { explainFromTemplate, explanationInputFor, radiusLabelFor } =
   await import("../src/services/explain.js");
 
 const BUILDING = {
@@ -138,64 +138,10 @@ describe("explainFromTemplate", () => {
   });
 });
 
-describe("explainWithAI", () => {
-  it("returns AI text when the adapter succeeds", async () => {
-    const result = await explainWithAI("block", BLOCK);
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.ai);
-    expect(result.explanation).toBe("An AI sentence about this block.");
-  });
-
-  it("passes exactly the four contract fields to the adapter", async () => {
-    await explainWithAI("block", BLOCK);
-    const input = generateSpy.mock.calls[0][0];
-    expect(Object.keys(input).sort()).toEqual([
-      "band",
-      "counts",
-      "label",
-      "radiusLabel",
-    ]);
-    expect(input.label).toBe("Block Quality");
-    expect(input.radiusLabel).toContain("350m");
-  });
-
-  it.each([
-    ["a timeout", () => generateSpy.mockRejectedValue(new Error("timed out"))],
-    ["a rate limit", () => generateSpy.mockRejectedValue(new Error("429 quota"))],
-    ["the service being down", () => generateSpy.mockRejectedValue(new Error("ECONNREFUSED"))],
-    ["an empty response", () => generateSpy.mockRejectedValue(new Error("empty"))],
-    ["a non-Error throw", () => generateSpy.mockImplementation(() => { throw "boom"; })],
-  ])("falls back to the template on %s", async (_label, arrange) => {
-    arrange();
-    const result = await explainWithAI("block", BLOCK);
-
-    // The demo must never show a broken state for this feature.
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);
-    expect(result.explanation.length).toBeGreaterThan(20);
-    expect(result.error).toBeDefined();
-  });
-
-  it("skips the AI entirely when there is nothing to explain", async () => {
-    // Observed with llama3.1:8b on an all-zero building: "there were no
-    // complaints ... suggesting these aspects may be areas of concern." Zero
-    // complaints described as a concern is worse than no AI at all.
-    const result = await explainWithAI("building", {
-      band: "good",
-      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 },
-    });
-    expect(generateSpy).not.toHaveBeenCalled();
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);
-  });
-
-  it("never rejects, whatever the adapter does", async () => {
-    generateSpy.mockRejectedValue(new Error("catastrophe"));
-    await expect(explainWithAI("building", BUILDING)).resolves.toBeDefined();
-  });
-});
-
 describe("tier labelling", () => {
   it("describes each tier's real radius", () => {
-    expect(radiusLabelFor("building")).toContain("25m");
-    expect(radiusLabelFor("block")).toContain("350m");
+    expect(radiusLabelFor("building")).toContain("80 ft");
+    expect(radiusLabelFor("block")).toContain("0.2 mi");
     expect(radiusLabelFor("nonsense")).toBeTypeOf("string");
   });
 

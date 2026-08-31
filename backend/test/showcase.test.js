@@ -269,7 +269,7 @@ describe("GET /api/warm — the only authenticated route", () => {
   it("runs the warm job for the cron's own bearer header", async () => {
     process.env.CRON_SECRET = SECRET;
     countsSpy.mockImplementation((lat, lng, tier) =>
-      Promise.resolve(tier === "building" ? BUILDING : BLOCK)
+      Promise.resolve({ counts: tier === "building" ? BUILDING : BLOCK })
     );
 
     const res = await server.request("/api/warm", {

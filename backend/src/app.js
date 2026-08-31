@@ -5,6 +5,7 @@ import { complaintsRouter } from "./routes/complaints.js";
 import { explanationRouter } from "./routes/explanation.js";
 import { trendRouter } from "./routes/trend.js";
 import { showcaseRouter } from "./routes/showcase.js";
+import { amenitiesRouter } from "./routes/amenities.js";
 import { BadRequestError } from "./lib/validate.js";
 
 /** Custom response headers the browser must be allowed to read cross-origin. */
@@ -69,6 +70,7 @@ export function createApp() {
   app.use(explanationRouter);
   app.use(trendRouter);
   app.use(showcaseRouter);
+  app.use(amenitiesRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: "not_found" });

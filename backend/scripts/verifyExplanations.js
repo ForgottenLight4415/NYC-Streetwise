@@ -1,6 +1,6 @@
 /**
- * Runs every available AI adapter against the SAME fixed inputs and prints the
- * outputs side by side, next to the deterministic template.
+ * Runs every available AI adapter against the SAME fixed whole-report inputs
+ * and prints the outputs side by side, next to the deterministic template.
  *
  *   npm run verify:explanations
  *
@@ -10,50 +10,83 @@
  * tighten prompt.js — do NOT ship two different-feeling products depending on
  * which environment someone is looking at.
  *
+ * Scoped to the WHOLE-REPORT summary only — the AI adapter is never called
+ * for an individual section (building/block/transit/parks/bike/walkability
+ * each get a deterministic "Why this score?" instead, see explain.js), so
+ * "overall" is the only prompt shape left worth comparing across providers.
+ *
  * Also worth reading the output for the things unit tests cannot check:
  *   - invented specifics (an address, a date, a landlord) — the worst failure
  *   - technical vocabulary leaking through ("percentile", "baseline")
  *   - derived arithmetic ("three times as many"), which models get wrong
- *   - length: 1-2 sentences, not a paragraph
+ *   - length: under 120 words, and selective rather than a section-by-section list
  *
  * Adapters with no credentials are skipped, not failed — this must be runnable
  * locally with only Ollama, and on a machine with only a Gemini key.
  */
 
-import { AI_PROVIDERS, AI_MODELS, RADIUS_TIERS } from "../src/config/constants.js";
-import { buildPrompt } from "../src/providers/ai/prompt.js";
-import { templateExplanation } from "../src/services/templateExplanation.js";
+import { AI_PROVIDERS, AI_MODELS } from "../src/config/constants.js";
+import { buildOverallSummaryPrompt } from "../src/providers/ai/prompt.js";
+import { templateOverallSummary } from "../src/services/templateOverallSummary.js";
 
-// Real count shapes, taken from live lookups. Fixed on purpose: the point is to
-// compare providers against each other, which needs the inputs held constant.
+// Real report shapes, taken from live lookups. Fixed on purpose: the point is
+// to compare providers against each other, which needs the inputs held
+// constant.
 const FIXTURES = [
   {
     name: "Bushwick — clean building, loud block",
-    tier: "block",
-    label: "Block Quality",
-    band: "poor",
-    counts: { noise: 2876, parking: 1253, streetCondition: 144 },
+    sections: [
+      {
+        label: "Building Health",
+        band: "good",
+        counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1 },
+      },
+      {
+        label: "Block Quality",
+        band: "poor",
+        counts: { noise: 2876, parking: 1253, streetCondition: 144 },
+      },
+    ],
   },
   {
-    name: "Bushwick — the building itself",
-    tier: "building",
-    label: "Building Health",
-    band: "good",
-    counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1 },
+    name: "Midtown — middling complaints, excellent transit",
+    sections: [
+      {
+        label: "Building Health",
+        band: "fair",
+        counts: { heatHotWater: 12, unsanitaryCondition: 2, plumbing: 4 },
+      },
+      {
+        label: "Block Quality",
+        band: "fair",
+        counts: { noise: 834, parking: 1116, streetCondition: 302 },
+      },
+      {
+        label: "Transit Access",
+        band: "excellent",
+        metrics: { subway: { meters: 90, within: 4, name: "5 Av-53 St" } },
+      },
+    ],
   },
   {
-    name: "Midtown — middling on both",
-    tier: "block",
-    label: "Block Quality",
-    band: "fair",
-    counts: { noise: 834, parking: 1116, streetCondition: 302 },
-  },
-  {
-    name: "Neglected building",
-    tier: "building",
-    label: "Building Health",
-    band: "poor",
-    counts: { heatHotWater: 412, unsanitaryCondition: 88, plumbing: 51 },
+    name: "Neglected building, car-dependent block",
+    sections: [
+      {
+        label: "Building Health",
+        band: "poor",
+        counts: { heatHotWater: 412, unsanitaryCondition: 88, plumbing: 51 },
+      },
+      {
+        label: "Block Quality",
+        band: "good",
+        counts: { noise: 40, parking: 12, streetCondition: 3 },
+      },
+      {
+        label: "Transit Access",
+        band: "carDependent",
+        metrics: { subway: { meters: null, within: 0, name: null } },
+      },
+    ],
   },
 ];
 
@@ -61,12 +94,6 @@ const FIXTURES = [
 const BANNED_TERMS = ["percentile", "baseline", "median", "dataset", "score of"];
 /** Phrasings that indicate the model did arithmetic it was told not to do. */
 const RATIO_PATTERN = /\b(times (as )?(many|more|higher)|\d+\s?%|percent|ratio|average of)\b/i;
-
-function radiusLabelFor(tier) {
-  const meters = RADIUS_TIERS[tier]?.radiusMeters;
-  const subject = tier === "building" ? "this building" : "this block";
-  return `${subject} (${meters}m radius)`;
-}
 
 async function availableAdapters() {
   const available = [];
@@ -106,7 +133,7 @@ const providers = await availableAdapters();
 if (providers.length === 0) {
   console.error(
     "No AI adapter is available, so there is nothing to compare.\n" +
-      "The API still works — every explanation falls back to the template."
+      "The API still works — every summary falls back to the template."
   );
   process.exit(2);
 }
@@ -124,21 +151,21 @@ if (providers.length === 1) {
 
 let warnings = 0;
 
+/** Every count in every section, for the "numbers not in the input" smell test. */
+function allCounts(sections) {
+  return sections.flatMap((s) => Object.values(s.counts ?? {})).map(String);
+}
+
 for (const fixture of FIXTURES) {
-  const input = {
-    label: fixture.label,
-    band: fixture.band,
-    counts: fixture.counts,
-    radiusLabel: radiusLabelFor(fixture.tier),
-  };
+  const input = { sections: fixture.sections };
+  const sectionLabels = fixture.sections.map((s) => `${s.label}/${s.band}`).join(", ");
 
   console.log(`\n${"=".repeat(78)}`);
-  console.log(`${fixture.name}  [${fixture.label} / ${fixture.band}]`);
-  console.log(`counts: ${JSON.stringify(fixture.counts)}`);
+  console.log(`${fixture.name}  [${sectionLabels}]`);
   console.log("=".repeat(78));
 
   console.log("\n  template:");
-  console.log(`    ${templateExplanation({ ...input, counts: fixture.counts })}`);
+  console.log(`    ${templateOverallSummary(fixture.sections)}`);
 
   for (const provider of providers) {
     process.env.AI_PROVIDER = provider;
@@ -173,22 +200,20 @@ for (const fixture of FIXTURES) {
       console.log("    WARN  looks like derived arithmetic — models get these wrong");
       warnings++;
     }
-    for (const count of Object.values(fixture.counts)) {
-      if (count === 0) continue;
+    const ours = allCounts(fixture.sections);
+    if (ours.some((n) => n !== "0")) {
       // Not exhaustive, just a smell test: numbers in the text that are not
       // ours are either arithmetic or invention.
       const numbers = text.match(/\b\d{2,}\b/g) ?? [];
-      const ours = Object.values(fixture.counts).map(String);
-      const foreign = numbers.filter((n) => !ours.includes(n) && n !== "311" && n !== "24");
+      const foreign = numbers.filter((n) => !ours.includes(n) && n !== "311" && n !== "24" && n !== "120");
       if (foreign.length > 0) {
         console.log(`    WARN  numbers not in the input: ${[...new Set(foreign)].join(", ")}`);
         warnings++;
       }
-      break;
     }
-    const sentences = text.split(/[.!?]+\s/).filter(Boolean).length;
-    if (sentences > 3) {
-      console.log(`    WARN  ${sentences} sentences — asked for 1-2`);
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    if (wordCount > 120) {
+      console.log(`    WARN  ${wordCount} words — asked for under 120`);
       warnings++;
     }
   }
@@ -197,14 +222,7 @@ for (const fixture of FIXTURES) {
 console.log(`\n${"=".repeat(78)}`);
 console.log("Prompt sent (identical for every provider — that is the point):");
 console.log("=".repeat(78));
-console.log(
-  buildPrompt({
-    label: FIXTURES[0].label,
-    band: FIXTURES[0].band,
-    counts: FIXTURES[0].counts,
-    radiusLabel: radiusLabelFor(FIXTURES[0].tier),
-  })
-);
+console.log(buildOverallSummaryPrompt({ sections: FIXTURES[0].sections }));
 
 console.log(
   warnings === 0

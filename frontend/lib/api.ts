@@ -1,9 +1,12 @@
 import type {
+  AmenityNearbyResponse,
   AutocompleteSuggestion,
+  CategoryId,
   Complaint,
   ComplaintGroup,
   ComplaintPage,
   ComplaintStatus,
+  ComplaintTierId,
   ReportResponse,
   ShowcaseFallback,
   ShowcaseItem,
@@ -130,7 +133,7 @@ export async function fetchNearbyComplaints(
   lat: number,
   lng: number,
   radius: number,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
   limit = COMPLAINTS_FETCH_LIMIT
 ): Promise<Complaint[]> {
   const url = `${API_BASE_URL}/api/complaints?lat=${lat}&lng=${lng}&radius=${radius}&limit=${limit}&tier=${tier}`;
@@ -167,7 +170,7 @@ export const COMPLAINT_STATUS_OPTIONS = [
 export async function fetchComplaintGroups(
   lat: number,
   lng: number,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
   radius: number,
   {
     months,
@@ -235,7 +238,7 @@ export interface GroupDetailPage {
 export async function fetchGroupDetail(
   lat: number,
   lng: number,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
   { day, type, status, offset = 0, limit = 50 }: {
     day: string;
     type: string;
@@ -308,7 +311,7 @@ export const TREND_MAX_MONTHS = 24;
 export async function fetchTrend(
   lat: number,
   lng: number,
-  tier: "building" | "block",
+  tier: ComplaintTierId,
   months: number = TREND_DEFAULT_MONTHS
 ): Promise<TrendPoint[]> {
   const url = `${API_BASE_URL}/api/trend?lat=${lat}&lng=${lng}&tier=${tier}&months=${months}`;
@@ -334,7 +337,7 @@ export async function fetchTrend(
 export async function fetchExplanation(
   lat: number,
   lng: number,
-  tier: "building" | "block"
+  tier: CategoryId
 ): Promise<string | null> {
   const url = `${API_BASE_URL}/api/explanation?lat=${lat}&lng=${lng}&tier=${tier}`;
   try {
@@ -420,6 +423,43 @@ export async function fetchShowcase(
   } catch {
     return EMPTY_SHOWCASE;
   }
+}
+
+/**
+ * Every real instance of one amenity bucket within its tier's radius — the
+ * full list behind an amenity row's `>` affordance, not just the single
+ * nearest one the report's own AmenityMetric carries.
+ *
+ * `tier` is the wire value (e.g. "transit"), same CategoryId used by
+ * fetchExplanation. bikeLane/protectedLane are never valid here — the
+ * backend 400s them outright (bucket_not_applicable) since they are a
+ * resampled bike-route line, not discrete instances — so the frontend never
+ * offers the `>` affordance for those two buckets in the first place.
+ */
+export async function fetchAmenityNearby(
+  lat: number,
+  lng: number,
+  tier: CategoryId,
+  bucket: string
+): Promise<AmenityNearbyResponse> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    tier,
+    bucket,
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/amenities/nearby?${params}`);
+  } catch {
+    throw new Error("Couldn't load nearby amenities.");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.details ?? body.error ?? "Couldn't load nearby amenities.");
+  }
+  return res.json();
 }
 
 export async function fetchReport(lat: number, lng: number): Promise<ReportResponse> {

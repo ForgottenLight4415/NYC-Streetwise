@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { buildPrompt, bucketLabel } from "../src/providers/ai/prompt.js";
+import { buildOverallSummaryPrompt, bucketLabel } from "../src/providers/ai/prompt.js";
 import { cleanExplanation, AIError } from "../src/providers/ai/shared.js";
 import { generateExplanation as ollama } from "../src/providers/ai/ollama.js";
 import { generateExplanation as gemini } from "../src/providers/ai/gemini.js";
@@ -15,11 +15,18 @@ import {
 // and on how each behaves when the provider misbehaves — which, for this
 // feature, is the case that actually matters.
 
+// The adapters (ollama.js/gemini.js) only ever build ONE prompt shape now —
+// the whole-report summary. building/block/transit/parks/bike/walkability
+// each get a deterministic template instead (see explain.js), so there is no
+// per-tier prompt left to test here; that content lives in the
+// "buildOverallSummaryPrompt" describe block below. This INPUT is only used
+// by the adapter/wire-mechanics tests further down, which don't care about
+// prompt content — just that whatever buildOverallSummaryPrompt produces gets
+// sent through correctly.
 const INPUT = {
-  label: "Block Quality",
-  band: "poor",
-  counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-  radiusLabel: "this block (350m radius)",
+  sections: [
+    { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144 } },
+  ],
 };
 
 function jsonResponse(body, status = 200) {
@@ -43,58 +50,60 @@ afterEach(() => {
   delete process.env.GEMINI_API_KEY;
 });
 
-describe("buildPrompt", () => {
-  const prompt = buildPrompt(INPUT);
-
-  it("includes every count and the area it describes", () => {
-    expect(prompt).toContain("2876 noise");
-    expect(prompt).toContain("1253 illegal parking and blocked driveways");
-    expect(prompt).toContain("144 street and sidewalk condition");
-    expect(prompt).toContain("this block (350m radius)");
-  });
-
-  it("translates the band into plain words rather than passing the raw value", () => {
-    expect(prompt).toContain("worse than most of New York City");
-  });
-
-  it("never leaks our internal bucket keys to the model", () => {
-    // Only the camelCase keys — "noise" is legitimately both a key and the
-    // English word, so asserting on it would fail for the wrong reason.
-    for (const key of ["heatHotWater", "unsanitaryCondition", "streetCondition"]) {
-      expect(buildPrompt({ ...INPUT, counts: { [key]: 5 } })).not.toContain(key);
-    }
-  });
-
-  it("forbids inventing specifics — the main hallucination defense", () => {
-    expect(prompt).toMatch(/do not invent addresses/i);
-    expect(prompt).toMatch(/only the complaint numbers/i);
-  });
-
-  it("forbids derived arithmetic", () => {
-    // llama3.1 called 2876-vs-1253 "nearly three times as many" (it is 2.3x).
-    // A wrong ratio is a factual error in a renting decision.
-    expect(prompt).toMatch(/do not calculate ratios/i);
-  });
-
-  it("bans technical scoring vocabulary from the output", () => {
-    expect(prompt).toMatch(/do not use the words percentile/i);
-    for (const term of ["percentile", "baseline", "median"]) {
-      expect(prompt.toLowerCase()).toContain(term);
-    }
-  });
-
-  it("is identical in structure for both tiers — one shared voice", () => {
-    const building = buildPrompt({ ...INPUT, label: "Building Health" });
-    const rulesOf = (text) => text.slice(text.indexOf("Rules:"));
-    // Only the "do not begin with <label>" line legitimately differs.
-    expect(rulesOf(building).replace(/Building Health/g, "X")).toBe(
-      rulesOf(prompt).replace(/Block Quality/g, "X")
-    );
-  });
-
+describe("bucketLabel", () => {
   it("humanizes bucket names", () => {
     expect(bucketLabel("heatHotWater")).toBe("heat and hot water");
     expect(bucketLabel("unknownBucket")).toBe("unknownBucket");
+  });
+});
+
+describe("buildOverallSummaryPrompt", () => {
+  const SECTIONS_INPUT = {
+    sections: [
+      { label: "Building Health", band: "good", counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 } },
+      { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144 } },
+      {
+        label: "Transit Access",
+        band: "excellent",
+        metrics: { subway: { meters: 240, within: 2, name: "14 St-Union Sq" } },
+      },
+    ],
+  };
+
+  const prompt = buildOverallSummaryPrompt(SECTIONS_INPUT);
+
+  it("formats each section by whichever shape it carries, counts or metrics", () => {
+    expect(prompt).toContain("Building Health: 1 heat and hot water");
+    expect(prompt).toContain("Block Quality: 2876 noise");
+    expect(prompt).toContain("Transit Access: subway station 0.1 mi away (14 St-Union Sq)");
+  });
+
+  it("asks for one summary under 120 words, not a per-section rating", () => {
+    expect(prompt).toMatch(/under 120 words/i);
+    expect(prompt).toMatch(/do not describe every one of them|only what stands out/i);
+  });
+
+  it("still forbids inventing specifics and derived arithmetic", () => {
+    expect(prompt).toMatch(/do not invent addresses/i);
+    expect(prompt).toMatch(/do not calculate ratios/i);
+  });
+
+  it("bans restating the good/fair/poor rating words, unlike the single-tier prompts", () => {
+    // The single-tier prompts only forbid THEIR OWN band word; this one covers
+    // all three, since it has no single badge of its own to avoid restating.
+    expect(prompt).toMatch(/do not use the words good, fair, poor/i);
+  });
+
+  it("also bans the amenity-tier rating words, a separate vocabulary from good/fair/poor", () => {
+    expect(prompt).toMatch(/excellent, typical, car-dependent/i);
+  });
+
+  it("requires the word 'complaints' whenever a count is mentioned, so a zero count cannot read as a fact about the building itself", () => {
+    // Observed failure this guards: a zero heat/hot-water count summarized as
+    // "There is no heat or hot water in the building" — a claim the building
+    // HAS no heat, the opposite of what a zero-COMPLAINT record means.
+    expect(prompt).toMatch(/complaints filed, not a fact about the building or block/i);
+    expect(prompt).toMatch(/no heat or hot water complaints.*never.*no heat or hot water/i);
   });
 });
 
@@ -151,7 +160,7 @@ describe("ollama adapter", () => {
     // Without stream:false Ollama returns NDJSON and res.json() chokes.
     expect(body.stream).toBe(false);
     expect(body.options.temperature).toBe(AI_TEMPERATURE);
-    expect(body.prompt).toBe(buildPrompt(INPUT));
+    expect(body.prompt).toBe(buildOverallSummaryPrompt(INPUT));
   });
 
   it("reports an unreachable server clearly — the normal local failure", async () => {
@@ -200,7 +209,7 @@ describe("gemini adapter", () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.generationConfig.temperature).toBe(AI_TEMPERATURE);
     expect(body.generationConfig.maxOutputTokens).toBe(AI_MAX_OUTPUT_TOKENS);
-    expect(body.contents[0].parts[0].text).toBe(buildPrompt(INPUT));
+    expect(body.contents[0].parts[0].text).toBe(buildOverallSummaryPrompt(INPUT));
   });
 
   it("omits thinkingConfig unless a budget is configured", async () => {

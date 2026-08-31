@@ -1,4 +1,17 @@
-export type ScoreBand = "good" | "fair" | "poor";
+/** The two complaint tiers (Building Health, Block Quality). */
+export type ComplaintBand = "good" | "fair" | "poor";
+
+/**
+ * The four amenity tiers (transit/parks/bike/walkability). A separate
+ * vocabulary from ComplaintBand, not the same three words at different
+ * cutoffs: an amenity score is a citywide PERCENTILE distance, and NYC is
+ * transit-dense enough that "typical" is already a fine outcome — labeling
+ * it "fair" (a complaint-scale word implying "mediocre, keep looking") would
+ * misdescribe it. See AMENITY_BAND_THRESHOLDS in the backend's constants.js.
+ */
+export type AmenityBand = "carDependent" | "typical" | "excellent";
+
+export type ScoreBand = ComplaintBand | AmenityBand;
 export type Confidence = "normal" | "low";
 
 export type ComplaintStatus = "open" | "in-progress" | "closed";
@@ -35,38 +48,182 @@ export type BlockCounts = {
 
 export type ExplanationSource = "ai" | "template";
 
-export interface ScoreSection<TCounts extends Record<string, number>> {
+/**
+ * Field-for-field what every scored section has, complaint or amenity —
+ * extracted so both `ScoreSection` and `AmenitySection` stay in lockstep
+ * without either one growing fields the other doesn't need.
+ *
+ * `explanation`/`explanationSource` are OPTIONAL here, not required: the
+ * backend attaches a deterministic template inline only for the two
+ * complaint tiers (`ScoreSection` below requires them). An amenity section
+ * never carries them in `/api/score`'s response — its explanation is always
+ * fetched fresh via `GET /api/explanation` — so `AmenitySection` inherits
+ * them as absent rather than lying about a field that isn't there.
+ */
+export interface SectionBase {
   score: number;
   band: ScoreBand;
-  counts: TCounts;
   radiusMeters: number;
+  explanation?: string;
+  explanationSource?: ExplanationSource;
+  confidence: Confidence;
+  confidenceReason: string | null;
+}
+
+export interface ScoreSection<
+  TCounts extends Record<string, number>,
+> extends SectionBase {
+  // Narrows SectionBase's `band: ScoreBand` — a complaint tier only ever
+  // produces a ComplaintBand.
+  band: ComplaintBand;
   // /api/score always returns the deterministic template text so it can stay
   // fast; a tier only reports "ai" once GET /api/explanation has been called
   // for it and the result cached server-side.
   explanation: string;
   explanationSource: ExplanationSource;
-  confidence: Confidence;
-  confidenceReason: string | null;
+  counts: TCounts;
   bucketScores: Partial<Record<keyof TCounts, number>>;
   bucketConfidence: Partial<Record<keyof TCounts, "low">>;
+  /**
+   * Per-category status breakdown (open/in-progress/closed), computed
+   * server-side from the SAME Socrata query `counts` already comes from —
+   * see the `bucketStatusCounts` CONTRACT CHANGE note in the backend's
+   * CLAUDE.md. Each category's triple sums back to that category's own
+   * `counts` value.
+   *
+   * OPTIONAL, and genuinely absent rather than zero-filled: a `complaint_cache`
+   * document written before this field shipped has none (self-heals within
+   * the 24h TTL), and so does a hand-built payload that predates it. The
+   * client must fall back to a plain count when this is missing, never invent
+   * or infer a breakdown client-side — see ComplaintBreakdownBars.
+   */
+  bucketStatusCounts?: Partial<
+    Record<keyof TCounts, Record<ComplaintStatus, number>>
+  >;
   recentComplaints?: Complaint[];
 }
+
+/** Distance-and-count metrics for one amenity bucket, e.g. `transit.subway`. */
+export interface AmenityMetric {
+  /** Metres to the nearest one. Null means nothing inside the cap — a real
+   *  answer for much of Staten Island, not a fetch failure. */
+  meters: number | null;
+  /** How many inside radiusMeters. DISPLAY ONLY — never scored, because three
+   *  bus stops on one corner is not three times the access. */
+  within: number;
+  /** e.g. "14 St-Union Sq". Null when the dataset had no name. */
+  name: string | null;
+  /**
+   * **CONTRACT CHANGE (post-freeze): routes added to the transit
+   * AmenityMetric. Flag to Person 2.** Which subway/bus routes serve this
+   * stop, e.g. `["4", "5", "6"]` or `["M104"]`. Present ONLY on
+   * `transit.subway` and `transit.bus` — deliberately ABSENT (not `[]`) on
+   * every other bucket, including `transit.rail` (no route-join source; out
+   * of scope) and every parks/bike/walkability bucket (no route concept at
+   * all). See `getAmenityMetrics` in the backend's `amenityService.js`,
+   * which only ever sets this key for those two buckets. Any consumer must
+   * check the bucket (or use `?.`) before reading this — do not assume it is
+   * always an array.
+   */
+  routes?: string[];
+}
+
+export interface AmenitySection<
+  TMetrics extends Record<string, AmenityMetric>,
+> extends SectionBase {
+  // Narrows SectionBase's `band: ScoreBand` — an amenity tier only ever
+  // produces an AmenityBand.
+  band: AmenityBand;
+  metrics: TMetrics;
+  bucketScores: Partial<Record<keyof TMetrics, number>>;
+  bucketConfidence: Partial<Record<keyof TMetrics, "low">>;
+}
+
+export type TransitMetrics = {
+  subway: AmenityMetric;
+  bus: AmenityMetric;
+  rail: AmenityMetric;
+};
+export type ParksMetrics = {
+  park: AmenityMetric;
+  playground: AmenityMetric;
+  garden: AmenityMetric;
+};
+export type BikeMetrics = {
+  bikeShare: AmenityMetric;
+  bikeLane: AmenityMetric;
+  protectedLane: AmenityMetric;
+};
+export type WalkabilityMetrics = {
+  grocery: AmenityMetric;
+  restaurant: AmenityMetric;
+  cafe: AmenityMetric;
+  school: AmenityMetric;
+};
 
 export interface ReportMeta {
   windowMonths: number;
   baselineVersion: string;
   baselineSource: "mongo" | "file" | "mock";
   coord: { lat: number; lng: number };
-  cache: { building: "hit" | "miss"; block: "hit" | "miss" };
   mock?: boolean;
+}
+
+/**
+ * The whole-report summary — under 100 words, selective across every section
+ * rather than one sentence per section. Same explanation/explanationSource
+ * shape as SectionBase's pair, deliberately: the frontend fetches its real
+ * text via the same GET /api/explanation?tier=overall two-call pattern.
+ */
+export interface ReportSummary {
+  explanation: string;
+  explanationSource: ExplanationSource;
 }
 
 export interface ReportResponse {
   address: string | null;
+  summary: ReportSummary;
   buildingHealth: ScoreSection<BuildingCounts>;
   blockQuality: ScoreSection<BlockCounts>;
+  // Optional: /api/showcase can serve a Mongo-cached document that predates
+  // this feature, and a report degrades to these two sections whenever the
+  // amenity datasets fail to load server-side.
+  transitAccess?: AmenitySection<TransitMetrics>;
+  parksAccess?: AmenitySection<ParksMetrics>;
+  bikeAccess?: AmenitySection<BikeMetrics>;
+  // Live-Places-backed, unlike the three above — see backend CLAUDE.md's
+  // Walkability section. Optional for the same reasons: a pre-rollout
+  // showcase cache, or (its own, independent failure mode) a cache-only
+  // render path that never called Places at all.
+  walkabilityAccess?: AmenitySection<WalkabilityMetrics>;
   meta: ReportMeta;
 }
+
+/** Field names on ReportResponse. */
+export type CategoryKey =
+  | "buildingHealth"
+  | "blockQuality"
+  | "transitAccess"
+  | "parksAccess"
+  | "bikeAccess"
+  | "walkabilityAccess";
+
+/**
+ * The `?tier=` wire value. Separate axis — the API already says "building".
+ * "overall" has no matching CategoryKey — it is not one report section, it
+ * summarizes across all of them (ReportResponse.summary, not report[key]).
+ */
+export type CategoryId =
+  | "building"
+  | "block"
+  | "transit"
+  | "parks"
+  | "bike"
+  | "walkability"
+  | "overall";
+
+/** The two complaint tiers — the only ones with a complaint feed or trend. */
+export type ComplaintTierId = "building" | "block";
 
 /**
  * One address the backend has both a name and cached scores for.
@@ -111,6 +268,42 @@ export interface AutocompleteSuggestion {
 export interface TrendPoint {
   month: string; // "2026-08"
   count: number;
+}
+
+/**
+ * One real instance behind an amenity row's `>` affordance — the full list
+ * GET /api/amenities/nearby returns for one bucket, as opposed to just the
+ * single nearest one AmenityMetric carries for scoring.
+ */
+export interface AmenityInstance {
+  name: string | null;
+  meters: number;
+  lat: number;
+  lng: number;
+  /** Only present on transit's subway/bus instances — same route-list
+   *  concept as AmenityMetric.routes. Absent (not `[]`) on every other
+   *  bucket, since those have no route concept at all. */
+  routes?: string[];
+  /** Only present on `subway` — each raw entrance's own distance (meters),
+   *  ascending, that this one instance collapses into a single station
+   *  complex (see the backend's groupSubwayComplexes). `meters` above is
+   *  always this array's first/smallest value. Absent on every other
+   *  bucket, since those are already one point per real, distinct place. */
+  entrances?: number[];
+}
+
+/**
+ * GET /api/amenities/nearby's response shape.
+ *
+ * `truncated` is true when there are more real, distinct places within
+ * `radiusMeters` than this response lists — either past the backend's raw
+ * cap (50, for most buckets) or past the deliberate per-station/per-pole cap
+ * on subway/bus (AMENITY_SUBWAY_COMPLEX_CAP / AMENITY_BUS_STOP_CAP).
+ */
+export interface AmenityNearbyResponse {
+  instances: AmenityInstance[];
+  radiusMeters: number;
+  truncated: boolean;
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   NYC_BOUNDS,
   RADIUS_TIERS,
+  AMENITY_TIERS,
   STATUS_BUCKET_NAMES,
   ALL_COMPLAINT_TYPES,
   ADDRESS_MAX_LENGTH,
@@ -76,7 +77,7 @@ export function validateOptionalTier(value) {
   return validateTier(value);
 }
 
-/** Required radius tier for /api/explanation. */
+/** Required radius tier — for /api/complaints/group and /api/trend. */
 export function validateTier(value) {
   const tiers = Object.keys(RADIUS_TIERS);
   if (value === undefined || value === null || value === "") {
@@ -84,6 +85,28 @@ export function validateTier(value) {
   }
   if (!tiers.includes(value)) {
     throw new BadRequestError("invalid_tier", `tier must be one of: ${tiers.join(", ")}`);
+  }
+  return value;
+}
+
+/**
+ * Required tier for /api/explanation ONLY — accepts exactly "overall".
+ *
+ * A dedicated function rather than a literal string check in the route so
+ * the reasoning is documented next to the endpoint's other validators, not
+ * because the tier vocabulary here is actually open: building, block,
+ * transit, parks, bike, and walkability never call the AI (see
+ * explainFromTemplate in services/explain.js — each gets a deterministic
+ * "Why this score?" attached directly on /api/score instead), so "overall"
+ * — the one AI text that spans the whole report — is the only value this
+ * endpoint has ever needed to accept.
+ */
+export function validateExplanationTier(value) {
+  if (value === undefined || value === null || value === "") {
+    throw new BadRequestError("missing_tier", "tier is required (overall)");
+  }
+  if (value !== "overall") {
+    throw new BadRequestError("invalid_tier", "tier must be: overall");
   }
   return value;
 }
@@ -131,6 +154,47 @@ export function validateBucket(value, tier) {
     throw new BadRequestError("missing_tier", "tier is required when filtering by bucket");
   }
   const buckets = Object.keys(RADIUS_TIERS[tier].buckets);
+  if (!buckets.includes(value)) {
+    throw new BadRequestError(
+      "invalid_bucket",
+      `bucket must be one of: ${buckets.join(", ")} (for tier ${tier})`
+    );
+  }
+  return value;
+}
+
+/**
+ * Required amenity tier for GET /api/amenities/nearby.
+ *
+ * A THIRD tier vocabulary, deliberately separate from validateTier
+ * (RADIUS_TIERS: building/block) and validateExplanationTier (adds
+ * transit/parks/bike/overall on top of those) for the same reason those two
+ * are already split: this endpoint's tier concept is AMENITY_TIERS alone,
+ * including walkability — which has no radius/complaint history meaning on
+ * the other two endpoints but is a perfectly good tier here, since it does
+ * have real (if cache-only, see amenityService.js) bucket instances.
+ */
+export function validateAmenityTier(value) {
+  const tiers = Object.keys(AMENITY_TIERS);
+  if (value === undefined || value === null || value === "") {
+    throw new BadRequestError("missing_tier", `tier is required (${tiers.join(", ")})`);
+  }
+  if (!tiers.includes(value)) {
+    throw new BadRequestError("invalid_tier", `tier must be one of: ${tiers.join(", ")}`);
+  }
+  return value;
+}
+
+/**
+ * Required amenity bucket for GET /api/amenities/nearby, scoped to the tier —
+ * same tier-scoping reasoning as validateBucket above (a bucket name means
+ * nothing without knowing which tier's bucket list it must belong to).
+ */
+export function validateAmenityBucket(value, tier) {
+  const buckets = AMENITY_TIERS[tier]?.buckets ?? [];
+  if (value === undefined || value === null || value === "") {
+    throw new BadRequestError("missing_bucket", `bucket is required (${buckets.join(", ")})`);
+  }
   if (!buckets.includes(value)) {
     throw new BadRequestError(
       "invalid_bucket",

@@ -5,6 +5,7 @@ import {
   STATUS_BUCKET_NAMES,
   TYPE_TO_BUCKET,
   EXPLANATION_SOURCES,
+  WALKABILITY_BASELINE_PER_BUCKET,
   statusBucket,
 } from "../config/constants.js";
 import {
@@ -17,7 +18,8 @@ import {
 import {
   readEntries,
   writeCounts,
-  writeExplanation,
+  readAmenityExplanation,
+  writeAmenityExplanation,
   readTrend,
   writeTrend,
   readComplaintGroups,
@@ -25,9 +27,60 @@ import {
   roundCoord,
 } from "../providers/cache.js";
 import { loadBaseline } from "../providers/baseline.js";
-import { buildReport, scoreTier } from "./scoring.js";
-import { explainFromTemplate, explainWithAI } from "./explain.js";
+import { loadAmenityBaseline } from "../providers/amenityBaseline.js";
+import { getAmenityMetrics, getWalkabilityMetrics } from "./amenityService.js";
+import { buildReport } from "./scoring.js";
+import {
+  explainFromTemplate,
+  explainOverallFromTemplate,
+  explainOverallWithAI,
+} from "./explain.js";
 import { mockScoreReport, mockComplaints, mockMonthlyTrend } from "./mockData.js";
+
+/**
+ * Amenity metrics + baseline for one point, NEVER rejecting — an amenity
+ * failure (a corrupt dataset, an unreachable Mongo) must degrade the report
+ * to buildingHealth/blockQuality only, not fail the whole request. Socrata
+ * and Mongo for the complaint side already have their own error handling;
+ * this is the amenity side's equivalent backstop. Costs no wall-clock time
+ * beyond the complaint path — issued alongside it, not after.
+ *
+ * Walkability is fetched alongside the three static-dataset tiers and merged
+ * in here, rather than inside getAmenityMetrics() itself — it has a
+ * genuinely different cost profile (a live, billed, cacheable-per-coordinate
+ * call, not a free in-memory lookup), so `cacheOnly` only ever changes ITS
+ * behaviour. `amenityBaseline`'s `perBucket` gets walkability's four
+ * (reasoned, not sampled — see WALKABILITY_BASELINE_PER_BUCKET) buckets
+ * merged in too, so scoreAmenityTier("walkability", ...) finds them the same
+ * way it finds subway's or park's, with no special-casing in that function.
+ *
+ * @param {{cacheOnly?: boolean}} [options] Forwarded to getWalkabilityMetrics
+ *   only — see its docstring. The three static tiers have no such concept;
+ *   they are already as cheap as a cache read.
+ */
+async function getAmenitiesForReport(lat, lng, { cacheOnly = false } = {}) {
+  const [amenities, walkability, amenityBaseline] = await Promise.all([
+    getAmenityMetrics(lat, lng).catch((err) => {
+      console.warn("[scoreService] amenity metrics failed, degrading to complaints-only:", err.message);
+      return null;
+    }),
+    getWalkabilityMetrics(lat, lng, { cacheOnly }).catch((err) => {
+      console.warn("[scoreService] walkability metrics failed, omitting that section:", err.message);
+      return null;
+    }),
+    loadAmenityBaseline().catch((err) => {
+      console.warn("[scoreService] amenity baseline failed:", err.message);
+      return null;
+    }),
+  ]);
+
+  return {
+    amenities: { ...amenities, walkability },
+    amenityBaseline: amenityBaseline
+      ? { ...amenityBaseline, perBucket: { ...amenityBaseline.perBucket, ...WALKABILITY_BASELINE_PER_BUCKET } }
+      : { perBucket: WALKABILITY_BASELINE_PER_BUCKET },
+  };
+}
 
 // Orchestration: cache first, Socrata on a miss, write the result back.
 // The routes never call Socrata or Mongo directly — that separation is what
@@ -54,6 +107,8 @@ const ALL_TIERS = Object.keys(RADIUS_TIERS);
  * must never pay a 0.3-2.5s (tail 8.3s) upstream call to do it.
  *
  * @returns {Promise<{coord: {lat, lng}, counts: Record<string, object|null>,
+ *   bucketStatusCounts: Record<string, object|undefined>,
+ *   updatedAt: Record<string, Date|null>,
  *   cache: Record<string, "hit"|"miss">}>}
  */
 export async function getCounts(
@@ -62,19 +117,36 @@ export async function getCounts(
   { now, tiers = ALL_TIERS, forceRefresh = false, cacheOnly = false } = {}
 ) {
   const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
+  // Resolved ONCE, up front, rather than defaulted separately wherever `now`
+  // is used below. A miss's `updatedAt` entry must be the EXACT timestamp
+  // writeCounts persists as that document's `createdAt` — two independently
+  // evaluated `new Date()` calls, even microseconds apart, would make a
+  // freshly-written tier register as already stale to
+  // resolveCachedOverallSummary's exact-timestamp comparison.
+  const effectiveNow = now ?? new Date();
 
   const entries = forceRefresh
     ? Object.fromEntries(tiers.map((tier) => [tier, null]))
     : await readEntries(coord.lat, coord.lng, tiers);
 
-  // Any explanation cached alongside the counts. Returned so the score path can
-  // serve a stored AI explanation without ever making an AI call itself.
-  const cachedExplanations = Object.fromEntries(
-    tiers.map((tier) => [tier, entries[tier] ?? null])
-  );
-
   const cached = Object.fromEntries(
     tiers.map((tier) => [tier, entries[tier]?.counts ?? null])
+  );
+
+  // Status breakdown travels alongside counts the same way, but is never
+  // defaulted to a zero-filled object: `undefined` here means "not computed
+  // for this tier" (an older cache doc), which is a different fact from
+  // "every status bucket really is zero".
+  const cachedStatusCounts = Object.fromEntries(
+    tiers.map((tier) => [tier, entries[tier]?.bucketStatusCounts ?? undefined])
+  );
+
+  // When each tier's counts were last (re)written. Used by
+  // resolveCachedOverallSummary to tell whether the cached whole-report
+  // summary — a SEPARATE document on its own TTL — describes THESE counts or
+  // an earlier version of them that has since been refreshed.
+  const updatedAt = Object.fromEntries(
+    tiers.map((tier) => [tier, entries[tier]?.createdAt ?? null])
   );
 
   const misses = tiers.filter((tier) => cached[tier] === null);
@@ -86,7 +158,8 @@ export async function getCounts(
     return {
       coord,
       counts: cached,
-      cachedExplanations,
+      bucketStatusCounts: cachedStatusCounts,
+      updatedAt,
       cache: Object.fromEntries(
         tiers.map((tier) => [tier, misses.includes(tier) ? "miss" : "hit"])
       ),
@@ -99,31 +172,60 @@ export async function getCounts(
   // partial failure only pays for the tier that actually failed.
   const settled = await Promise.allSettled(
     misses.map(async (tier) => {
-      const counts = await fetchCountsForTier(coord.lat, coord.lng, tier, { now });
+      const { counts, bucketStatusCounts } = await fetchCountsForTier(
+        coord.lat,
+        coord.lng,
+        tier,
+        { now: effectiveNow }
+      );
       // Awaited, not fire-and-forget: an unawaited rejection would surface as an
       // unhandled rejection, and on serverless the process can exit first.
       // writeCounts never throws, so this cannot fail the request.
-      await writeCounts(coord.lat, coord.lng, tier, counts, { now });
-      return [tier, counts];
+      await writeCounts(coord.lat, coord.lng, tier, counts, {
+        now: effectiveNow,
+        bucketStatusCounts,
+      });
+      return [tier, { counts, bucketStatusCounts }];
     })
   );
 
   const failure = settled.find((outcome) => outcome.status === "rejected");
   if (failure) throw failure.reason;
 
+  const fetched = Object.fromEntries(settled.map((outcome) => outcome.value));
+
   const counts = {
     ...cached,
-    ...Object.fromEntries(settled.map((outcome) => outcome.value)),
+    ...Object.fromEntries(Object.entries(fetched).map(([tier, v]) => [tier, v.counts])),
   };
+  const bucketStatusCounts = {
+    ...cachedStatusCounts,
+    ...Object.fromEntries(
+      Object.entries(fetched).map(([tier, v]) => [tier, v.bucketStatusCounts])
+    ),
+  };
+  // Exactly the timestamp writeCounts just persisted for each fetched tier —
+  // see the `effectiveNow` comment above for why this must be the same value,
+  // not a separately-evaluated `new Date()`.
+  for (const tier of Object.keys(fetched)) updatedAt[tier] = effectiveNow;
 
   return {
     coord,
     counts,
-    cachedExplanations,
+    bucketStatusCounts,
+    updatedAt,
     cache: Object.fromEntries(
       tiers.map((tier) => [tier, misses.includes(tier) ? "miss" : "hit"])
     ),
   };
+}
+
+/** The most recent of several tier timestamps, or null if none are known. */
+function latestTimestamp(updatedAt) {
+  const values = Object.values(updatedAt)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime());
+  return values.length ? new Date(Math.max(...values)) : null;
 }
 
 /**
@@ -146,32 +248,68 @@ export function isMockMode() {
  * it is a Mongo round trip that has no reason to sit behind two HTTP calls.
  */
 export async function buildScoreReport(lat, lng, options = {}) {
-  if (isMockMode()) return mockScoreReport(lat, lng);
+  return (await buildScoreReportInternal(lat, lng, options)).report;
+}
 
-  const [{ coord, counts, cache, cachedExplanations }, baseline] =
-    await Promise.all([getCounts(lat, lng, options), loadBaseline()]);
+/**
+ * The shared implementation behind buildScoreReport — returns
+ * `complaintsUpdatedAt` alongside the report for buildExplanation's benefit
+ * (it needs that timestamp to stamp a freshly-generated summary, see below),
+ * WITHOUT putting a real wall-clock value in the public report itself: an
+ * uncached `/api/score` response must stay byte-identical across repeat
+ * calls for the same coordinate, which a `meta.complaintsUpdatedAt` field
+ * would have broken.
+ */
+async function buildScoreReportInternal(lat, lng, options) {
+  if (isMockMode()) return { report: mockScoreReport(lat, lng), complaintsUpdatedAt: null };
 
-  const report = buildReport(counts, baseline, {
-    // Coordinates are rounded for the cache key, so the circle we actually
-    // queried is not exactly the one asked for. Say so rather than implying
-    // more precision than we have.
-    coord,
-    cache,
-  });
+  const [
+    { coord, counts, cache, updatedAt, bucketStatusCounts },
+    baseline,
+    { amenities, amenityBaseline },
+    cachedSummary,
+  ] = await Promise.all([
+    getCounts(lat, lng, options),
+    loadBaseline(),
+    // cacheOnly defaults to false here — this IS the one path allowed to
+    // trigger a live, billed Places call for walkability on a cache miss.
+    getAmenitiesForReport(lat, lng),
+    // Issued alongside everything else, not after: same reasoning as the
+    // baseline load above — a cheap, memoization-free Mongo read has no
+    // reason to sit behind the counts/amenities calls it doesn't depend on.
+    readAmenityExplanation(roundCoord(lat), roundCoord(lng), "overall"),
+  ]);
 
-  // Explanations are attached here, and NEVER generated here. This endpoint is
-  // on the user's critical path; the AI call is not allowed anywhere near it.
-  // A cached AI explanation is served if one exists, otherwise the deterministic
-  // template goes out immediately and the frontend asks /api/explanation for
-  // the real thing.
+  const complaintsUpdatedAt = latestTimestamp(updatedAt);
+
+  const report = buildReport(
+    counts,
+    baseline,
+    {
+      // Coordinates are rounded for the cache key, so the circle we actually
+      // queried is not exactly the one asked for. Say so rather than implying
+      // more precision than we have.
+      coord,
+      cache,
+    },
+    amenities,
+    amenityBaseline,
+    bucketStatusCounts
+  );
+
+  // Every section's "Why this score?" is attached here, and it is ALWAYS the
+  // deterministic template — none of these six ever calls the AI. The one AI
+  // text in the whole report is `summary` below, which is why it is the only
+  // one worth a cache-freshness check at all.
   for (const [tier, key] of Object.entries(REPORT_KEYS)) {
-    report[key] = {
-      ...report[key],
-      ...resolveCachedExplanation(tier, report[key], cachedExplanations?.[tier]),
-    };
+    report[key] = { ...report[key], ...explainFromTemplate(tier, report[key]) };
   }
 
-  return report;
+  // Cache-first-else-template, but spanning ALL sections at once and gated on
+  // freshness — see resolveCachedOverallSummary.
+  report.summary = resolveCachedOverallSummary(report, cachedSummary, complaintsUpdatedAt);
+
+  return { report, complaintsUpdatedAt };
 }
 
 /**
@@ -189,21 +327,42 @@ export async function buildScoreReport(lat, lng, options = {}) {
 export async function buildCachedScoreReport(lat, lng, options = {}) {
   if (isMockMode()) return mockScoreReport(lat, lng);
 
-  const [{ coord, counts, cache, cachedExplanations }, baseline] = await Promise.all([
+  const [
+    { coord, counts, cache, updatedAt, bucketStatusCounts },
+    baseline,
+    { amenities, amenityBaseline },
+    cachedSummary,
+  ] = await Promise.all([
     getCounts(lat, lng, { ...options, cacheOnly: true }),
     loadBaseline(),
+    // The three static-dataset tiers have no Socrata dependency at all —
+    // no "cacheOnly" concept applies to them, already as cheap as the
+    // complaint path's cache read. Walkability is different: it is a live,
+    // billed Places call on a cache miss, which this render path must
+    // never trigger — cacheOnly: true here means a cold coordinate simply
+    // omits walkabilityAccess rather than paying for it on the homepage.
+    getAmenitiesForReport(lat, lng, { cacheOnly: true }),
+    // A plain Mongo read, same as the counts/amenity cache reads above —
+    // never a live AI call, so it belongs on this cache-only render path.
+    readAmenityExplanation(roundCoord(lat), roundCoord(lng), "overall"),
   ]);
 
   if (ALL_TIERS.some((tier) => counts[tier] === null)) return null;
 
-  const report = buildReport(counts, baseline, { coord, cache });
+  const report = buildReport(
+    counts,
+    baseline,
+    { coord, cache },
+    amenities,
+    amenityBaseline,
+    bucketStatusCounts
+  );
 
   for (const [tier, key] of Object.entries(REPORT_KEYS)) {
-    report[key] = {
-      ...report[key],
-      ...resolveCachedExplanation(tier, report[key], cachedExplanations?.[tier]),
-    };
+    report[key] = { ...report[key], ...explainFromTemplate(tier, report[key]) };
   }
+
+  report.summary = resolveCachedOverallSummary(report, cachedSummary, latestTimestamp(updatedAt));
 
   return report;
 }
@@ -215,14 +374,40 @@ const REPORT_KEYS = {
 };
 
 /**
- * Uses a cached AI explanation when one is stored, otherwise falls back to the
- * template. Only "ai" is accepted from cache: a cached *template* string is
- * worth nothing (we can rebuild it for free) and storing it would make the
- * frontend think the AI had already run and skip its second call.
+ * A cached AI summary wins, otherwise the deterministic template. Two things
+ * have to hold for the cache to count, not just one:
+ *
+ * 1. Only "ai" is accepted at all — a cached *template* string is free to
+ *    rebuild, and storing it would make the frontend think the AI had
+ *    already run and skip its GET /api/explanation?tier=overall call.
+ * 2. It must be FRESH: `cached.basedOn` (the complaint-counts timestamp the
+ *    summary was generated from, stamped by buildExplanation below) must
+ *    match `complaintsUpdatedAt` (the current one, computed from the SAME
+ *    getCounts call the report itself was just built from — see
+ *    buildScoreReportInternal). Those two drift apart precisely when the
+ *    counts doc has been refreshed since the summary was written — the
+ *    summary and the counts each sit on their OWN 24h TTL, ticking from
+ *    independent last-write times, so nothing else forces them to expire
+ *    together. Without this check a stale summary could describe counts up
+ *    to 24h out of date while every badge on the page already reflects the
+ *    refreshed ones. A missing `basedOn` (a summary written before this
+ *    check existed) counts as stale too, rather than being grandfathered in
+ *    as fresh.
+ *
+ * `complaintsUpdatedAt` is deliberately NOT part of the public report (it
+ * would make an uncached /api/score response vary between two otherwise-
+ * identical calls) — it only ever exists as a local value threaded between
+ * the functions in this file that need it.
  */
-function resolveCachedExplanation(tier, subScore, cached) {
+function resolveCachedOverallSummary(report, cached, complaintsUpdatedAt) {
+  const fresh =
+    cached?.basedOn != null &&
+    complaintsUpdatedAt != null &&
+    new Date(cached.basedOn).getTime() === new Date(complaintsUpdatedAt).getTime();
+
   if (
-    cached?.explanationSource === EXPLANATION_SOURCES.ai &&
+    fresh &&
+    cached.explanationSource === EXPLANATION_SOURCES.ai &&
     typeof cached.explanation === "string" &&
     cached.explanation !== ""
   ) {
@@ -231,54 +416,52 @@ function resolveCachedExplanation(tier, subScore, cached) {
       explanationSource: EXPLANATION_SOURCES.ai,
     };
   }
-  return explainFromTemplate(tier, subScore);
+  return explainOverallFromTemplate(report);
 }
 
 /**
- * The SLOW path behind GET /api/explanation: generate one tier's explanation
- * with the active AI adapter, store it next to the counts, return it.
+ * The SLOW path behind GET /api/explanation?tier=overall: generate the
+ * whole-report summary with the active AI adapter, store it, return it. This
+ * is the ONLY explanation in the app that ever calls the AI adapter — every
+ * per-section "Why this score?" is the deterministic template, attached
+ * directly in buildScoreReport/buildCachedScoreReport above.
  *
- * Separated from the score request precisely so the AI latency gets its own
- * request budget instead of stacking behind Socrata + scoring — which is what
- * would blow a serverless execution cap.
- *
- * Returns a cached AI explanation immediately if one already exists, so a
- * double-fire from the frontend costs a Mongo read rather than a generation.
- *
- * @returns {Promise<{explanation, explanationSource, band, cached: boolean}>}
+ * Reuses buildScoreReportInternal rather than re-fetching counts/amenities
+ * itself — that already resolves this tier's own cached (and freshness-
+ * checked) summary via resolveCachedOverallSummary above, so
+ * `report.summary.explanationSource` already says whether a fresh AI summary
+ * exists without a second cache read here. Needs the internal variant, not
+ * the public buildScoreReport, because it also needs `complaintsUpdatedAt`
+ * to stamp on a freshly-generated summary — see resolveCachedOverallSummary's
+ * doc comment for why that value is not part of the public report.
  */
-export async function buildExplanation(lat, lng, tier, options = {}) {
-  const [{ coord, counts, cachedExplanations }, baseline] = await Promise.all([
-    getCounts(lat, lng, { ...options, tiers: [tier] }),
-    loadBaseline(),
-  ]);
+export async function buildExplanation(lat, lng) {
+  const { report, complaintsUpdatedAt } = await buildScoreReportInternal(lat, lng, {});
 
-  const subScore = scoreTier(tier, counts[tier], baseline);
-  const cached = cachedExplanations?.[tier];
-
-  if (
-    cached?.explanationSource === EXPLANATION_SOURCES.ai &&
-    typeof cached.explanation === "string" &&
-    cached.explanation !== ""
-  ) {
+  if (report.summary.explanationSource === EXPLANATION_SOURCES.ai) {
     return {
-      explanation: cached.explanation,
+      explanation: report.summary.explanation,
       explanationSource: EXPLANATION_SOURCES.ai,
-      band: subScore.band,
       cached: true,
     };
   }
 
-  const { explanation, explanationSource } = await explainWithAI(tier, subScore);
+  const { explanation, explanationSource } = await explainOverallWithAI(report);
 
-  // Only AI output is worth storing — see resolveCachedExplanation. Awaited so
-  // a serverless process cannot exit before the write lands, and it cannot
-  // throw, so it cannot fail the request.
   if (explanationSource === EXPLANATION_SOURCES.ai) {
-    await writeExplanation(coord.lat, coord.lng, tier, explanation, explanationSource);
+    await writeAmenityExplanation(
+      roundCoord(lat),
+      roundCoord(lng),
+      "overall",
+      explanation,
+      explanationSource,
+      // Stamped so a LATER counts refresh can be detected as making this
+      // summary stale — see resolveCachedOverallSummary above.
+      { basedOn: complaintsUpdatedAt }
+    );
   }
 
-  return { explanation, explanationSource, band: subScore.band, cached: false };
+  return { explanation, explanationSource, cached: false };
 }
 
 /**
