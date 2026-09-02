@@ -1,12 +1,14 @@
-# Should I Live Here — backend
+# Streetwise — backend
 
-NYC 311 address risk API. Send a coordinate, get two 0–100 sub-scores —
-**Building Health** (25m radius) and **Block Quality** (350m radius) — each with
-complaint counts and a plain-English explanation.
+NYC 311 address risk API. Send a coordinate, get a livability report: two
+0–100 complaint-based sub-scores — **Building Health** (25m radius) and
+**Block Quality** (350m radius) — plus up to four amenity-based sub-scores
+(**Transit / Parks / Bike / Walkability Access**), each with counts/distances
+and a plain-English explanation.
 
-- **HTTP contract:** [`API.md`](API.md) — endpoints, payloads, errors
+- **HTTP contract:** [`../documentation/backend-routes.md`](../documentation/backend-routes.md) — every endpoint, request/response shapes
 - **Spec:** [`CLAUDE.md`](CLAUDE.md) — what was decided and why
-- **Build log:** [`documentation/`](documentation/README.md)
+- **Full module reference:** [`../documentation/`](../documentation/README.md) — architecture, services, providers, config
 
 ---
 
@@ -49,7 +51,7 @@ curl -X POST localhost:3001/api/score \
 The first call for a coordinate takes ~7s (live NYC Open Data). Every call after
 that is ~10ms from the Mongo cache.
 
-Full endpoint reference — parameters, payloads, errors: [`API.md`](API.md).
+Full endpoint reference — parameters, payloads, errors: [`../documentation/backend-routes.md`](../documentation/backend-routes.md).
 
 Two containers run:
 
@@ -316,7 +318,7 @@ npm run verify:explanations
 ## Common tasks
 
 ```bash
-npm test                    # 313 tests, no network. Run these on the host, not in Docker.
+npm test                    # 700 tests, no network. Run these on the host, not in Docker.
 npm run baseline            # regenerate the citywide baseline (~3 min, live API)
 npm run verify:dataset      # confirm the 311 dataset hasn't moved
 npm run verify:scoring      # score distribution sanity check

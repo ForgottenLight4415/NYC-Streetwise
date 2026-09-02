@@ -169,6 +169,13 @@ export function ComplaintsBrowserModal({
   ]);
 
   // Drill-in page loads separately; the group already told us its size.
+  //
+  // Depends on drill's own primitive fields (day/type/offset), not `drill`
+  // itself — same requestKey-primitive pattern the effect above uses. `drill`
+  // gets a fresh object identity on every setDrill call, including the ones
+  // this same effect makes below — depending on the object would re-run (and
+  // immediately no-op past the `items !== null` guard) on every one of
+  // those, not just on an actual new drill-in or page turn.
   useEffect(() => {
     if (!drill || drill.items !== null) return;
     let cancelled = false;
@@ -200,7 +207,8 @@ export function ComplaintsBrowserModal({
     return () => {
       cancelled = true;
     };
-  }, [drill, lat, lng, tier, status, pageSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drill?.group.day, drill?.group.type, drill?.offset, lat, lng, tier, status, pageSize]);
 
   const bucketOptions = [
     { value: "all", label: "All" },

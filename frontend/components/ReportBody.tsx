@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { COMPLAINT_CATEGORIES } from "@/lib/categories";
 import { AMENITY_BUCKET_LABEL } from "@/lib/amenities";
@@ -164,16 +165,41 @@ export function ReportBody({
       ? `mt-4 grid gap-4 ${AMENITY_COLS[otherAmenityCats.length] ?? "md:grid-cols-2"}`
       : "mt-4 flex flex-col gap-4";
 
-  const activityTiers = panels
-    ? COMPLAINT_CATEGORIES.map((c) => ({
-        tier: c.id,
-        label: c.label,
-        colorVar: c.colorVar,
-        complaints: panels[c.key].complaints?.data,
-        isLoading: panels[c.key].complaints?.isLoading ?? false,
-        radiusMeters: report[c.key].radiusMeters,
-      }))
-    : null;
+  // panels itself is a fresh object literal every render (useReportPanels has
+  // no memoization of its own), so it can't be the useMemo dep either —
+  // depend on the actual stable pieces nested inside it instead: `data` is
+  // an SWR cache array (stable when unchanged), the rest are primitives.
+  // Same "primitive/stable-key, not raw-object" trick as MapPanel's
+  // ringsKey/extraMarkersKey and ComplaintsBrowserModal's requestKey.
+  // Otherwise ActivitySpine's own [tiers, cutoff] useMemo recomputes its
+  // flat-map/filter/sort on every unrelated ReportBody re-render (trend-pill
+  // clicks, amenity-modal toggles).
+  const hasPanels = !!panels;
+  const buildingComplaints = panels?.buildingHealth.complaints;
+  const blockComplaints = panels?.blockQuality.complaints;
+  const activityTiers = useMemo(
+    () =>
+      panels
+        ? COMPLAINT_CATEGORIES.map((c) => ({
+            tier: c.id,
+            label: c.label,
+            colorVar: c.colorVar,
+            complaints: panels[c.key].complaints?.data,
+            isLoading: panels[c.key].complaints?.isLoading ?? false,
+            radiusMeters: report[c.key].radiusMeters,
+          }))
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      hasPanels,
+      buildingComplaints?.data,
+      buildingComplaints?.isLoading,
+      blockComplaints?.data,
+      blockComplaints?.isLoading,
+      report.buildingHealth.radiusMeters,
+      report.blockQuality.radiusMeters,
+    ],
+  );
 
   const mainColumn = (
     <div className="min-w-0">

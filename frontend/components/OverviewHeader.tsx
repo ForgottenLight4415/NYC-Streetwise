@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AMENITY_BUCKET_LABEL } from "@/lib/amenities";
 import { computeOverviewMetrics } from "@/lib/reportMetrics";
 import { BAND_VAR } from "@/lib/score";
@@ -47,7 +48,7 @@ export function OverviewHeader({
     transitWalk,
     transitName,
     transitBucket,
-  } = computeOverviewMetrics(report);
+  } = useMemo(() => computeOverviewMetrics(report), [report]);
 
   return (
     <div className="flex flex-col gap-4">

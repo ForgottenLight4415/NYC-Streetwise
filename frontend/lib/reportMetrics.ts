@@ -72,7 +72,10 @@ export interface OverviewMetrics {
  * No hooks: everything here is a synchronous fold over data already in hand,
  * so both components call this directly during render instead of duplicating
  * the fold inline (which is how this drifted before — see the "Nearest
- * subway"/"Nearest Transit" split this replaces).
+ * subway"/"Nearest Transit" split this replaces). Each caller wraps its own
+ * call in `useMemo(() => computeOverviewMetrics(report), [report])`, since
+ * `report` is a stable SWR cache identity — that memoization lives at the
+ * call site, not in here, to keep this function itself hook-free.
  */
 export function computeOverviewMetrics(report: ReportResponse): OverviewMetrics {
   const complaintSections = COMPLAINT_CATEGORIES.map((c) => report[c.key]);
