@@ -36,7 +36,10 @@ component directly.
 
 **No mock-data fallback exists anywhere.** `fetchReport()` throws on any
 failure — a backend that's down shows an error, not a fake-but-plausible
-report. Do not reintroduce a fallback that hides a real outage.
+report. `ReportView`/`CompareView` catch that throw via SWR's `error` state
+and render their own inline message; `app/error.tsx` (the root boundary) is
+a separate, lower-level safety net for a genuine unexpected bug, not for
+backend outages. Do not reintroduce a fallback that hides a real outage.
 
 ## The two Google Maps keys — never conflate them
 

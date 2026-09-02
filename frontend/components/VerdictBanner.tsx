@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AMENITY_CATEGORIES, COMPLAINT_CATEGORIES } from "@/lib/categories";
 import { useExplanation, type useReportPanels } from "@/lib/hooks";
 import { computeOverviewMetrics } from "@/lib/reportMetrics";
@@ -107,7 +108,13 @@ export function VerdictBanner({
   const amenityCats = AMENITY_CATEGORIES.filter((c) => report[c.key] != null);
   const hasAccess = amenityCats.length > 0;
 
-  const { liveabilityBand, accessBand } = computeOverviewMetrics(report);
+  // `report` is a stable SWR cache identity — see computeOverviewMetrics's
+  // own doc comment — so this only re-folds when the report itself changes,
+  // not on every VerdictBanner re-render.
+  const { liveabilityBand, accessBand } = useMemo(
+    () => computeOverviewMetrics(report),
+    [report],
+  );
 
   const color = `var(${BAND_VAR[liveabilityBand]})`;
 

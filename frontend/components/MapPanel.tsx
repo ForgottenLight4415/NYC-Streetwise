@@ -85,11 +85,16 @@ function whenMapsReady(timeoutMs = 10000): Promise<typeof google | null> {
   });
 }
 
+/** Module-scope, so an omitted `extraMarkers` prop doesn't get a fresh []
+ *  identity every render — same convention AddressSearch.tsx uses for its
+ *  own EMPTY/NO_SUGGESTIONS constants. */
+const EMPTY_MARKERS: MapExtraMarker[] = [];
+
 export function MapPanel({
   centerLat,
   centerLng,
   rings,
-  extraMarkers = [],
+  extraMarkers = EMPTY_MARKERS,
   extraMarkersColorVar,
 }: {
   centerLat: number;

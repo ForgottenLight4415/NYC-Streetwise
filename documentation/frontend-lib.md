@@ -215,11 +215,13 @@ label is a build error, not a wrapped label at runtime.
   *negative* percent is the good outcome — callers must map `pct < 0` to the
   "good" color, not the reverse.
 - **`computeOverviewMetrics(report)`** — the single pure fold both
-  `VerdictBanner` and `OverviewHeader` call directly during render (no hook,
-  no state) to get the Liveability/Access bands+scores and the
-  nearest-transit summary, so the two components can't independently
-  recompute it and drift, which is how an earlier version split into two
-  disagreeing implementations.
+  `VerdictBanner` and `OverviewHeader` call to get the Liveability/Access
+  bands+scores and the nearest-transit summary, so the two components can't
+  independently recompute it and drift, which is how an earlier version
+  split into two disagreeing implementations. The function itself takes no
+  hooks (a synchronous fold over data already in hand); each caller wraps
+  its own call in `useMemo(() => computeOverviewMetrics(report), [report])`
+  since `report` is a stable SWR cache identity.
 
 ---
 

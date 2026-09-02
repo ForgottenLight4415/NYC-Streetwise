@@ -13,6 +13,17 @@ library/context — each page fetches its own data via SWR hooks
 | `/report?address=&placeId=` | `app/report/page.tsx` → `components/ReportView.tsx` | The main report screen. Client component tree wrapped in `<Suspense fallback={<ReportLoading />}>` because it reads `useSearchParams()`. The page itself is a server component whose only job is deciding whether to inject the Maps JS `<script>` tag (see below) — the map SDK is requested per-route, not from the root layout, since `/` never renders a map. |
 | `/compare?a=&b=` | `app/compare/page.tsx` → `components/CompareView.tsx` | Two addresses side by side, each independently searchable, synced to `a`/`b` query params via `router.replace`. Same Maps-script-injection pattern as `/report`. |
 
+`app/error.tsx` is the root error boundary — catches an unexpected
+render-time throw anywhere under the root layout (`<Header>` stays mounted;
+only the failing segment's content is replaced) and offers a "Try again"
+(`reset()`) plus a link home, instead of Next's default unstyled overlay.
+This is **not** the path a documented backend failure takes: `ReportView`/
+`CompareView` already catch `fetchReport()`'s throw via SWR's `error` state
+and render their own inline branded message (see `ReportView.tsx`) — the
+"no mock-data fallback, `fetchReport()` throws" contract in `CLAUDE.md` is
+handled there, before it would ever reach this boundary. `app/error.tsx`
+only ever fires for a genuine bug.
+
 `app/layout.tsx` is the root layout: loads three fonts (Archivo for display,
 Lato for body, IBM Plex Mono for data/numbers — all deliberate choices, see
 the file's own comments), inlines a theme-detection script into `<head>`

@@ -191,17 +191,28 @@ export function explainVerdict(
   const sections = complaintSections.filter((s) => s.band === overall);
 
   const contributors = sections
-    .flatMap((section) =>
-      Object.entries(section.counts)
+    .flatMap((section) => {
+      // One pass over recentComplaints per section (not per category) —
+      // otherwise every non-zero category re-filters the same up-to-200-item
+      // array, turning a small category loop into repeated full scans.
+      const unresolvedByLabel = new Map<string, number>();
+      for (const c of section.recentComplaints ?? []) {
+        if (c.status !== "closed") {
+          unresolvedByLabel.set(c.label, (unresolvedByLabel.get(c.label) ?? 0) + 1);
+        }
+      }
+      return Object.entries(section.counts)
         .filter(([, count]) => count > 0)
         .map(([category, count]) => {
           const label = CATEGORY_LABEL[category] ?? category;
-          const unresolved = (section.recentComplaints ?? []).filter(
-            (c) => c.label === label && c.status !== "closed",
-          ).length;
-          return { category, count, label, unresolved };
-        }),
-    )
+          return {
+            category,
+            count,
+            label,
+            unresolved: unresolvedByLabel.get(label) ?? 0,
+          };
+        });
+    })
     .sort((a, b) => b.count - a.count);
 
   const label = BAND_LABEL[overall];
