@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mockScoreReport, mockComplaints } from "../src/services/mockData.js";
+import {
+  mockScoreReport,
+  mockComplaints,
+  mockMonthlyTrend,
+} from "../src/services/mockData.js";
 import {
   BUCKET_NAMES,
   RADIUS_TIERS,
@@ -180,5 +184,67 @@ describe("mockComplaints", () => {
     expect(mockComplaints(...TIMES_SQUARE, 350)).not.toEqual(
       mockComplaints(...BUSHWICK, 350)
     );
+  });
+});
+
+describe("mockMonthlyTrend", () => {
+  const OPTS = { tier: "block", months: 9, now: new Date("2026-06-15") };
+
+  it("returns points in the contract shape, oldest first, only non-zero months", () => {
+    const points = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
+    expect(points.length).toBeGreaterThan(0);
+
+    let previousMonth = "";
+    for (const point of points) {
+      expect(Object.keys(point).sort()).toEqual(["count", "month"]);
+      expect(point.month).toMatch(/^\d{4}-\d{2}$/);
+      expect(point.month > previousMonth).toBe(true);
+      previousMonth = point.month;
+      expect(Number.isInteger(point.count)).toBe(true);
+      expect(point.count).toBeGreaterThan(0);
+    }
+  });
+
+  it("never returns more months than requested", () => {
+    const points = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
+    const monthsSpanned =
+      (2026 - Number(points[0].month.slice(0, 4))) * 12 +
+      (6 - Number(points[0].month.slice(5)));
+    expect(monthsSpanned).toBeLessThan(OPTS.months);
+  });
+
+  it("scales the block tier's counts above the building tier's", () => {
+    // Block-tier radii cover far more ground, so they must carry far more
+    // complaints — this is what makes the mock trend chart look like real
+    // 311 volume instead of two visually identical tiers.
+    const buildingTotal = mockMonthlyTrend(...TIMES_SQUARE, 25, {
+      ...OPTS,
+      tier: "building",
+    }).reduce((sum, p) => sum + p.count, 0);
+    const blockTotal = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS).reduce(
+      (sum, p) => sum + p.count,
+      0
+    );
+    expect(blockTotal).toBeGreaterThan(buildingTotal);
+  });
+
+  it("is deterministic per coordinate, tier, and radius", () => {
+    expect(mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)).toEqual(
+      mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)
+    );
+    expect(mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)).not.toEqual(
+      mockMonthlyTrend(...BUSHWICK, 350, OPTS)
+    );
+  });
+
+  it("uses a different draw per tier, not a shared seed", () => {
+    // Same coordinate and radius, only the tier differs — a shared seed would
+    // make the two series suspiciously identical in shape.
+    const building = mockMonthlyTrend(...TIMES_SQUARE, 350, {
+      ...OPTS,
+      tier: "building",
+    });
+    const block = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
+    expect(building).not.toEqual(block);
   });
 });

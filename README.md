@@ -27,32 +27,41 @@ rows with no way to ask "what does this actually mean for *this* address."
 
 **Streetwise** answers that question directly. Type an address, and the
 app geocodes it, pulls every relevant 311 complaint filed near that location
-over the last two years, and turns the raw counts into two things a person
-can actually act on:
+over the last two years, and turns the raw counts — plus a handful of public
+amenity datasets — into six things a person can actually act on:
 
 - A **Building Health Score** (0–100) — heat/hot water outages, unsanitary
   conditions, and plumbing failures, scoped to a tight ~25m radius so it
   reflects *this building*, not the whole block.
-- A **Block Quality Score** (0–100) — noise and illegal parking complaints
-  at a ~350m radius, describing what living on this block is actually like
-  day to day.
+- A **Block Quality Score** (0–100) — noise, illegal parking, and street
+  condition complaints at a ~350m radius, describing what living on this
+  block is actually like day to day.
+- **Transit, Parks, and Bike Access Scores** (0–100) — distance to the
+  nearest subway/bus/rail, park/playground/garden, and Citi Bike dock/bike
+  lane, from small static public datasets distilled once and scored from
+  memory in microseconds — no live call on the request path.
+- A **Walkability Access Score** (0–100) — distance to the nearest grocery
+  store, restaurant, cafe, and school, the one amenity tier backed by a live
+  (cached) Google Places lookup rather than a static dataset.
 
-Both scores are computed against a **precomputed citywide baseline**, so the
-number isn't just a raw count — it's a percentile. "7 plumbing complaints"
-means nothing on its own; "worse than 85% of NYC buildings" does. That
-baseline-relative scoring is the entire reason this is a *score* and not
-just a complaint tally with extra steps.
+Every score is computed against a **precomputed citywide baseline**, so the
+number isn't just a raw count or distance — it's a percentile. "7 plumbing
+complaints" means nothing on its own; "worse than 85% of NYC buildings" does.
+That baseline-relative scoring is the entire reason this is a *score* and not
+just a tally with extra steps.
 
-Each score also comes with a plain-English explanation of *why* it landed
-where it did — AI-generated (Ollama locally, Gemini when deployed) with a
-deterministic template fallback, so the feature can never show a broken or
-empty state.
+Each section also comes with a plain-English explanation of *why* it landed
+where it did. The two complaint scores and four amenity scores get an instant
+deterministic explanation; the whole-report summary is AI-generated (Ollama
+locally, Gemini when deployed) with a deterministic template fallback, so the
+feature can never show a broken or empty state.
 
-This was built end-to-end in a single day for a hackathon: a real Express
-API that live-queries NYC Open Data and caches results in MongoDB, paired
-with a Next.js frontend that geocodes addresses through Google Maps and
-presents the two scores alongside an interactive map, a complaint breakdown,
-a 12-month trend, and a per-complaint detail view.
+A real Express API live-queries NYC Open Data, MTA/DOT/Citi Bike datasets,
+and (for walkability) Google Places, caching results in MongoDB, paired with
+a Next.js frontend that geocodes addresses through Google Maps and presents
+the report alongside an interactive map, a complaint breakdown, a monthly
+trend chart, a complaints browser, and a side-by-side address comparison
+view.
 
 ---
 
@@ -60,7 +69,7 @@ a 12-month trend, and a per-complaint detail view.
 
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
-- [What's real vs. mocked/stubbed right now](#whats-real-vs-mockedstubbed-right-now)
+- [What's real vs. mocked right now](#whats-real-vs-mocked-right-now)
 - [Repo layout](#repo-layout)
 - [Testing](#testing)
 - [Contributors](#contributors)
@@ -167,7 +176,7 @@ report.
 
 ```
  Browser
-   │  address search
+   │  address search / compare
    ▼
  Next.js frontend  (frontend/, :3000)
    │  geocodes via Google  (app/api/geocode, app/api/autocomplete)
@@ -175,40 +184,37 @@ report.
    ▼
  Express backend  (backend/, :3001)
    │  Mongo cache (optional) → live Socrata query on a miss
-   │  scores counts against a precomputed citywide baseline
+   │  in-memory amenity datasets, scored the same way as complaint counts
+   │  scores everything against a precomputed citywide baseline
    ▼
- NYC 311 Open Data (Socrata)   +   MongoDB (optional cache / baseline store)
+ NYC 311 Open Data (Socrata)  +  MTA/DOT/Citi Bike datasets  +  Google Places
+   +  MongoDB (optional cache / baseline store)
 ```
 
 The backend **never geocodes** — it only ever takes `{lat, lng}`. The
 frontend **never** touches Socrata or Mongo directly — it only calls the
-backend's `POST /api/score`. That boundary is deliberate and documented in
-[`backend/CLAUDE.md`](backend/CLAUDE.md).
+backend's `POST /api/score` and its sibling endpoints. That boundary is
+deliberate and documented in [`backend/CLAUDE.md`](backend/CLAUDE.md).
 
 ---
 
-## What's real vs. mocked/stubbed right now
+## What's real vs. mocked right now
 
-Worth knowing before demoing this or building on top of it — not everything
-in the UI is backed by the real data pipeline yet:
+Worth knowing before demoing this or building on top of it:
 
 | Feature | Backed by real data? |
 |---|---|
-| Building Health / Block Quality scores + per-category counts | **Yes**, once the backend is running (`POST /api/score` hits live 311 data) |
+| Building Health / Block Quality scores | **Yes**, once the backend is running (`POST /api/score` hits live 311 data) |
+| Transit / Parks / Bike / Walkability Access scores | **Yes** — the first three from committed static public datasets, the fourth from a live (cached) Google Places lookup |
 | Address search, autocomplete, interactive map | **Yes**, via Google Maps APIs |
-| Per-score "why" explanation text | **Yes** — AI-generated via Ollama/Gemini when a provider is configured and reachable, otherwise a deterministic (but still accurate) template. Either way it's derived from the real counts, never fabricated. The report banner now actually requests and displays the AI text (`GET /api/explanation`); it previously ignored it and always showed the client-side `explainVerdict` copy. |
-| "Recent Complaints" list on each report | **Yes** — `ReportView` populates each panel's `recentComplaints` from `GET /api/complaints` (real individual 311 records). Note `/api/score` itself still returns only aggregate counts, so a component handed a raw `/api/score` response sees no complaint list. |
-| Complaint status timeline (Open → In Progress → Closed) | **No** — 311 doesn't expose per-complaint status history at all. Explicitly labeled stub (`buildComplaintTimeline` in `frontend/lib/mock-data.ts`) that synthesizes a plausible timeline from a complaint's date + current status. |
+| Complaints browser, per-complaint detail, monthly trend chart | **Yes** — `GET /api/complaints` (raw and grouped modes) and `GET /api/trend` |
+| Homepage sample reports / "Try:" chips | **Yes** — `GET /api/showcase`, addresses the backend has real cached scores for. There is no synthesized sample data left on the landing page. |
+| Per-score "why" explanation text | **Yes** for every section — deterministic template text is real, derived from the real counts/distances, never fabricated. The whole-report summary banner additionally upgrades to AI-generated text (`GET /api/explanation?tier=overall`) when a provider is configured and reachable. |
+| A complaint's status-change history (Open → In Progress → Closed timeline) | **No.** 311 does not publish this at all — there was once a UI stub that synthesized one from a complaint's date and current status; it has been removed rather than kept as a stub. The detail view shows only the filing date and current status, which is everything 311 actually publishes. |
 
-**Trust the scores and the complaint list. Don't trust the timeline as a real
-311 record** — it remains an intentionally-scoped UI stub whose data shape
-already matches what a real implementation would need, ready to swap in real
-data later without a redesign.
-
-**A working-looking report is now proof the backend is real.** `fetchReport()`
-used to fall back to a fully fake `mock-data.ts` report whenever the backend
-was unreachable, which made an outage indistinguishable from success. That
-fallback has been removed — a backend that is down now shows an error.
+**A working-looking report is proof the backend is real.** `fetchReport()`
+has no mock-data fallback on a connection failure — a backend that is down
+shows an error, not a fake-but-plausible report.
 
 ---
 
@@ -217,23 +223,27 @@ fallback has been removed — a backend that is down now shows an error.
 ```
 backend/
   src/
-    routes/       score.js, complaints.js, explanation.js, health.js
+    routes/       score.js, complaints.js, explanation.js, health.js, trend.js,
+                  showcase.js, amenities.js  (9 route modules total)
     services/     scoreService.js (orchestration), scoring.js (pure scoring),
-                  explain.js, templateExplanation.js, mockData.js
-    providers/    socrata.js, cache.js, mongo.js, baseline.js, ai/ (gemini.js, ollama.js, ...)
-    config/       constants.js, baseline.json (committed fallback baseline)
-  scripts/        buildBaseline.js, verifyDataset.js, verifyCache.js, verifyScoring.js, verifyExplanations.js
-  test/           vitest suite, 299 tests, no network required
+                  explain.js + templateExplanation.js / templateAmenityExplanation.js /
+                  templateOverallSummary.js, amenityService.js, showcaseService.js, mockData.js
+    providers/    socrata.js, cache.js, mongo.js, baseline.js, amenityBaseline.js,
+                  addressDirectory.js, googleRoutes.js, googlePlaces.js,
+                  amenities/ (static datasets + spatial index), ai/ (gemini.js, ollama.js, ...)
+    config/       constants.js, baseline.json + amenityBaseline.json (committed fallbacks),
+                  amenities/ (committed transit/parks/bike datasets)
+  scripts/        buildBaseline.js, buildAmenities.js, buildAmenityBaseline.js,
+                  verify*.js, warmShowcase.js
+  test/           vitest suite, 700 tests, no network required
   Dockerfile, compose.yaml   local dev stack (API + Mongo), optional
   README.md       full backend setup — Docker, env vars, Ollama/Gemini
-  API.md          full API reference with real captured requests/responses
   CLAUDE.md       backend architecture/data notes, decisions log
-  documentation/  milestone-by-milestone build write-ups (m0–m6), handoff notes
 
 frontend/
-  app/            Next.js App Router pages + API routes (geocode, autocomplete, legacy report proxy)
-  components/     UI components (ReportView, ScorePanelCard, MapPanel, ComplaintDetailModal, ...)
-  lib/            api.ts (backend/Google client), mock-data.ts, score.ts, types.ts
+  app/            Next.js App Router pages (/, /report, /compare) + API routes (geocode, autocomplete)
+  components/     UI components — report panels, amenity panels, compare view, complaints browser, map
+  lib/            api.ts (backend/Google client), score.ts, amenities.ts, types.ts, hooks.ts, ...
 
 documentation/    module-by-module reference docs for this whole repo — see below
 ```
@@ -243,7 +253,7 @@ documentation/    module-by-module reference docs for this whole repo — see be
 ## Testing
 
 ```bash
-cd backend && npm test        # vitest, 299 tests, no network needed
+cd backend && npm test        # vitest, 700 tests, no network needed
 cd frontend && npm run build  # type-checks + builds; no dedicated test suite yet
 ```
 
@@ -269,9 +279,8 @@ Full module-by-module documentation lives in [`documentation/`](documentation/):
 - [`documentation/frontend-components.md`](documentation/frontend-components.md) — every component, grouped by purpose
 - [`documentation/frontend-lib.md`](documentation/frontend-lib.md) — the API client, scoring helpers, and the mock data generator
 
-Plus the backend team's own docs:
+Plus:
 
 - [`backend/README.md`](backend/README.md) — full backend setup: Docker, every env var, Ollama/Gemini install & troubleshooting
-- [`backend/API.md`](backend/API.md) — full endpoint reference with real captured samples
 - [`backend/CLAUDE.md`](backend/CLAUDE.md) — data model, complaint-type mapping, scoring methodology, known data caveats (e.g. `streetCondition`'s 25% null-geocode rate)
-- [`backend/documentation/`](backend/documentation/) — milestone-by-milestone build notes
+- [`frontend/CLAUDE.md`](frontend/CLAUDE.md) — frontend conventions and data-flow notes

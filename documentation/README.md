@@ -1,17 +1,14 @@
 # Project documentation
 
 Module-by-module reference for the whole codebase, written by reading the
-actual source (not just the planning docs) — each doc says what a module
-does, how it's called, and the non-obvious decisions baked into it.
+actual source — each doc says what a module or feature does, how it's
+called, and the non-obvious decisions baked into it. This is reference
+documentation at the feature/module level, not a catalog of every individual
+component or function — for that, read the source next to whichever doc
+brought you there.
 
 For setup instructions, start with the [root README](../README.md) instead —
 these are reference docs, not a getting-started guide.
-
-## Start here
-
-[`handoff.md`](./handoff.md) — running log of recent changes, what broke, and
-the environment gotchas (stale Docker images, the dev/prod Mongo split) that
-cost the most debugging time.
 
 **Configuration split, if that's what you're here for:** Mongo is dev (local
 Docker) vs prod (Atlas) — [`backend-providers.md`](./backend-providers.md#mongojs--connection-management).
@@ -22,33 +19,40 @@ Google Maps is two keys, server vs browser —
 
 1. [`backend-architecture.md`](./backend-architecture.md) — layering, request
    lifecycle, app wiring, entry point, core design principles
-2. [`backend-routes.md`](./backend-routes.md) — every HTTP endpoint, request/response shapes, error codes
-3. [`backend-services.md`](./backend-services.md) — orchestration + the percentile scoring algorithm
-4. [`backend-providers.md`](./backend-providers.md) — the Socrata client, Mongo cache, and baseline loader
-5. [`backend-config-and-scripts.md`](./backend-config-and-scripts.md) — every tunable constant, plus the offline CLI scripts
+2. [`backend-routes.md`](./backend-routes.md) — every HTTP endpoint (9 route
+   modules — score, complaints, trend, showcase, amenities, explanation,
+   health), request/response shapes, error codes
+3. [`backend-services.md`](./backend-services.md) — orchestration, the
+   percentile scoring algorithm (shared by complaint and amenity tiers), and
+   the deterministic + AI explanation layer
+4. [`backend-providers.md`](./backend-providers.md) — the Socrata client,
+   Mongo cache, baseline loaders, the static amenity datasets, Google
+   Routes/Places, and the AI adapters
+5. [`backend-config-and-scripts.md`](./backend-config-and-scripts.md) — every
+   tunable constant, plus the offline CLI scripts
 
-See also [`backend/API.md`](../backend/API.md) (endpoint reference with real
-captured samples) and [`backend/CLAUDE.md`](../backend/CLAUDE.md) (the data
-modeling decisions log — why each complaint type is in or out, known data
-caveats like `streetCondition`'s null-geocode rate).
+See also [`backend/CLAUDE.md`](../backend/CLAUDE.md) — the data modeling
+decisions log: why each complaint type is in or out, known data caveats like
+`streetCondition`'s null-geocode rate, and the full API contract.
 
 ## Frontend (`frontend/`)
 
-1. [`frontend-architecture.md`](./frontend-architecture.md) — pages, API routes, data flow, styling approach
-2. [`frontend-components.md`](./frontend-components.md) — every component, grouped by what it's for
-3. [`frontend-lib.md`](./frontend-lib.md) — the API client, scoring/formatting helpers, and the mock data generator
+1. [`frontend-architecture.md`](./frontend-architecture.md) — pages, API
+   routes, data flow, styling approach
+2. [`frontend-components.md`](./frontend-components.md) — components grouped
+   by feature area (search, report, amenities, compare, complaints browser,
+   landing page)
+3. [`frontend-lib.md`](./frontend-lib.md) — the API client, scoring/
+   formatting helpers, and the amenity/category helpers
+
+See also [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) for frontend
+conventions and data-flow notes.
 
 ## The one thing worth reading before anything else
 
 The root README's
-["What's real vs. mocked/stubbed"](../README.md#whats-real-vs-mockedstubbed-right-now)
-table is the current answer to "is what I'm looking at real". Scores, the
-complaint list, and the explanation text are real. The synthesised complaint
-timeline is gone — the detail modal now shows only the filing date and current
-status, which is all 311 publishes.
-
-> Previously this section warned that a fully-populated-looking report was no
-> proof the backend was being used, because `fetchReport()` silently fell back
-> to a fake local report on any connection failure. That fallback has been
-> removed — see
-> [`frontend-lib.md`](./frontend-lib.md#apits--client-for-backend--google).
+["What's real vs. mocked"](../README.md#whats-real-vs-mocked-right-now)
+table is the current answer to "is what I'm looking at real." All six scores,
+the complaints browser, the trend chart, and the homepage's sample reports
+are real. The only thing this app deliberately does not show is a
+per-complaint status-change history — 311 does not publish one.

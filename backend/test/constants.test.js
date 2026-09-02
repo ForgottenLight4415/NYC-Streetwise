@@ -85,7 +85,7 @@ describe("TYPE_TO_BUCKET", () => {
 });
 
 describe("radius tiers", () => {
-  it("uses the tight/wide radii chosen in M0", () => {
+  it("uses the building/block radii RADIUS_TIERS configures", () => {
     expect(RADIUS_TIERS.building.radiusMeters).toBe(25);
     expect(RADIUS_TIERS.block.radiusMeters).toBe(350);
   });
