@@ -43,7 +43,7 @@ services:
 
   # The dev database. Prod is Atlas; nothing here is deployed.
   mongo:
-    image: mongo:8
+    image: mongo:8.2
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db

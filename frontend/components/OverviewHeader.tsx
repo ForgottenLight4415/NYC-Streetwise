@@ -52,7 +52,7 @@ export function OverviewHeader({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <KpiTile
           label="Liveability"
           value={liveabilityScore}
