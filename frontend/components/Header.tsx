@@ -58,6 +58,7 @@ export function Header() {
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
         <Link
           href="/"
+          aria-label={onReportPage ? "Streetwise" : undefined}
           className="flex shrink-0 items-center gap-2.5 text-xl font-semibold tracking-tight"
           style={{ color: onPhoto ? "var(--on-photo)" : "var(--text-primary)" }}
         >
@@ -74,7 +75,15 @@ export function Header() {
             className="h-9 w-auto rounded-lg"
             priority
           />
-          <span className="font-display">Streetwise</span>
+          {/* Hidden below `sm` on the report page: that's the one page where
+              this row also carries the inline address search, and the
+              wordmark's ~90px is exactly what that field is missing on a
+              phone — see the compare button below for the rest of it. */}
+          <span
+            className={`font-display ${onReportPage ? "hidden sm:inline" : ""}`}
+          >
+            Streetwise
+          </span>
         </Link>
 
         {onReportPage && (
@@ -85,7 +94,16 @@ export function Header() {
           </div>
         )}
 
-        <div className="ml-1 flex shrink-0 items-center gap-2 sm:gap-3">
+        {/* Hidden below `sm` on the report page: below that width, this bar
+            (logo + inline search + this + the theme toggle) has no room left
+            for a fourth control once the search field is present, and
+            ReportToolbar already renders a contextual "Compare with another"
+            button just below — this one is purely redundant on a phone. */}
+        <div
+          className={`ml-1 flex shrink-0 items-center gap-2 sm:gap-3 ${
+            onReportPage ? "hidden sm:flex" : ""
+          }`}
+        >
           <Link
             href="/compare"
             aria-current={pathname === "/compare" ? "page" : undefined}
