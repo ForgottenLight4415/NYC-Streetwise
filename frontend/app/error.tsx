@@ -38,7 +38,7 @@ export default function GlobalError({
           type="button"
           onClick={reset}
           className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-md font-semibold transition-colors"
-          style={{ background: "var(--brand)", color: "#ffffff" }}
+          style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
         >
           Try again
         </button>

@@ -12,6 +12,9 @@ library/context — each page fetches its own data via SWR hooks
 | `/` | `app/page.tsx` | Landing page. Server component, ISR (`revalidate = 300`). Fetches `GET /api/showcase` once for the hero card, the address chips, and the carousel — no synthesized/mock data anywhere. Below `MIN_CAROUSEL_ITEMS` (3) it shows `CitywideBaselinePanel` (real, static baseline data) instead of a near-empty carousel. |
 | `/report?address=&placeId=` | `app/report/page.tsx` → `components/ReportView.tsx` | The main report screen. Client component tree wrapped in `<Suspense fallback={<ReportLoading />}>` because it reads `useSearchParams()`. The page itself is a server component whose only job is deciding whether to inject the Maps JS `<script>` tag (see below) — the map SDK is requested per-route, not from the root layout, since `/` never renders a map. |
 | `/compare?a=&b=` | `app/compare/page.tsx` → `components/CompareView.tsx` | Two addresses side by side, each independently searchable, synced to `a`/`b` query params via `router.replace`. Same Maps-script-injection pattern as `/report`. |
+| `/privacy` | `app/privacy/page.tsx` | Privacy Policy. Static server component wrapped in `components/LegalPageLayout.tsx`. |
+| `/terms` | `app/terms/page.tsx` | Terms & Conditions, including the disparate-impact disclaimer against using scores for housing/lending/insurance/employment decisions. Same layout as `/privacy`. |
+| `/cookies` | `app/cookies/page.tsx` | Cookie Policy — explains the theme/recent-searches localStorage split and how consent works. Same layout as `/privacy`. |
 
 `app/error.tsx` is the root error boundary — catches an unexpected
 render-time throw anywhere under the root layout (`<Header>` stays mounted;
@@ -31,7 +34,11 @@ before first paint (`lib/theme.ts#THEME_INIT_SCRIPT`, avoids a light/dark
 flash), renders `<Header>`, and preconnects to the Express backend's origin
 (the first call on every page's critical path). It does **not** load the
 Google Maps SDK — that moved to `/report` and `/compare` specifically, so the
-homepage isn't paying for a third-party bootstrap it never uses.
+homepage isn't paying for a third-party bootstrap it never uses. It also
+renders `<Footer>` (site-wide, after `{children}` — see
+[`frontend-components.md`](./frontend-components.md)) and `<CookieConsent>`
+(the localStorage consent banner, gating `AddressSearch`'s recent-searches
+write — see [`frontend-lib.md`](./frontend-lib.md#consentts)).
 
 ## The two Google Maps keys
 

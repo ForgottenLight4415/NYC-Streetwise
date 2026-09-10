@@ -108,7 +108,7 @@ export function Header() {
             href="/compare"
             aria-current={pathname === "/compare" ? "page" : undefined}
             className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-md font-semibold transition-colors"
-            style={{ background: "var(--brand)", color: "#ffffff" }}
+            style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
           >
             <ScaleIcon className="h-4 w-4 sm:hidden" />
             <span className="hidden sm:inline">Compare</span>

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Mono, Lato } from "next/font/google";
 import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
+import { CookieConsent } from "@/components/CookieConsent";
 import { API_BASE_URL } from "@/lib/api";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
@@ -79,6 +81,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </a>
         <Header />
         {children}
+        <Footer />
+        <CookieConsent />
       </body>
     </html>
   );

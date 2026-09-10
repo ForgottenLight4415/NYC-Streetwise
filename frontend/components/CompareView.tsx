@@ -33,7 +33,7 @@ export function CompareView() {
   const bothReady = !!(reportA && coordsA && reportB && coordsB);
 
   return (
-    <div id="main" className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6">
+    <main id="main" className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6">
       <h1 className="font-display text-2xl font-semibold tracking-tight text-(--text-primary)">
         Compare two addresses
       </h1>
@@ -99,6 +99,6 @@ export function CompareView() {
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

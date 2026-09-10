@@ -408,35 +408,6 @@ export default async function Home() {
           </div>
         )}
       </section>
-
-      {/* ===================== Footer ===================== */}
-      <footer
-        className="mt-4 border-t"
-        style={{ borderColor: "var(--border-hairline)" }}
-      >
-        <div className="mx-auto max-w-6xl px-4 py-12 text-center sm:px-6">
-          <Image
-            src="/logo-full.png"
-            alt="Streetwise — Rent smart in NYC"
-            width={907}
-            height={301}
-            className="mx-auto mb-6 h-auto w-55 sm:w-65"
-          />
-          <p className="mx-auto max-w-2xl text-xs leading-relaxed text-(--text-muted)">
-            Data source: NYC 311 Service Requests (Socrata, dataset erm2-nwe9).
-          </p>
-          <p className="mt-1.5 text-xs text-(--text-muted)">
-            Hero photo by{" "}
-            <a
-              href="https://unsplash.com/photos/manhattan-skyline-at-night-ZXBPMnNVtlE"
-              className="underline underline-offset-2 hover:text-(--text-secondary)"
-            >
-              Jan Folwarczny
-            </a>{" "}
-            on Unsplash.
-          </p>
-        </div>
-      </footer>
     </main>
   );
 }

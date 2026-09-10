@@ -16,6 +16,15 @@ given their own section — read the source directly for those.
 - **`ThemeToggle.tsx`** — light/system/dark segmented control. Reads/writes
   `data-theme` on `<html>` (the single source of truth `lib/theme.ts`
   defines) via `useSyncExternalStore`.
+- **`Footer.tsx`** — site-wide footer, rendered once by `app/layout.tsx`
+  (previously inline in `app/page.tsx` only, so `/report`/`/compare` had no
+  footer at all). Logo, data-source line, Unsplash credit, the copyright
+  line, links to `/privacy`/`/terms`/`/cookies`, and a "Cookie Preferences"
+  control that calls `lib/consent.ts#reopenConsentBanner()`.
+- **`CookieConsent.tsx`** — the localStorage-consent banner (not a modal —
+  no focus trap, page stays usable). Shown when `lib/consent.ts#getConsent()`
+  is undecided, or when reopened from the footer. Accept/Decline only, no
+  bare dismiss. See [`frontend-lib.md`](./frontend-lib.md#consentts).
 - **`icons.tsx`** — every icon in the app as a small typed wrapper around
   Font Awesome SVG icons (`CheckCircleIcon`, `SpinnerIcon`, `BuildingIcon`,
   `TransitIcon`, `ChevronRightIcon`, ...). **`categoryIcons.tsx`** maps each
@@ -29,12 +38,14 @@ given their own section — read the source directly for those.
   on the landing page, the header, the report page (via the toolbar's
   compare link), and both compare columns. Debounces calls to
   `lib/hooks.ts#useSuggestions()` (backed by `lib/api.ts#fetchSuggestions()`),
-  tracks up to 5 recent searches in `localStorage` (broadcast across
-  instances via a custom DOM event so the header and homepage stay in sync),
-  and supports full keyboard navigation. Selecting a suggestion passes its
-  Places `placeId` through to `/report?address=...&placeId=...` so the
-  report's geocode can skip straight to the Place Details lookup and (via the
-  geocode route) get recorded on the showcase directory.
+  tracks up to 5 recent searches via `lib/recentSearches.ts` (broadcast
+  across instances via a custom DOM event so the header and homepage stay in
+  sync; writes are gated on `lib/consent.ts#getConsent() === "accepted"` —
+  off by default until the cookie banner is accepted), and supports full
+  keyboard navigation. Selecting a suggestion passes its Places `placeId`
+  through to `/report?address=...&placeId=...` so the report's geocode can
+  skip straight to the Place Details lookup and (via the geocode route) get
+  recorded on the showcase directory.
 
 ## Report page shell
 
@@ -204,6 +215,14 @@ given their own section — read the source directly for those.
   whenever fewer than 3 real cached addresses are available. Server
   component, no fetch — this is what keeps the homepage honest instead of
   showing a near-empty or duplicated carousel.
+
+## Legal pages
+
+- **`LegalPageLayout.tsx`** — shared shell for `/privacy`, `/terms`,
+  `/cookies`: title, "last updated" date, back-to-home link, and an
+  `<article>` styled via descendant selectors (no typography plugin is
+  installed) so the section content can stay plain `h2`/`p`/`ul`/`a` tags.
+  Plain server component, no client state.
 
 ## Misc
 

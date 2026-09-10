@@ -55,7 +55,7 @@ export function ReportToolbar({
         <Link
           href={`/compare?a=${encodeURIComponent(address)}`}
           className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-sm font-semibold transition-colors"
-          style={{ background: "var(--brand)", color: "#ffffff" }}
+          style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
         >
           Compare with another
         </Link>

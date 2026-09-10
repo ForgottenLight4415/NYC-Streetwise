@@ -11,73 +11,13 @@ import { useRouter } from "next/navigation";
 import { useSuggestions } from "@/lib/hooks";
 import { SearchIcon, ClockIcon, MapPinIcon } from "./icons";
 import type { AutocompleteSuggestion } from "@/lib/types";
-
-const RECENT_KEY = "streetwise.recentSearches";
-const RECENT_EVENT = "streetwise:recentschange";
-const MAX_RECENT = 5;
-
-export function getRecentSearches(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed.filter((v) => typeof v === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentSearch(address: string) {
-  if (typeof window === "undefined") return;
-  const existing = getRecentSearches().filter((a) => a !== address);
-  const next = [address, ...existing].slice(0, MAX_RECENT);
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  } catch {
-    // Private browsing refuses writes; recents are a convenience, not state
-    // anything else depends on.
-  }
-  window.dispatchEvent(new Event(RECENT_EVENT));
-}
-
-/* Recents live in localStorage, so they are subscribed to as an external store
-   rather than copied into state on mount. Reading them during render instead
-   would return [] on the server and a populated list on the client, which is a
-   hydration mismatch. */
-
-const EMPTY: string[] = [];
-
-function subscribeRecents(onChange: () => void) {
-  window.addEventListener("storage", onChange);
-  window.addEventListener(RECENT_EVENT, onChange);
-  return () => {
-    window.removeEventListener("storage", onChange);
-    window.removeEventListener(RECENT_EVENT, onChange);
-  };
-}
-
-// Cached because useSyncExternalStore compares snapshots by identity, and
-// getRecentSearches() parses fresh JSON into a new array every call — which
-// would otherwise loop forever.
-let recentsCache: string[] = EMPTY;
-let recentsRaw: string | null = null;
-
-function getRecentsSnapshot(): string[] {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(RECENT_KEY);
-  } catch {
-    return EMPTY;
-  }
-  if (raw !== recentsRaw) {
-    recentsRaw = raw;
-    recentsCache = getRecentSearches();
-  }
-  return recentsCache;
-}
-
-const getRecentsServerSnapshot = (): string[] => EMPTY;
+import {
+  saveRecentSearch,
+  subscribeRecents,
+  getRecentsSnapshot,
+  getRecentsServerSnapshot,
+} from "@/lib/recentSearches";
+import { getConsent } from "@/lib/consent";
 
 /* One document-level pointerdown listener for every AddressSearch on the page,
    rather than one each. The compare view mounts three of these (two columns
@@ -179,7 +119,9 @@ export function AddressSearch({
     const trimmed = address.trim();
     if (!trimmed) return;
     // Notifies the external-store subscription, which re-reads localStorage.
-    saveRecentSearch(trimmed);
+    // Off by default: nothing is written until the cookie-consent banner has
+    // been explicitly accepted (see lib/consent.ts).
+    if (getConsent() === "accepted") saveRecentSearch(trimmed);
     setOpen(false);
     setQuery(trimmed);
     if (onSelect) {
