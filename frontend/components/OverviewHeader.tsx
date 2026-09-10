@@ -5,7 +5,6 @@ import { BAND_VAR } from "@/lib/score";
 import type { ReportResponse } from "@/lib/types";
 import { BuildingIcon, MapPinIcon, TransitIcon } from "./icons";
 import { KpiTile, VolumeTile } from "./KpiTile";
-import { ScoreRadar, type RadarAxis } from "./ScoreRadar";
 
 /**
  * The right-hand 2/5 of the report page's top split (see ReportBody): the
@@ -52,7 +51,7 @@ export function OverviewHeader({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiTile
           label="Liveability"
           value={liveabilityScore}
