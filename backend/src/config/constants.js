@@ -819,6 +819,20 @@ export const AMENITY_BASELINE_SAMPLE_SIZE = 150;
 export const AMENITY_BASELINE_SAMPLE_SEED = 20260829;
 
 /**
+ * buildAmenityBaseline.js measures each sampled point with a LIVE Google
+ * Routes call (see amenityService.js's getAmenityMetrics `routeRetries`
+ * doc) — unlike the request path's fail-fast default of 0 retries, this
+ * script's ~150 sequential calls are worth retrying on a transient 429/5xx
+ * rather than letting that one sample point silently fall back to
+ * straight-line. `AMENITY_BASELINE_ROUTE_PACING_MS` is a fixed delay
+ * between points on top of that, to keep the steady-state request rate
+ * under Google's per-second quota in the first place — retries alone only
+ * react after the quota is already tripped.
+ */
+export const AMENITY_BASELINE_ROUTE_RETRIES = 3;
+export const AMENITY_BASELINE_ROUTE_PACING_MS = 250;
+
+/**
  * Weighted mean weights for the amenity buckets. Separate from BUCKET_WEIGHTS
  * so the existing test/constants.test.js assertion (weights = flattened
  * BUCKET_NAMES) keeps passing untouched. Subway weighted 2x because for most

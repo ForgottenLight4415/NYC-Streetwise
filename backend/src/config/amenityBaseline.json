@@ -2,80 +2,112 @@
   "_id": "v1",
   "perBucket": {
     "subway": {
-      "median": 332,
-      "p90": 1218,
-      "mean": 532.5,
-      "max": 2000,
+      "median": 443,
+      "p90": 2000,
+      "mean": 688.4,
+      "max": 2431,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "bus": {
-      "median": 123,
-      "p90": 551,
-      "mean": 243.1,
-      "max": 2000,
+      "median": 155,
+      "p90": 499,
+      "mean": 233.3,
+      "max": 1878,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "rail": {
-      "median": 1637,
+      "median": 2000,
       "p90": 2000,
-      "mean": 1503.4,
-      "max": 2000,
+      "mean": 1762,
+      "max": 3250,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "park": {
-      "median": 341,
-      "p90": 765,
-      "mean": 387.6,
-      "max": 1436,
+      "median": 417,
+      "p90": 917,
+      "mean": 532.5,
+      "max": 3954,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "playground": {
-      "median": 499,
-      "p90": 972,
-      "mean": 563.9,
-      "max": 2000,
+      "median": 647,
+      "p90": 1867,
+      "mean": 779.7,
+      "max": 2691,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "garden": {
-      "median": 895,
+      "median": 1199,
       "p90": 2000,
-      "mean": 1053,
-      "max": 2000,
+      "mean": 1211.1,
+      "max": 3205,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "bikeShare": {
-      "median": 211,
+      "median": 217,
       "p90": 2000,
-      "mean": 872.4,
-      "max": 2000,
+      "mean": 785.5,
+      "max": 2163,
       "zeroShare": 0,
-      "n": 120
+      "n": 149
     },
     "bikeLane": {
-      "median": 116,
-      "p90": 855,
-      "mean": 289.7,
-      "max": 2000,
-      "zeroShare": 0,
-      "n": 120
+      "median": 180,
+      "p90": 1125,
+      "mean": 425.2,
+      "max": 4584,
+      "zeroShare": 0.013,
+      "n": 149
     },
     "protectedLane": {
-      "median": 329,
-      "p90": 1213,
-      "mean": 496,
-      "max": 2000,
-      "zeroShare": 0,
-      "n": 120
+      "median": 495,
+      "p90": 1813,
+      "mean": 906,
+      "max": 27948,
+      "zeroShare": 0.007,
+      "n": 149
+    },
+    "grocery": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "restaurant": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "cafe": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "school": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
     }
   },
-  "sampleSize": 120,
-  "sampleRequested": 120,
+  "sampleSize": 149,
+  "sampleRequested": 150,
   "maxMeters": 2000,
-  "computedAt": "2026-08-29T20:02:29.587Z"
+  "computedAt": "2026-09-10T20:30:05.155Z"
 }
