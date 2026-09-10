@@ -29,7 +29,7 @@ interface ResolvedRing {
   label: string;
 }
 
-/** One secondary pin — an amenity instance shown while its browser modal is open. */
+/** One secondary pin - an amenity instance shown while its browser modal is open. */
 export interface MapExtraMarker {
   lat: number;
   lng: number;
@@ -65,7 +65,7 @@ function dedupeRings(rings: MapRing[]): ResolvedRing[] {
  * Resolves once the Maps SDK has attached itself to `window`.
  *
  * The script is loaded with `async`, so there is no ordering guarantee against
- * React hydration — this effect can run first. The previous code treated that
+ * React hydration - this effect can run first. The previous code treated that
  * race as a missing API key and rendered a setup error, which was wrong and
  * intermittent. Waiting is also what makes `loading=async` safe to request.
  */
@@ -86,7 +86,7 @@ function whenMapsReady(timeoutMs = 10000): Promise<typeof google | null> {
 }
 
 /** Module-scope, so an omitted `extraMarkers` prop doesn't get a fresh []
- *  identity every render — same convention AddressSearch.tsx uses for its
+ *  identity every render - same convention AddressSearch.tsx uses for its
  *  own EMPTY/NO_SUGGESTIONS constants. */
 const EMPTY_MARKERS: MapExtraMarker[] = [];
 
@@ -100,11 +100,11 @@ export function MapPanel({
   centerLat: number;
   centerLng: number;
   rings: MapRing[];
-  /** Secondary pins — e.g. every instance of one amenity bucket while its
+  /** Secondary pins - e.g. every instance of one amenity bucket while its
    *  browser modal is open. Empty/omitted draws none, same as before this
    *  prop existed. */
   extraMarkers?: MapExtraMarker[];
-  /** CSS custom property (sans `var()`) tinting every extra marker — the
+  /** CSS custom property (sans `var()`) tinting every extra marker - the
    *  open bucket's own tier color, so the pins read as "these belong to the
    *  card/modal you just opened" rather than an unrelated overlay. Falls
    *  back to a neutral token when omitted. */
@@ -121,7 +121,7 @@ export function MapPanel({
 
   // Same trick, same reason, for the secondary pins: `extraMarkers` is a
   // fresh array every render (it's derived from an SWR result one level up),
-  // so the effect below depends on this serialised key instead — it only
+  // so the effect below depends on this serialised key instead - it only
   // actually changes when the open bucket, or the instances it resolved to,
   // changes, which is exactly when the pins need to be redrawn.
   const extraMarkersKey = extraMarkers
@@ -142,7 +142,7 @@ export function MapPanel({
   //
   // The initial value is still seeded synchronously from the DOM, deliberately.
   // useSyncExternalStore would be the tidier way to read a shared store, but its
-  // server snapshot cannot know the theme and has to answer "light" — so the
+  // server snapshot cannot know the theme and has to answer "light" - so the
   // first client render says light and the second says dark, the effect below
   // re-runs on that change, and a SECOND map gets built into the same container,
   // pulling the WebGL context out from under the first. That is the exact bug
@@ -165,7 +165,7 @@ export function MapPanel({
         if (cancelled) return;
         if (!maps) {
           // The map script is injected by app/layout.tsx from the CLIENT key.
-          // A missing map is a client-key problem, not a server-key one — the
+          // A missing map is a client-key problem, not a server-key one - the
           // search box above can be working fine off GOOGLE_MAPS_API_KEY while
           // this panel is blank.
           throw new Error(
@@ -199,7 +199,7 @@ export function MapPanel({
         // to this map. Some panoramas (particularly third-party 360 photos
         // like "Threshold 360" real-estate listings) render as a blank
         // black canvas until the WebGL viewport is forced to recompute
-        // after the panel becomes visible — retriggering a resize (twice,
+        // after the panel becomes visible - retriggering a resize (twice,
         // since the container can still be mid-layout on the first pass)
         // reliably kicks the texture into painting.
         const panorama = map.getStreetView();
@@ -215,7 +215,7 @@ export function MapPanel({
         });
 
         // The Maps SDK takes literal colors, not CSS variables, so these are
-        // resolved from the live computed styles instead of being hardcoded —
+        // resolved from the live computed styles instead of being hardcoded -
         // that way the pin and radius rings re-color with the theme and stay
         // in step with the legend below the map.
         // One computed-style read, not one per token. getComputedStyle resolves
@@ -239,7 +239,7 @@ export function MapPanel({
           title: "Searched address",
         });
 
-        // Secondary pins — every real instance of one amenity bucket while
+        // Secondary pins - every real instance of one amenity bucket while
         // its browser modal is open. Deliberately smaller and tinted with
         // the bucket's own tier color (not --status-critical) so they read
         // as "the thing you're browsing," never mistaken for the searched
@@ -304,7 +304,7 @@ export function MapPanel({
     };
     // resolvedRings/extraMarkers deliberately omitted: both are fresh arrays
     // every render, and their *Key strings already capture everything about
-    // them the effect draws (radius/color for rings; lat/lng for markers) —
+    // them the effect draws (radius/color for rings; lat/lng for markers) -
     // see the comments on ringsKey and extraMarkersKey above. extraMarkersColorVar
     // IS a dependency in its own right (a primitive, and the effect reads it
     // directly when building each pin), so it's listed rather than folded

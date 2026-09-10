@@ -19,7 +19,7 @@ export function Footer() {
       <div className="mx-auto max-w-6xl px-4 py-12 text-center sm:px-6">
         <Image
           src="/logo-full.png"
-          alt="Streetwise — Rent smart in NYC"
+          alt="Streetwise - Rent smart in NYC"
           width={907}
           height={301}
           className="mx-auto mb-6 h-auto w-55 sm:w-65"

@@ -9,12 +9,12 @@ import { KpiTile, VolumeTile } from "./KpiTile";
 /**
  * The right-hand 2/5 of the report page's top split (see ReportBody): the
  * neighborhood radar plus the 4 KPI tiles (Liveability, Access, Block
- * complaints, Nearest Transit) — the pieces `VerdictBanner` used to render
+ * complaints, Nearest Transit) - the pieces `VerdictBanner` used to render
  * inline before its headline/summary half moved out (see VerdictBanner's own
  * doc comment). Page layout only; the compare view keeps everything in
  * VerdictBanner's "column" mode instead.
  *
- * Always stacked (radar above a 2-column KPI grid), never side by side —
+ * Always stacked (radar above a 2-column KPI grid), never side by side -
  * this now lives in a column that is at most ~2/5 of the main content width,
  * which a `sm:`/`lg:` breakpoint (keyed to the VIEWPORT, not this container)
  * cannot see: a wide-viewport `lg:flex-row` would still fire even though the
@@ -27,7 +27,7 @@ import { KpiTile, VolumeTile } from "./KpiTile";
  * card.
  *
  * Unlike the old inline "Nearest Transit" tile, this one never shows route
- * badges — those stay on the Transit Access amenity card below, which has
+ * badges - those stay on the Transit Access amenity card below, which has
  * the room for them. Here the type (Subway/Bus/Commuter rail) is folded into
  * the sub-label as plain text instead.
  */

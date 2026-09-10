@@ -35,7 +35,7 @@ export function ReportView() {
 
   usePrefetchTrends(coords);
 
-  // The report's one fixed-arity fanout — every complaint tier's own feed,
+  // The report's one fixed-arity fanout - every complaint tier's own feed,
   // in one hook. See useReportPanels for why this can't be a loop over the
   // category registry.
   const panels = useReportPanels(coords, report);
@@ -79,7 +79,7 @@ export function ReportView() {
   if (!report || !coords) {
     // The same view the Suspense boundary above already rendered, so the two
     // back-to-back waits read as one. This now covers only the geocode and
-    // /api/score — the complaint fetches it used to include have moved into the
+    // /api/score - the complaint fetches it used to include have moved into the
     // panels, which render their own skeletons.
     return <ReportLoading />;
   }

@@ -7,9 +7,9 @@ type TransitLineBadgeProps = {
 
 /**
  * Official MTA trunk-line colors, keyed by every route letter/number on that
- * trunk — from mta.info's own service-line color reference, NOT guessed.
+ * trunk - from mta.info's own service-line color reference, NOT guessed.
  * Text is white on every trunk except the yellow one (N/Q/R/W), which uses
- * dark text for contrast — both are fixed hex values, not theme tokens,
+ * dark text for contrast - both are fixed hex values, not theme tokens,
  * because these are the MTA's own brand colors and must stay identical in
  * light and dark mode, unlike the rest of this app's palette.
  */
@@ -29,28 +29,35 @@ registerTrunk(["G"], "#6CBE45"); // IND Crosstown
 registerTrunk(["S"], "#808183"); // Shuttles
 
 /**
- * Defensive only — every real `daytime_routes` value from the backend's
+ * Defensive only - every real `daytime_routes` value from the backend's
  * subway-station join should already be a key above. Theme-aware (unlike
  * the trunk colors) since it isn't one of the MTA's own official colors.
  */
-const FALLBACK_SUBWAY_COLOR = { bg: "var(--text-muted)", fg: "var(--surface-1)" };
+const FALLBACK_SUBWAY_COLOR = {
+  bg: "var(--text-muted)",
+  fg: "var(--surface-1)",
+};
 
 /**
- * One subway or bus route badge — e.g. next to a "Nearest Transit" result,
+ * One subway or bus route badge - e.g. next to a "Nearest Transit" result,
  * so a rider can see at a glance which lines actually stop there.
  *
  * Subway: a filled circle in the route's official MTA trunk-line color, bold
- * letter/number centered inside — the same visual language MTA signage and
+ * letter/number centered inside - the same visual language MTA signage and
  * maps use, so "4" reads as the Lexington Ave line at a glance rather than
  * needing a legend.
  *
  * Bus: MTA has no well-known public per-route color system the way subway
- * does, so this deliberately does NOT invent official-looking colors —
+ * does, so this deliberately does NOT invent official-looking colors -
  * instead a single neutral rounded-rectangle pill using the app's own
  * surface/border tokens, with the route's short name as plain text (e.g.
  * "M104", "Bx12").
  */
-export function TransitLineBadge({ route, mode, className }: TransitLineBadgeProps) {
+export function TransitLineBadge({
+  route,
+  mode,
+  className,
+}: TransitLineBadgeProps) {
   if (mode === "bus") {
     return (
       <span
@@ -61,7 +68,8 @@ export function TransitLineBadge({ route, mode, className }: TransitLineBadgePro
     );
   }
 
-  const colors = SUBWAY_TRUNK_COLORS[route.toUpperCase()] ?? FALLBACK_SUBWAY_COLOR;
+  const colors =
+    SUBWAY_TRUNK_COLORS[route.toUpperCase()] ?? FALLBACK_SUBWAY_COLOR;
 
   return (
     <span

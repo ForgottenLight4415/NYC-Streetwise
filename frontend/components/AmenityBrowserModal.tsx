@@ -14,31 +14,31 @@ import { Portal } from "./Portal";
 import { TransitLineBadge } from "./TransitLineBadge";
 
 /**
- * Every real instance of one amenity bucket within its tier's radius —
+ * Every real instance of one amenity bucket within its tier's radius -
  * behind a "Nearest by type" row's `>` affordance, not just the single
  * nearest one that row itself shows.
  *
  * Mirrors ComplaintsBrowserModal's outer chrome (fixed inset-0 overlay,
  * header with a close button, scrollable list body, loading/empty/error
  * states) but the content underneath is far simpler: no filters, no paging,
- * no drill-in pane — a flat, nearest-first list, since
+ * no drill-in pane - a flat, nearest-first list, since
  * GET /api/amenities/nearby is a single fast in-memory lookup rather than a
  * paginated Socrata fill.
  *
  * For `subway`/`bus`, each returned instance already represents a whole
- * station complex or physical bus pole, not a raw entrance/GTFS record —
+ * station complex or physical bus pole, not a raw entrance/GTFS record -
  * the backend groups, same-line-dedups, and caps those two buckets before
  * this ever sees them (amenityService.js's getNearbyAmenityInstances). So
  * this component stays a plain one-row-per-instance list, the same style
- * AmenityMetricRows already uses for the single-nearest summary row — no
+ * AmenityMetricRows already uses for the single-nearest summary row - no
  * client-side grouping needed here. `subway` instances additionally carry
  * `entrances` (every member entrance's own distance) when there's more than
- * one — surfaced as a small "N entrances · 0.1 mi–0.4 mi" tag next to the
+ * one - surfaced as a small "N entrances · 0.1 mi–0.4 mi" tag next to the
  * name, collapsing every door's own distance into one range rather than
  * listing all of them (a 35-entrance hub would otherwise print 35 near-
  * duplicate "0.2 mi" lines). The row's own walk-time display on the right
  * spans the same entrances too (`formatWalkRange`, "1–3 min walk") rather
- * than timing only the single nearest door — the tag's distance range and
+ * than timing only the single nearest door - the tag's distance range and
  * the row's walk-time range describe the same spread in each unit, instead
  * of one collapsing to nearest-only.
  */
@@ -64,7 +64,7 @@ export function AmenityBrowserModal({
     bucket,
   );
 
-  // TransitLineBadge only knows these two modes — every other bucket has no
+  // TransitLineBadge only knows these two modes - every other bucket has no
   // route concept, and AmenityInstance.routes is absent for them anyway.
   const mode = bucket === "subway" || bucket === "bus" ? bucket : null;
 

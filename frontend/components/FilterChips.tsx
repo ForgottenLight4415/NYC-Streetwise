@@ -2,7 +2,7 @@
 
 /**
  * A compact radiogroup with roving tabindex, matching the trend window
- * selector's interaction exactly — arrow keys move and wrap, Tab enters and
+ * selector's interaction exactly - arrow keys move and wrap, Tab enters and
  * leaves the whole group as one stop.
  *
  * Extracted because the complaints browser needs three of these and the trend
@@ -55,9 +55,7 @@ export function FilterChips<T extends string | number>({
         );
       })}
       {suffix && (
-        <span className="pr-1.5 text-[11px] text-(--text-muted)">
-          {suffix}
-        </span>
+        <span className="pr-1.5 text-[11px] text-(--text-muted)">{suffix}</span>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ import type { TrendWindow } from "@/lib/api";
 
 /**
  * The page-layout report's sticky title bar: the address (moved here from
- * VerdictBanner, which drops its own heading when this is present — see
+ * VerdictBanner, which drops its own heading when this is present - see
  * `showAddress` there), the one global trend window, and the compare entry
  * point that used to live in the address bar above.
  *
@@ -13,11 +13,11 @@ import type { TrendWindow } from "@/lib/api";
  * (70) in the z-ladder documented in globals.css.
  *
  * The `-mx-4 sm:-mx-6` bleed cancels `<main>`'s own side padding so the
- * `border-b` spans the full viewport width — correct below `xl`, where the
+ * `border-b` spans the full viewport width - correct below `xl`, where the
  * main column IS the full page width. At `xl` and up, `ReportBody` puts a
  * 360px right rail beside this column, and the bleed would overflow past the
  * main column's own grid track into the gap/rail (by exactly the outer page
- * padding, more than the gap itself) — `xl:mx-0 xl:px-0` cancels the bleed
+ * padding, more than the gap itself) - `xl:mx-0 xl:px-0` cancels the bleed
  * there so the border stops at the main column's real edge instead.
  */
 export function ReportToolbar({

@@ -66,7 +66,7 @@ export function AddressSearch({
   const [query, setQuery] = useState(initialValue);
   // The debounce is a separate piece of state from the query so the SWR key
   // only moves once typing settles. Every distinct key is a billed Places
-  // call, which is what the delay is protecting — not render cost.
+  // call, which is what the delay is protecting - not render cost.
   const [debounced, setDebounced] = useState(initialValue.trim());
   const recents = useSyncExternalStore(
     subscribeRecents,
@@ -89,9 +89,10 @@ export function AddressSearch({
   const fetchedSuggestions = useSuggestions(debounced);
   // Still gated on the key matching what is actually in the box. SWR clears
   // `data` when the key moves, but during the 150ms before it moves the hook
-  // is still holding the PREVIOUS query's results — which is exactly the
+  // is still holding the PREVIOUS query's results - which is exactly the
   // "clear the field, type again, see the old list" case.
-  const suggestions = debounced === trimmed ? fetchedSuggestions : NO_SUGGESTIONS;
+  const suggestions =
+    debounced === trimmed ? fetchedSuggestions : NO_SUGGESTIONS;
 
   useEffect(
     () =>
@@ -139,8 +140,8 @@ export function AddressSearch({
    * Prefers a real suggestion over the typed text, for the same reason Enter
    * does: picking one yields a placeId, which is what makes the resolved address
    * Google's own canonical string rather than something a person typed. Raw text
-   * still works — it has to, or the box would be unusable whenever Places is
-   * unreachable and the seed fallback is empty — it just resolves through plain
+   * still works - it has to, or the box would be unusable whenever Places is
+   * unreachable and the seed fallback is empty - it just resolves through plain
    * geocoding and is deliberately never recorded on the homepage.
    */
   function submit() {
@@ -284,7 +285,7 @@ export function AddressSearch({
                       go(opt.label, opt.placeId);
                     }}
                     onMouseEnter={() => setActiveIdx(i)}
-                    // 44px minimum target — this is the primary control on a phone.
+                    // 44px minimum target - this is the primary control on a phone.
                     className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors"
                     style={{
                       background:

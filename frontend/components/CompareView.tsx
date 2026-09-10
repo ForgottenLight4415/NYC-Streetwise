@@ -19,7 +19,7 @@ export function CompareView() {
   }
 
   // Same two hooks the report page uses, so comparing an address you already
-  // looked up costs nothing — and comparing an address against ITSELF issues
+  // looked up costs nothing - and comparing an address against ITSELF issues
   // one request, not two. Fetched here (not inside each column) because
   // deciding whether to render the row-aligned layout below needs both
   // results up front.
@@ -42,17 +42,17 @@ export function CompareView() {
       </p>
 
       {/* The address fields always render in this simple 2-up grid, whether
-          or not either report has loaded yet — only the content below
+          or not either report has loaded yet - only the content below
           switches layout. Two of them only fit from lg up; below that they
           stack, which on a phone reads as A then B rather than as a
-          comparison — the honest tradeoff, since a 160px-wide score panel
+          comparison - the honest tradeoff, since a 160px-wide score panel
           would not be readable either.
 
           max-w-screen-2xl (widened from max-w-6xl, matching the report
           page) and a tighter gap-6/lg:gap-4 (down from gap-10/lg:gap-8):
           the report page's panels are now `compact` and denser, so two
           columns of them no longer need as much breathing room between them
-          to read as separate reports rather than one merged grid — and the
+          to read as separate reports rather than one merged grid - and the
           extra width goes straight to the columns themselves, which is what
           actually needed it now that each one renders a merged verdict
           panel plus a KPI grid. */}
@@ -73,13 +73,13 @@ export function CompareView() {
         {bothReady ? (
           // Both sides loaded: render every section as a shared row so
           // matching cards line up and match height between the two
-          // addresses — see CompareAlignedBody's own doc for how.
+          // addresses - see CompareAlignedBody's own doc for how.
           <CompareAlignedBody
             a={{ address: a, coords: coordsA, report: reportA }}
             b={{ address: b, coords: coordsB, report: reportB }}
           />
         ) : (
-          // At least one side isn't loaded yet — nothing to align a loaded
+          // At least one side isn't loaded yet - nothing to align a loaded
           // report against, so each column just shows whatever it has
           // (placeholder, spinner, error, or its own full report)
           // independently, same as before this layout existed.

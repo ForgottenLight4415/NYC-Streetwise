@@ -6,7 +6,9 @@ import { ChevronRightIcon } from "./icons";
 /** Page numbers to show, with nulls marking gaps. Always includes first and last. */
 function pageWindow(current: number, last: number): (number | null)[] {
   if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1);
-  const around = [current - 1, current, current + 1].filter((p) => p > 1 && p < last);
+  const around = [current - 1, current, current + 1].filter(
+    (p) => p > 1 && p < last,
+  );
   const pages = [1, ...around, last];
   const out: (number | null)[] = [];
   for (let i = 0; i < pages.length; i++) {
@@ -27,7 +29,7 @@ export function Pager({
   offset: number;
   pageSize: number;
   total: number;
-  /** What is being counted, in both forms — a single day reads "1 day". */
+  /** What is being counted, in both forms - a single day reads "1 day". */
   label: { one: string; many: string };
   onOffsetChange: (offset: number) => void;
   onPageSizeChange?: (size: number) => void;
@@ -40,7 +42,10 @@ export function Pager({
   const go = (page: number) => onOffsetChange((page - 1) * pageSize);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3" style={{ borderColor: "var(--border-hairline)" }}>
+    <div
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3"
+      style={{ borderColor: "var(--border-hairline)" }}
+    >
       {/* Announced politely so a screen-reader user hears the new range after
           paging, rather than having to hunt for what changed. */}
       <p aria-live="polite" className="font-data text-xs text-(--text-muted)">
@@ -62,7 +67,11 @@ export function Pager({
 
         {pageWindow(current, lastPage).map((page, i) =>
           page === null ? (
-            <span key={`gap-${i}`} className="px-1 text-xs text-(--text-muted)" aria-hidden="true">
+            <span
+              key={`gap-${i}`}
+              className="px-1 text-xs text-(--text-muted)"
+              aria-hidden="true"
+            >
               &hellip;
             </span>
           ) : (
@@ -74,13 +83,17 @@ export function Pager({
               aria-current={page === current ? "page" : undefined}
               className="font-data min-h-8 min-w-8 rounded-md px-1.5 text-xs font-medium transition-colors"
               style={{
-                background: page === current ? "var(--surface-2)" : "transparent",
-                color: page === current ? "var(--text-primary)" : "var(--text-muted)",
+                background:
+                  page === current ? "var(--surface-2)" : "transparent",
+                color:
+                  page === current
+                    ? "var(--text-primary)"
+                    : "var(--text-muted)",
               }}
             >
               {page}
             </button>
-          )
+          ),
         )}
 
         <button

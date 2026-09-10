@@ -6,8 +6,8 @@ import { CATEGORY_LABEL } from "@/lib/score";
  * What the homepage shows where the address carousel goes when nothing is
  * cached yet.
  *
- * It is not a placeholder. Every number here is real measured data — the
- * citywide baseline each score is computed against — so a cold cache costs the
+ * It is not a placeholder. Every number here is real measured data - the
+ * citywide baseline each score is computed against - so a cold cache costs the
  * page its examples, not its honesty. It also answers the question the carousel
  * only implies: a score of 62 means nothing until you know what the median block
  * looks like.
@@ -80,7 +80,7 @@ export function CitywideBaselinePanel() {
       <p className="mt-6 text-xs leading-relaxed text-(--text-muted)">
         Complaints per location over a trailing {windowMonths} months, measured
         across {sampleSize} coordinates sampled from all five boroughs. Every
-        score on this site is a position against these figures — which is why a
+        score on this site is a position against these figures - which is why a
         block with 900 noise complaints still scores as average.
       </p>
     </div>

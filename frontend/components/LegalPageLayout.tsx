@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 /**
  * Shared shell for /privacy, /terms, /cookies. No typography plugin is
  * installed, so heading/paragraph rhythm is applied here via descendant
- * selectors rather than a `prose` class — every element inside `children`
+ * selectors rather than a `prose` class - every element inside `children`
  * should still be a real semantic tag (h2, p, ul, a), never a styled div.
  */
 export function LegalPageLayout({

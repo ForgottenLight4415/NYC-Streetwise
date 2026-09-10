@@ -7,7 +7,7 @@ import { AddressSearch } from "./AddressSearch";
  * of the old CompareColumn so the same markup renders both while an address
  * is still loading/missing on the other side (`CompareColumnContent`) and
  * once both sides are loaded and the page switches to the row-aligned layout
- * (`CompareAlignedBody`) — the field itself never needs to know which.
+ * (`CompareAlignedBody`) - the field itself never needs to know which.
  */
 export function CompareAddressField({
   label,

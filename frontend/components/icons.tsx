@@ -31,7 +31,7 @@ const base = "shrink-0";
 
 /**
  * Renders a Font Awesome Free "solid" icon's own path data inside a plain
- * SVG element that this file controls directly — not the
+ * SVG element that this file controls directly - not the
  * `<FontAwesomeIcon icon={...} />` component. That keeps the exact contract
  * every call site already depends on (a `{ className }` prop, sized by
  * whatever height/width utility classes the caller passes in) without
@@ -67,7 +67,7 @@ export function CheckCircleIcon({ className }: IconProps) {
   return <FaSvg icon={faCircleCheck} className={className} />;
 }
 
-// "Spinner" (fa-spinner) is a static ring of fading blades — the rotation
+// "Spinner" (fa-spinner) is a static ring of fading blades - the rotation
 // that reads as "loading" comes entirely from this `animate-spin`, same as
 // the hand-rolled version it replaces.
 export function SpinnerIcon({ className }: IconProps) {
@@ -94,7 +94,7 @@ export function BuildingIcon({ className }: IconProps) {
   return <FaSvg icon={faBuilding} className={className} />;
 }
 
-// "Block Quality" — no direct FA equivalent for the abstract concept, so
+// "Block Quality" - no direct FA equivalent for the abstract concept, so
 // this uses "road" (fa-road), the closest concrete match for street/block
 // conditions. See categoryIcons.tsx, where this is the blockQuality icon.
 export function BlockIcon({ className }: IconProps) {
@@ -121,7 +121,7 @@ export function MoonIcon({ className }: IconProps) {
   return <FaSvg icon={faMoon} className={className} />;
 }
 
-/** Half-filled disc — the conventional mark for "match the system". */
+/** Half-filled disc - the conventional mark for "match the system". */
 export function ContrastIcon({ className }: IconProps) {
   return <FaSvg icon={faCircleHalfStroke} className={className} />;
 }

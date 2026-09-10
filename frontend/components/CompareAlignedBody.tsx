@@ -26,7 +26,7 @@ function preloadAmenityBrowser() {
 }
 
 /**
- * Total row count below — a compile-time constant, not derived from either
+ * Total row count below - a compile-time constant, not derived from either
  * report. See the component doc for why that's safe: every row in the list
  * always exists for both sides, so the row COUNT never depends on what a
  * particular report contains, only whether an individual cell renders
@@ -49,23 +49,23 @@ type Side = {
  * overview tiles, each complaint card, each amenity card, the radar, and the
  * map each render as their own CSS grid row shared by column A and column B,
  * so a taller card on one side pushes both cells in that row to match height
- * — and the next row still starts level. `CompareColumnContent` (used while
+ * - and the next row still starts level. `CompareColumnContent` (used while
  * at least one side isn't loaded yet) can't do this: there's nothing on the
  * other side yet to align a loaded report against.
  *
  * The trick is `grid-auto-flow: column` (`lg:grid-flow-col`) over a DOM order
- * that is NOT interleaved — every one of A's rows first, then every one of
+ * that is NOT interleaved - every one of A's rows first, then every one of
  * B's, the same order `ReportBody`'s own "column" layout already renders
  * each side in. With an explicit `grid-template-rows` of exactly `ROW_COUNT`
  * tracks and two explicit columns, column-flow placement fills column 1 with
- * all of A's rows before moving to column 2 for B's — so row *i* ends up
+ * all of A's rows before moving to column 2 for B's - so row *i* ends up
  * holding (A's row i, B's row i) without either side's markup needing to
  * know the other exists. Below `lg` there is one column, so that same DOM
- * order reads as "all of A, then all of B" — unchanged from how the compare
+ * order reads as "all of A, then all of B" - unchanged from how the compare
  * page has always stacked on a phone (see CompareView's doc comment).
  *
- * A report missing one amenity dataset (a partial server-side failure) — or,
- * in principle, not showing a radar — renders that side's cell empty rather
+ * A report missing one amenity dataset (a partial server-side failure) - or,
+ * in principle, not showing a radar - renders that side's cell empty rather
  * than skipping the row, which would desync every row after it between the
  * two columns.
  */
@@ -99,15 +99,30 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
     />,
   );
 
-  left.push(<OverviewHeader key="a-overview" report={a.report} coords={a.coords} />);
-  right.push(<OverviewHeader key="b-overview" report={b.report} coords={b.coords} />);
+  left.push(
+    <OverviewHeader key="a-overview" report={a.report} coords={a.coords} />,
+  );
+  right.push(
+    <OverviewHeader key="b-overview" report={b.report} coords={b.coords} />,
+  );
 
-  const windowPillsRow = (side: "a" | "b", months: typeof panelsA.months, onMonthsChange: typeof panelsA.setMonths) => (
-    <div key={`${side}-pills`} className="flex items-center justify-between gap-3">
+  const windowPillsRow = (
+    side: "a" | "b",
+    months: typeof panelsA.months,
+    onMonthsChange: typeof panelsA.setMonths,
+  ) => (
+    <div
+      key={`${side}-pills`}
+      className="flex items-center justify-between gap-3"
+    >
       <p className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
         Trend window
       </p>
-      <WindowPills months={months} onMonthsChange={onMonthsChange} ariaLabel="Trend window" />
+      <WindowPills
+        months={months}
+        onMonthsChange={onMonthsChange}
+        ariaLabel="Trend window"
+      />
     </div>
   );
   left.push(windowPillsRow("a", panelsA.months, panelsA.setMonths));

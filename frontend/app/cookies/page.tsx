@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { LegalPageLayout } from "@/components/LegalPageLayout";
 
 export const metadata: Metadata = {
-  title: "Cookie Policy — Streetwise NYC",
+  title: "Cookie Policy",
   description:
     "What Streetwise NYC stores in your browser, and how to control it.",
+  alternates: { canonical: "/cookies" },
 };
 
 export default function CookiePolicyPage() {
@@ -13,21 +14,21 @@ export default function CookiePolicyPage() {
       <h2>Overview</h2>
       <p>
         Streetwise doesn&rsquo;t set any HTTP cookies. It uses your
-        browser&rsquo;s local storage — data that stays on your device and is
-        never sent to our server — for two small things, described below.
+        browser&rsquo;s local storage - data that stays on your device and is
+        never sent to our server - for two small things, described below.
       </p>
 
-      <h2>Strictly Necessary Storage — Theme Preference</h2>
+      <h2>Strictly Necessary Storage - Theme Preference</h2>
       <p>
         We store your light/dark/system theme choice locally so the page can
         render in the right colors immediately, without a flash of the wrong
         theme while it loads. This contains no personal information and is
-        always on — there&rsquo;s no consent banner for it because it&rsquo;s
+        always on - there&rsquo;s no consent banner for it because it&rsquo;s
         purely a rendering preference, comparable to your browser remembering
         window size.
       </p>
 
-      <h2>Non-Essential Storage — Recent Searches</h2>
+      <h2>Non-Essential Storage - Recent Searches</h2>
       <p>
         If you accept, we&rsquo;ll remember your last five searched addresses
         locally so you can quickly search them again. This is off by
@@ -40,7 +41,7 @@ export default function CookiePolicyPage() {
         On the report and compare pages, the Google Maps JavaScript SDK loads
         in your browser to render a map. Google may set its own cookies or
         local storage as part of that, governed by Google&rsquo;s own
-        policies — outside our control and not covered by the choice you make
+        policies - outside our control and not covered by the choice you make
         in our cookie banner.
       </p>
 

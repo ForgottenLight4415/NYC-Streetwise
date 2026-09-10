@@ -7,7 +7,7 @@ import { StatusBadge } from "./StatusBadge";
 interface KpiDelta {
   /** Signed percent change. Positive means the number went up. */
   pct: number;
-  /** True when a NEGATIVE change is the good outcome — e.g. complaint counts,
+  /** True when a NEGATIVE change is the good outcome - e.g. complaint counts,
    *  where fewer is better. Determines the color, not the arrow: the arrow
    *  always points the way the number actually moved. */
   invert?: boolean;
@@ -18,7 +18,7 @@ interface KpiDelta {
 /**
  * One KPI tile. Two call sites use this, with opposite chrome needs:
  * `VerdictBanner`'s "column" (compare) layout still nests these flush inside
- * its own bordered card (`bordered` omitted/false — a border here would read
+ * its own bordered card (`bordered` omitted/false - a border here would read
  * as a card nested in a card); `OverviewHeader`'s page-layout header sits
  * these directly in the open bento grid, where they need their own visible
  * boundary (`bordered`) to read as distinct tiles at all.
@@ -48,7 +48,11 @@ export function KpiTile({
   bordered?: boolean;
 }) {
   const deltaGood =
-    delta && delta.pct !== 0 ? (delta.invert ? delta.pct < 0 : delta.pct > 0) : null;
+    delta && delta.pct !== 0
+      ? delta.invert
+        ? delta.pct < 0
+        : delta.pct > 0
+      : null;
   const deltaColor =
     deltaGood === null
       ? "var(--text-muted)"
@@ -127,7 +131,7 @@ export function VolumeTile({
   return (
     <KpiTile
       label="Block complaints"
-      value={yoy ? yoy.current.toLocaleString() : "—"}
+      value={yoy ? yoy.current.toLocaleString() : "-"}
       sub="last 12 mo"
       icon={<ClockIcon className="h-4.5 w-4.5" />}
       colorVar="--series-block"

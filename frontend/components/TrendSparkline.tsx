@@ -32,7 +32,7 @@ function monthShort(month: string) {
   return MONTH_SHORT[Number(m)];
 }
 
-/** "Sep '24" — over a 24-month span the bare month name is ambiguous, since
+/** "Sep '24" - over a 24-month span the bare month name is ambiguous, since
  *  each one appears twice on the axis. */
 function monthWithYear(month: string | undefined) {
   if (!month) return "";
@@ -94,8 +94,8 @@ export function TrendSparkline({
     // per frame (~120Hz on a trackpad) but a 9-month chart has nine bands, so
     // the overwhelming majority of moves land in the band already highlighted.
     // React bails out on an identical value, so this turns a continuous re-render
-    // of the whole SVG — gridlines, up to 24 rects, and the tooltip, times two
-    // charts on the report and four on the compare view — into one render per
+    // of the whole SVG - gridlines, up to 24 rects, and the tooltip, times two
+    // charts on the report and four on the compare view - into one render per
     // band crossed. It also keeps the getBoundingClientRect above cheap: with no
     // re-render in between, the layout is clean and the browser serves it from
     // cache instead of recomputing it.

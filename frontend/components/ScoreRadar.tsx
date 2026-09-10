@@ -3,11 +3,11 @@ const H = 240;
 const CX = 130;
 const CY = 116;
 const MAX_R = 84;
-/** 25/50/75/100 — the 50 ring is singled out below because scores are
+/** 25/50/75/100 - the 50 ring is singled out below because scores are
  *  literally anchored on the citywide median at that percentile. */
 const RING_PERCENTS = [25, 50, 75, 100];
 const LABEL_OFFSET = 20;
-/** A score of 0 must not collapse the polygon to the center point — that
+/** A score of 0 must not collapse the polygon to the center point - that
  *  reads as "no data" rather than "genuinely bad", and makes the shape
  *  unreadable when one axis is much worse than the others. */
 const MIN_R_RATIO = 0.06;
@@ -23,8 +23,9 @@ function pointAt(index: number, count: number, r: number): [number, number] {
 }
 
 function polygonPoints(count: number, r: number) {
-  return Array.from({ length: count }, (_, i) => pointAt(i, count, r).join(","))
-    .join(" ");
+  return Array.from({ length: count }, (_, i) =>
+    pointAt(i, count, r).join(","),
+  ).join(" ");
 }
 
 export interface RadarAxis {
@@ -35,13 +36,13 @@ export interface RadarAxis {
 }
 
 /**
- * The report's "neighborhood profile" — one glyph plotting every category's
+ * The report's "neighborhood profile" - one glyph plotting every category's
  * score on the same six axes (five complaint/amenity categories plus
  * walkability).
  *
  * No chart library: TrendSparkline and ScoreMeter are both hand-rolled SVG
  * already, and one radar chart is not worth a dependency in a four-package
- * app. Renders nothing below three axes — a two-point radar has no shape to
+ * app. Renders nothing below three axes - a two-point radar has no shape to
  * read.
  *
  * The dashed ring at 50 is not decorative: every score here is
@@ -53,11 +54,10 @@ export function ScoreRadar({ axes }: { axes: RadarAxis[] }) {
   if (axes.length < 3) return null;
 
   const n = axes.length;
-  const dataPoints = axes
-    .map((a, i) => {
-      const r = Math.max(MIN_R_RATIO * MAX_R, (a.score / 100) * MAX_R);
-      return pointAt(i, n, r);
-    });
+  const dataPoints = axes.map((a, i) => {
+    const r = Math.max(MIN_R_RATIO * MAX_R, (a.score / 100) * MAX_R);
+    return pointAt(i, n, r);
+  });
   const dataPath = dataPoints.map((p) => p.join(",")).join(" ");
 
   const summary = axes.map((a) => `${a.label} ${a.score}`).join(", ");
@@ -145,7 +145,8 @@ export function ScoreRadar({ axes }: { axes: RadarAxis[] }) {
 
             {axes.map((a, i) => {
               const [x, y] = pointAt(i, n, MAX_R + LABEL_OFFSET);
-              const anchor = x < CX - 4 ? "end" : x > CX + 4 ? "start" : "middle";
+              const anchor =
+                x < CX - 4 ? "end" : x > CX + 4 ? "start" : "middle";
               return (
                 <text
                   key={a.key}
@@ -162,7 +163,7 @@ export function ScoreRadar({ axes }: { axes: RadarAxis[] }) {
             })}
           </svg>
 
-          {/* The chart's non-visual fallback and its own data table — not
+          {/* The chart's non-visual fallback and its own data table - not
               sr-only, since a legend that names every score is useful to every
               reader, not only assistive tech. */}
           <ul className="flex flex-row flex-wrap justify-center gap-x-4 gap-y-1.5 text-xs @[30rem]:shrink-0 @[30rem]:flex-col @[30rem]:flex-nowrap @[30rem]:justify-start @[30rem]:gap-2">

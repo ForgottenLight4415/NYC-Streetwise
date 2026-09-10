@@ -14,7 +14,7 @@ const MapPanel = dynamic(() => import("./MapPanel").then((m) => m.MapPanel), {
  * Two costs are being deferred, and the second is the larger one:
  *
  *  1. The component's own JavaScript, via `dynamic`.
- *  2. Building the map — a WebGL context, a vector tile fetch chain, and the
+ *  2. Building the map - a WebGL context, a vector tile fetch chain, and the
  *     marker/maps SDK libraries `importLibrary` pulls at construction. The
  *     compare view mounts TWO of these, side by side, both below the fold.
  *

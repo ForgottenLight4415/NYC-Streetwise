@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 /**
- * The "Why this score?" expandable disclosure, shared by every score panel —
+ * The "Why this score?" expandable disclosure, shared by every score panel -
  * complaint tiers (ComplaintBreakdownBars) and amenity tiers (AmenityPanelCard)
  * alike. Deliberately just the disclosure widget: what text goes inside it is
  * tier-specific (a dominant complaint category vs. the nearest amenity), so

@@ -5,7 +5,7 @@ import { SpinnerIcon } from "./icons";
 import type { ReportResponse } from "@/lib/types";
 
 /**
- * One compare column's content area, below the address field — placeholder,
+ * One compare column's content area, below the address field - placeholder,
  * spinner, error, or the full report, exactly what the old CompareColumn
  * rendered. Used only while at least one of the two addresses isn't loaded
  * yet; once both are, CompareView switches to CompareAlignedBody instead so
@@ -39,7 +39,9 @@ export function CompareColumnContent({
         </p>
       )}
 
-      {errorMessage && <p style={{ color: "var(--status-critical)" }}>{errorMessage}</p>}
+      {errorMessage && (
+        <p style={{ color: "var(--status-critical)" }}>{errorMessage}</p>
+      )}
 
       {address && !report && !errorMessage && (
         <div
@@ -51,7 +53,12 @@ export function CompareColumnContent({
       )}
 
       {report && coords && (
-        <ReportBody report={report} coords={coords} address={address} layout="column" />
+        <ReportBody
+          report={report}
+          coords={coords}
+          address={address}
+          layout="column"
+        />
       )}
     </div>
   );

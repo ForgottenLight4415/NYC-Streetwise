@@ -56,7 +56,7 @@ function applyResolved(pref: ThemePreference) {
  * OS already switches at sunset, because once they touch it there is no way
  * back to "follow the system".
  *
- * Rendered as a radiogroup — the three options are one setting, and arrow-key
+ * Rendered as a radiogroup - the three options are one setting, and arrow-key
  * navigation between them is the behavior a screen-reader user expects.
  *
  * The preference lives in localStorage, which is an external store, so it is
@@ -66,7 +66,7 @@ function applyResolved(pref: ThemePreference) {
 export function ThemeToggle({ onPhoto = false }: { onPhoto?: boolean }) {
   const pref = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  // While on "system", the OS can flip underneath us — at sunset, or when the
+  // While on "system", the OS can flip underneath us - at sunset, or when the
   // user changes it in another window. Without this the page keeps the theme
   // it resolved at load.
   useEffect(() => {

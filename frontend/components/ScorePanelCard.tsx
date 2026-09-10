@@ -37,7 +37,7 @@ export function ScorePanelCard({
     // "Why this score?" disclosure name the category that actually drove the
     // rating rather than just the largest raw count.
     bucketScores?: Record<string, number | undefined>;
-    // Per-category status breakdown, for the segmented category bar. Optional —
+    // Per-category status breakdown, for the segmented category bar. Optional -
     // see the field's own doc on ScoreSection in lib/types.ts for when it's
     // absent and why ComplaintBreakdownBars must fall back cleanly then.
     bucketStatusCounts?: Record<
@@ -54,7 +54,7 @@ export function ScorePanelCard({
   /** The report's one global trend window, owned by ReportBody so it also
    *  scopes ActivitySpine below. */
   months: TrendWindow;
-  /** Swaps PanelShell's 96px meter for the small score chip — see PanelShell's
+  /** Swaps PanelShell's 96px meter for the small score chip - see PanelShell's
    *  own doc for why. Threaded through so complaint cards can match the
    *  amenity cards' density now that ReportBody no longer needs the meter's
    *  full width to justify a two-column row at a wide breakpoint. */

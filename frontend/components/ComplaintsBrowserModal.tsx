@@ -80,7 +80,7 @@ export function ComplaintsBrowserModal({
   // Results are tagged with the request that produced them and compared against
   // the current one, rather than being cleared by a second effect. A stale page
   // therefore stops rendering the moment a filter changes, with no intermediate
-  // state write — the same approach AddressSearch uses for its suggestions.
+  // state write - the same approach AddressSearch uses for its suggestions.
   const requestKey = [
     lat,
     lng,
@@ -171,9 +171,9 @@ export function ComplaintsBrowserModal({
   // Drill-in page loads separately; the group already told us its size.
   //
   // Depends on drill's own primitive fields (day/type/offset), not `drill`
-  // itself — same requestKey-primitive pattern the effect above uses. `drill`
+  // itself - same requestKey-primitive pattern the effect above uses. `drill`
   // gets a fresh object identity on every setDrill call, including the ones
-  // this same effect makes below — depending on the object would re-run (and
+  // this same effect makes below - depending on the object would re-run (and
   // immediately no-op past the `items !== null` guard) on every one of
   // those, not just on an actual new drill-in or page turn.
   useEffect(() => {
@@ -191,7 +191,7 @@ export function ComplaintsBrowserModal({
         if (cancelled) return;
         // Prefer the total this response states over the group row's cached
         // count. Socrata answers from replicas of differing freshness, so the
-        // cached count and this list can genuinely describe different data —
+        // cached count and this list can genuinely describe different data -
         // and a header saying 4 above a list of 8 is the worst of both. Falls
         // back to the group's count when the page is not the last one, where
         // the exact total is not knowable from this response alone.
@@ -208,7 +208,16 @@ export function ComplaintsBrowserModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drill?.group.day, drill?.group.type, drill?.offset, lat, lng, tier, status, pageSize]);
+  }, [
+    drill?.group.day,
+    drill?.group.type,
+    drill?.offset,
+    lat,
+    lng,
+    tier,
+    status,
+    pageSize,
+  ]);
 
   const bucketOptions = [
     { value: "all", label: "All" },
@@ -370,7 +379,7 @@ export function ComplaintsBrowserModal({
               <div className="shrink-0 px-5 pb-5 sm:px-6 sm:pb-6">
                 {truncated && (
                   <p className="pb-2 text-[11px] text-(--text-muted)">
-                    This address has more history than we can hold — showing the
+                    This address has more history than we can hold - showing the
                     most recent records only.
                   </p>
                 )}
@@ -404,8 +413,8 @@ export function ComplaintsBrowserModal({
  * One dot per status present, so a day's mix is readable without opening it.
  *
  * The per-status number is shown only when a day actually has a mix. On the
- * common single-status day it would just repeat the row's total back at you —
- * "1 1" — so the dot alone carries the colour and the total carries the count.
+ * common single-status day it would just repeat the row's total back at you -
+ * "1 1" - so the dot alone carries the colour and the total carries the count.
  */
 function StatusDots({ counts }: { counts: Record<ComplaintStatus, number> }) {
   const present = (Object.keys(counts) as ComplaintStatus[]).filter(

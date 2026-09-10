@@ -3,12 +3,14 @@ import { Archivo, IBM_Plex_Mono, Lato } from "next/font/google";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { CookieConsent } from "@/components/CookieConsent";
+import { StructuredData } from "@/components/StructuredData";
 import { API_BASE_URL } from "@/lib/api";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { SITE_URL } from "@/lib/site-url";
 import "./globals.css";
 
-// Display: a signage grotesque. NYC wayfinding — subway, street blades, the
-// 311 forms themselves — is set in neo-grotesques, so this is the subject's own
+// Display: a signage grotesque. NYC wayfinding - subway, street blades, the
+// 311 forms themselves - is set in neo-grotesques, so this is the subject's own
 // lettering rather than a decorative pick. Used only at large sizes.
 const archivo = Archivo({
   variable: "--font-display",
@@ -17,7 +19,7 @@ const archivo = Archivo({
 
 // Body: chosen for small-size legibility, because the report pages are dense
 // lists of complaint labels and dates. Lato isn't a variable font on Google
-// Fonts, so the weights it can serve are fixed to 100/300/400/700/900 — 400
+// Fonts, so the weights it can serve are fixed to 100/300/400/700/900 - 400
 // covers body copy and font-normal; 700 covers font-semibold/font-bold
 // headings and labels (there's no 500/600 cut, so those Tailwind utilities
 // fall back to the browser's nearest match).
@@ -35,10 +37,41 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+const TITLE = "Streetwise NYC: Building Health & Block Quality Scores";
+const DESCRIPTION =
+  "Search any NYC address for a Building Health Score and Block Quality Score built from public 311 complaint data.";
+
 export const metadata: Metadata = {
-  title: "Streetwise NYC: Building Health & Block Quality Scores",
-  description:
-    "Search any NYC address for a Building Health Score and Block Quality Score built from public 311 complaint data.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    template: "%s - Streetwise NYC",
+  },
+  description: DESCRIPTION,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Streetwise NYC",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/",
+    images: [
+      {
+        url: "/hero-nyc.jpg",
+        width: 6000,
+        height: 4000,
+        alt: "Manhattan skyline at night",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/hero-nyc.jpg"],
+  },
 };
 
 export const viewport: Viewport = {
@@ -62,12 +95,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <StructuredData />
         {/* The Express backend is a different origin, and the first call to it
             is on the critical path of every page: the report's score, and the
             homepage's own hero card. This gets the DNS lookup and TLS handshake
             out of the way while the document is still parsing.
 
-            The Maps SDK is NOT loaded here any more — it moved to the two
+            The Maps SDK is NOT loaded here any more - it moved to the two
             routes that actually build a map. See app/report/page.tsx. */}
         <link rel="preconnect" href={API_BASE_URL} crossOrigin="" />
       </head>

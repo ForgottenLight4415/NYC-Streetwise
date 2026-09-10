@@ -13,7 +13,7 @@ import {
 /**
  * A banner, not a modal: it does not block the rest of the page (no focus
  * trap, no Escape-to-close, no backdrop) so a visitor can keep using the
- * site while deciding. It offers Accept/Decline only — deliberately no bare
+ * site while deciding. It offers Accept/Decline only - deliberately no bare
  * "X" dismiss, so closing it can never be mistaken for a choice either way.
  *
  * Visible when there is no stored choice yet, OR when the footer's "Cookie
@@ -52,10 +52,10 @@ export function CookieConsent() {
     >
       <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <p className="max-w-2xl text-sm leading-relaxed text-(--text-secondary)">
-          We keep your theme preference on this device to avoid a flash of
-          the wrong colors - that&rsquo;s always on and never leaves your
-          browser. Remembering your recent searches is optional and stays off
-          until you accept.{" "}
+          We keep your theme preference on this device to avoid a flash of the
+          wrong colors - that&rsquo;s always on and never leaves your browser.
+          Remembering your recent searches is optional and stays off until you
+          accept.{" "}
           <Link
             href="/cookies"
             className="underline underline-offset-2 text-(--brand-ink)"
@@ -81,7 +81,10 @@ export function CookieConsent() {
             // tint/ink pair is the token system's existing answer for a
             // filled brand surface that stays accessible in both themes.
             className="rounded-full px-4 py-2 text-sm font-semibold transition-colors"
-            style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
+            style={{
+              background: "var(--brand-tint)",
+              color: "var(--brand-ink)",
+            }}
           >
             Accept
           </button>
