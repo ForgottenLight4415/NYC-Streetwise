@@ -16,7 +16,7 @@ function formatDate(iso: string) {
  * One complaint, showing only what 311 actually gives us: what was filed, when,
  * and where it stands now.
  *
- * There was a "progress timeline" here — Open on the filing date, then In
+ * There was a "progress timeline" here - Open on the filing date, then In
  * Progress, then Closed, with dates and agency notes. None of it was real. 311
  * exposes the current status and nothing else, so the intermediate steps were
  * synthesised from the filing date plus a seeded random offset, which put them

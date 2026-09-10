@@ -17,7 +17,7 @@ type Panels = ReturnType<typeof useReportPanels>;
 
 /**
  * One of the two headlines: just the band word and its badge. The prose that
- * used to live under each half — one line per category — is now the ONE
+ * used to live under each half - one line per category - is now the ONE
  * combined summary below both halves; see the component doc for why.
  */
 function Half({
@@ -54,26 +54,26 @@ function Half({
  * paragraph below both.
  *
  * Folding all six sections into one band would let a spotless building
- * 900m from a train render "Significant red flags" — and because
+ * 900m from a train render "Significant red flags" - and because
  * `explainVerdict` filters for sections matching the overall band, it would
  * find none and fall through to a fabricated "based on limited complaint
  * data", which is false. Two headlines, two vocabularies (BAND_VERDICT vs.
  * ACCESS_VERDICT), make that unrepresentable.
  *
  * The access half is omitted entirely when the report has no amenity
- * sections — a `/api/showcase` document cached before this feature shipped,
+ * sections - a `/api/showcase` document cached before this feature shipped,
  * or a live report where the amenity datasets failed to load server-side.
  *
  * `panels` is optional: the compare view renders two of these side by side
  * and does not fetch the AI summary for either, to keep that page cheap and
- * fast. Omitting it here reproduces that — both halves fall straight to
+ * fast. Omitting it here reproduces that - both halves fall straight to
  * their deterministic sentence, never to a loading state.
  *
  * `showAddress` defaults to true (every existing caller renders it). The
  * report page's dashboard layout passes false: its sticky ReportToolbar owns
  * the address heading now, so the banner would otherwise duplicate it.
  *
- * Renders ONLY the headlines + summary — the radial chart and the KPI tiles
+ * Renders ONLY the headlines + summary - the radial chart and the KPI tiles
  * that used to live in this same card now live in `OverviewHeader`, rendered
  * separately by `ReportBody` for both layouts (beside this banner in the
  * page layout's 5-column split; below it in the compare view's stacked
@@ -101,15 +101,15 @@ export function VerdictBanner({
   address: string;
   windowMonths: number;
   showAddress?: boolean;
-  /** Changes only the headline arrangement — see the component doc. */
+  /** Changes only the headline arrangement - see the component doc. */
   layout?: "page" | "column";
 }) {
   const complaintSections = COMPLAINT_CATEGORIES.map((c) => report[c.key]);
   const amenityCats = AMENITY_CATEGORIES.filter((c) => report[c.key] != null);
   const hasAccess = amenityCats.length > 0;
 
-  // `report` is a stable SWR cache identity — see computeOverviewMetrics's
-  // own doc comment — so this only re-folds when the report itself changes,
+  // `report` is a stable SWR cache identity - see computeOverviewMetrics's
+  // own doc comment - so this only re-folds when the report itself changes,
   // not on every VerdictBanner re-render.
   const { liveabilityBand, accessBand } = useMemo(
     () => computeOverviewMetrics(report),
@@ -118,13 +118,17 @@ export function VerdictBanner({
 
   const color = `var(${BAND_VAR[liveabilityBand]})`;
 
-  // ONE combined summary for the whole banner, not one line per category —
+  // ONE combined summary for the whole banner, not one line per category -
   // see ReportSummary in lib/types.ts and prompt.js's buildOverallSummaryPrompt.
   // Gated on `panels`, same signal every other AI fetch in this component
   // used to read off `panels?.[key].ai`: no panels means the compare view,
   // which fetches no AI text at all and always shows the deterministic
   // sentence below.
-  const summaryAi = useExplanation(panels ? coords : undefined, "overall", report.summary);
+  const summaryAi = useExplanation(
+    panels ? coords : undefined,
+    "overall",
+    report.summary,
+  );
   const summaryLoading = summaryAi.isLoading;
   const summaryText =
     summaryAi.text ??
@@ -132,7 +136,10 @@ export function VerdictBanner({
       explainVerdict(complaintSections, liveabilityBand, windowMonths),
       hasAccess
         ? explainAccess(
-            amenityCats.map((c) => ({ label: c.label, section: report[c.key]! })),
+            amenityCats.map((c) => ({
+              label: c.label,
+              section: report[c.key]!,
+            })),
             accessBand,
           )
         : null,
@@ -150,11 +157,19 @@ export function VerdictBanner({
         background: `color-mix(in srgb, ${color} 5%, var(--surface-1))`,
       }}
     >
-      {showAddress && (
-        <h1 className="font-display text-lg font-semibold leading-snug text-(--text-primary) sm:text-xl">
-          {address}
-        </h1>
-      )}
+      {showAddress &&
+        // Column layout (compare view) already has its own page-level <h1>
+        // ("Compare two addresses" - CompareView.tsx) - a second and third h1
+        // per column would leave the page with three simultaneous h1s.
+        (layout === "column" ? (
+          <h2 className="font-display text-lg font-semibold leading-snug text-(--text-primary) sm:text-xl">
+            {address}
+          </h2>
+        ) : (
+          <h1 className="font-display text-lg font-semibold leading-snug text-(--text-primary) sm:text-xl">
+            {address}
+          </h1>
+        ))}
 
       <div
         className={

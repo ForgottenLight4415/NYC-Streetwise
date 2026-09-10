@@ -81,7 +81,7 @@ export function FeaturedCard({
   const accentColor = `var(${BAND_VAR[band]})`;
   const accentInk = `var(${BAND_VAR[band]}-ink)`;
 
-  // Undefined on a showcase document cached before this feature shipped —
+  // Undefined on a showcase document cached before this feature shipped -
   // then there is nothing to fold into a second chip, and the card shows
   // only the liveability verdict, same as before amenities existed.
   const amenityCats = AMENITY_CATEGORIES.filter((c) => data[c.key] != null);

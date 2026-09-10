@@ -29,9 +29,12 @@ import { haversineMeters } from "../lib/geo.js";
  *
  * @param {{lat:number, lng:number}} origin
  * @param {Record<string, Record<string, {meters:number, name:string|null, lat:number, lng:number}[]>>} candidatesByTierBucket
+ * @param {{retries?: number}} [options] Forwarded to computeWalkingDistances —
+ *   see its docstring for why this defaults to 0 (fail-fast) on the request
+ *   path but buildAmenityBaseline.js overrides it.
  * @returns {Promise<Record<string, Record<string, {meters:number, name:string|null}>>|null>}
  */
-async function resolveWalkingDistances(origin, candidatesByTierBucket) {
+async function resolveWalkingDistances(origin, candidatesByTierBucket, { retries } = {}) {
   const cached = await readAmenityDistances(origin.lat, origin.lng);
   if (cached) return cached;
 
@@ -49,7 +52,7 @@ async function resolveWalkingDistances(origin, candidatesByTierBucket) {
   }
   if (destinations.length === 0) return null;
 
-  const walkingMeters = await computeWalkingDistances(origin, destinations);
+  const walkingMeters = await computeWalkingDistances(origin, destinations, { retries });
 
   // Per bucket, keep whichever of its (up to AMENITY_ROUTE_CANDIDATES)
   // candidates came back with the shortest REAL distance — the
@@ -102,6 +105,18 @@ async function resolveWalkingDistances(origin, candidatesByTierBucket) {
  * correction is unavailable (no API key, the call failed, or Google found no
  * walkable route to any of the candidates offered).
  *
+ * @param {{routeRetries?: number}} [options] `routeRetries` is forwarded to
+ *   computeWalkingDistances, which defaults to 0 (fail-fast, never delays
+ *   the request path — see its docstring). buildAmenityBaseline.js overrides
+ *   this to a positive number: that script's baseline is a citywide
+ *   reference for the SAME route-corrected distances live scoring measures
+ *   (see CLAUDE.md's amenity scores section), so it must use the same
+ *   measurement, not a cheaper straight-line stand-in — a baseline built
+ *   from smaller straight-line numbers would systematically understate every
+ *   live, route-corrected score compared against it. Bounded retry-with-
+ *   backoff on 429 (same pattern as providers/socrata.js's `query()`) is
+ *   what makes ~150 sequential live Routes calls survive Google's per-second
+ *   quota instead of degrading unpredictably mid-run.
  * @returns {Promise<Record<string, Record<string, {meters, within, name, routes?: string[]}>>|null>}
  *   tier -> bucket -> metric. `meters` is null past AMENITY_MAX_METERS. A
  *   tier is null if its dataset failed to load anywhere (Mongo and file both
@@ -111,7 +126,7 @@ async function resolveWalkingDistances(origin, candidatesByTierBucket) {
  *   subway/bus routes serve this stop) — rail and every parks/bike bucket
  *   have no route concept and never carry the key.
  */
-export async function getAmenityMetrics(lat, lng) {
+export async function getAmenityMetrics(lat, lng, { routeRetries } = {}) {
   const datasets = await loadAmenities();
 
   const candidatesByTierBucket = {};
@@ -134,7 +149,9 @@ export async function getAmenityMetrics(lat, lng) {
 
   if (!anyTierAvailable) return null;
 
-  const corrected = await resolveWalkingDistances({ lat, lng }, candidatesByTierBucket);
+  const corrected = await resolveWalkingDistances({ lat, lng }, candidatesByTierBucket, {
+    retries: routeRetries,
+  });
 
   const result = {};
   for (const [tierName, { dataset, radiusMeters, buckets }] of Object.entries(AMENITY_TIERS)) {

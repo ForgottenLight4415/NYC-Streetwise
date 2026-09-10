@@ -13,7 +13,7 @@ import { ChevronRightIcon } from "./icons";
  * NOTE: this is a chronological FEED of distinct 311 complaints, not a
  * per-case progress timeline. `lib/types.ts` records that a synthesized
  * "Open -> In Progress -> Closed" timeline was deliberately removed because
- * 311 publishes no per-case change log — do not reintroduce that here. Every
+ * 311 publishes no per-case change log - do not reintroduce that here. Every
  * row below is one complaint's filing date and CURRENT status, nothing more.
  */
 
@@ -23,7 +23,8 @@ const ComplaintDetailModal = dynamic(
 );
 
 const ComplaintsBrowserModal = dynamic(
-  () => import("./ComplaintsBrowserModal").then((m) => m.ComplaintsBrowserModal),
+  () =>
+    import("./ComplaintsBrowserModal").then((m) => m.ComplaintsBrowserModal),
   { ssr: false },
 );
 
@@ -53,7 +54,7 @@ interface TierFeed {
 interface TaggedComplaint extends Complaint {
   tierColorVar: string;
   /** Short form of the tier's full label ("Building Health" -> "Building"),
-   *  for the inline row tag below — the full label is too wide for a
+   *  for the inline row tag below - the full label is too wide for a
    *  compact row next to the date and status. */
   tierTag: string;
 }
@@ -68,7 +69,7 @@ function shortTierTag(label: string): string {
 }
 
 /**
- * The report's merged, cross-tier "recent activity" feed — replaces the two
+ * The report's merged, cross-tier "recent activity" feed - replaces the two
  * separate per-panel "Recent complaints" sections that used to live inside
  * each ScorePanelCard. Both tiers' newest complaints are interleaved here
  * instead, so nothing is listed twice.
@@ -87,7 +88,9 @@ export function ActivitySpine({
   const [selected, setSelected] = useState<Complaint | null>(null);
   const [browsing, setBrowsing] = useState<ComplaintTierId | null>(null);
 
-  const stillLoading = tiers.some((t) => t.complaints === undefined || t.isLoading);
+  const stillLoading = tiers.some(
+    (t) => t.complaints === undefined || t.isLoading,
+  );
 
   const cutoff = monthsAgoISO(months);
   const merged: TaggedComplaint[] = useMemo(() => {
@@ -105,7 +108,7 @@ export function ActivitySpine({
   }, [tiers, cutoff]);
 
   // Exact per-tier window totals from the aggregated trend series, not the
-  // row-capped complaint arrays above — the same reasoning RecentComplaintsList
+  // row-capped complaint arrays above - the same reasoning RecentComplaintsList
   // used to apply per panel.
   const buildingTrend = useTrend({ lat, lng }, "building");
   const blockTrend = useTrend({ lat, lng }, "block");
@@ -119,7 +122,10 @@ export function ActivitySpine({
   return (
     <div
       className="flex flex-col gap-3 rounded-lg bg-(--surface-1) p-5 sm:p-6"
-      style={{ boxShadow: "var(--shadow-md)", border: "1px solid var(--border-hairline)" }}
+      style={{
+        boxShadow: "var(--shadow-md)",
+        border: "1px solid var(--border-hairline)",
+      }}
     >
       <p className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
         Recent activity
@@ -145,7 +151,7 @@ export function ActivitySpine({
                 className="activity-row flex min-h-11 w-full items-center gap-3 rounded-md py-2 text-left text-sm transition-colors hover:bg-(--surface-2)"
               >
                 {/* Color dot + short tier tag on one line, date on the
-                    next — a second stacked line, not a wider single line,
+                    next - a second stacked line, not a wider single line,
                     since a merged feed row (compact already, min-h-11) has
                     little width to spare next to the truncated title. */}
                 <span className="flex w-16 shrink-0 flex-col items-start gap-0.5">
@@ -180,7 +186,9 @@ export function ActivitySpine({
 
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5">
         {tiers.map((t) => {
-          const total = windowTotal(sliceWindow(trendByTier[t.tier].data, months));
+          const total = windowTotal(
+            sliceWindow(trendByTier[t.tier].data, months),
+          );
           return (
             <button
               key={t.tier}
@@ -198,7 +206,10 @@ export function ActivitySpine({
       </div>
 
       {selected && (
-        <ComplaintDetailModal complaint={selected} onClose={() => setSelected(null)} />
+        <ComplaintDetailModal
+          complaint={selected}
+          onClose={() => setSelected(null)}
+        />
       )}
 
       {browsingTier && (

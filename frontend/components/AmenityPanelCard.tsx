@@ -6,7 +6,7 @@ import { explainAmenity, formatDistance, nearestMetric } from "@/lib/amenities";
 import type { AmenityMetric, Confidence, ScoreBand } from "@/lib/types";
 
 /**
- * The amenity sibling to ScorePanelCard — same shell, plus its own "Why this
+ * The amenity sibling to ScorePanelCard - same shell, plus its own "Why this
  * score?" disclosure computed client-side (explainAmenity) rather than
  * fetched: none of the four amenity tiers ever gets an AI or backend-computed
  * explanation (see CLAUDE.md's AI Explanation Layer section), so this is the
@@ -33,12 +33,12 @@ export function AmenityPanelCard({
     confidence: Confidence;
     confidenceReason: string | null;
   };
-  /** Forwarded straight to AmenityMetricRows — see its own doc comment. */
+  /** Forwarded straight to AmenityMetricRows - see its own doc comment. */
   onOpenBucket?: (bucket: string) => void;
-  /** Forwarded straight to AmenityMetricRows — see its own doc comment. */
+  /** Forwarded straight to AmenityMetricRows - see its own doc comment. */
   onHoverBucket?: () => void;
 }) {
-  // Only used for the "nothing at all" case — when something was found, the
+  // Only used for the "nothing at all" case - when something was found, the
   // Nearest by type table below already shows it, so no separate summary
   // sentence is needed here.
   const nearest = nearestMetric(panel.metrics);

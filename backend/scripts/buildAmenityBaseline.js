@@ -18,13 +18,31 @@
  * to come from real complaint locations. That step still costs one round of
  * Socrata calls, same as the complaint baseline's own sampling step.
  *
- * What's genuinely free here is the MEASUREMENT step. buildBaseline.js's
- * per-point cost is a live getCounts() Socrata call; this script's per-point
- * cost is a local spatial-index lookup (getAmenityMetrics(), microseconds),
- * because the amenity datasets are already distilled and committed. That is
- * the entire reason this finishes in seconds rather than buildBaseline.js's
- * measured ~62s: the slow part (per-point network calls) is the one this
- * script does not have.
+ * THE MEASUREMENT STEP DOES HIT THE NETWORK, deliberately. getAmenityMetrics()
+ * always tries a live Google Routes correction (see CLAUDE.md's amenity
+ * scores section) — and it has to here too, not just on /api/score: this
+ * baseline's median/p90 anchors are the reference every LIVE, route-corrected
+ * report gets percentiled against. If this script measured cheap straight-
+ * line distances instead, the baseline would be built from systematically
+ * smaller numbers than what a real report ever measures (walking routes
+ * detour around blocks/rivers/one-ways; straight-line never does), and every
+ * live score would read as worse than it should, uniformly. So this script
+ * is slower and non-free unlike buildBaseline.js's per-point cost comparison
+ * once suggested — see AMENITY_BASELINE_ROUTE_RETRIES/_PACING_MS below for
+ * how it stays reliable anyway.
+ *
+ * ~150 sequential, uncached, live Routes calls with no other caller sharing
+ * the quota is enough to trip Google's per-second rate limit mid-run — that
+ * showed up as `[googleRoutes] computeRouteMatrix 429` warnings degrading
+ * scattered points to straight-line, which would make the baseline a
+ * nondeterministic mix depending on exactly when the quota was hit, breaking
+ * the determinism this baseline is documented to have. Two mitigations, both
+ * in getAmenityMetrics()/computeWalkingDistances(): a fixed pacing delay
+ * between points (AMENITY_BASELINE_ROUTE_PACING_MS) to stay under the
+ * steady-state quota, plus bounded jittered retry-with-backoff on 429/5xx
+ * (AMENITY_BASELINE_ROUTE_RETRIES, same pattern as providers/socrata.js's
+ * query()) to absorb the rest. The request path keeps its 0-retry fail-fast
+ * default — this override is scoped to this script only.
  *
  * Sampled from ALL_COMPLAINT_TYPES (the same source as buildBaseline.js's
  * block tier), not just HPD building-interior types — amenity access is not
@@ -45,6 +63,8 @@ import {
   AMENITY_BASELINE_SAMPLE_SEED,
   AMENITY_BASELINE_SAMPLE_SIZE,
   AMENITY_BASELINE_ID,
+  AMENITY_BASELINE_ROUTE_RETRIES,
+  AMENITY_BASELINE_ROUTE_PACING_MS,
   AMENITY_BUCKET_NAMES,
   AMENITY_MAX_METERS,
   AMENITY_TIERS,
@@ -132,15 +152,24 @@ const sample = await sampleCoordinates({
   timeoutMs: SAMPLING_TIMEOUT_MS,
 });
 
-console.log(`\n=== Measuring amenity distances at ${sample.length} points (local, no network) ===`);
+console.log(
+  `\n=== Measuring amenity distances at ${sample.length} points ` +
+    `(live Google Routes correction, paced ${AMENITY_BASELINE_ROUTE_PACING_MS}ms apart, ` +
+    `${AMENITY_BASELINE_ROUTE_RETRIES} retries on 429/5xx) ===`
+);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const metersByBucket = Object.fromEntries(
   Object.values(AMENITY_BUCKET_NAMES).flat().map((bucket) => [bucket, []])
 );
 
 let usable = 0;
-for (const point of sample) {
-  const metrics = await getAmenityMetrics(point.lat, point.lng);
+for (const [index, point] of sample.entries()) {
+  if (index > 0) await sleep(AMENITY_BASELINE_ROUTE_PACING_MS);
+  const metrics = await getAmenityMetrics(point.lat, point.lng, {
+    routeRetries: AMENITY_BASELINE_ROUTE_RETRIES,
+  });
   if (!metrics) continue;
   usable++;
   for (const [tierName, { buckets }] of Object.entries(AMENITY_TIERS)) {

@@ -108,4 +108,49 @@ describe("computeWalkingDistances", () => {
     const result = await computeWalkingDistances(ORIGIN, DESTINATIONS);
     expect(result).toEqual([null, null, null]);
   });
+
+  it("does not retry by default — one 429 degrades to all-null on the first attempt", async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({ error: "quota exceeded" }, 429));
+    const result = await computeWalkingDistances(ORIGIN, DESTINATIONS);
+    expect(result).toEqual([null, null, null]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on 429 when retries is set, and succeeds once the quota clears", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: "quota exceeded" }, 429))
+      .mockResolvedValueOnce(
+        jsonResponse([{ originIndex: 0, destinationIndex: 0, distanceMeters: 120, condition: "ROUTE_EXISTS" }])
+      );
+
+    const result = await computeWalkingDistances(ORIGIN, DESTINATIONS, { retries: 3 });
+    expect(result).toEqual([120, null, null]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("degrades to all-null after exhausting retries on repeated 429s", async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({ error: "quota exceeded" }, 429));
+    const result = await computeWalkingDistances(ORIGIN, DESTINATIONS, { retries: 2 });
+    expect(result).toEqual([null, null, null]);
+    expect(fetchSpy).toHaveBeenCalledTimes(3); // initial attempt + 2 retries
+  });
+
+  it("does not retry a non-retryable 4xx even when retries is set", async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({ error: "bad request" }, 400));
+    const result = await computeWalkingDistances(ORIGIN, DESTINATIONS, { retries: 3 });
+    expect(result).toEqual([null, null, null]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries when fetch itself rejects (network failure or timeout)", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce(
+        jsonResponse([{ originIndex: 0, destinationIndex: 0, distanceMeters: 120, condition: "ROUTE_EXISTS" }])
+      );
+
+    const result = await computeWalkingDistances(ORIGIN, DESTINATIONS, { retries: 1 });
+    expect(result).toEqual([120, null, null]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
 });

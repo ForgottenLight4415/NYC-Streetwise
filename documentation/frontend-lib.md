@@ -286,6 +286,39 @@ their own.
 
 ---
 
+## `recentSearches.ts` — recent-address localStorage state
+
+`getRecentSearches`/`saveRecentSearch`/`clearRecentSearches`, plus the
+`useSyncExternalStore` trio (`subscribeRecents`/`getRecentsSnapshot`/
+`getRecentsServerSnapshot`). Extracted out of `AddressSearch.tsx` (where this
+used to live inline) so `consent.ts` can clear the list on Decline without
+reaching into a client component's internals. `saveRecentSearch` itself is
+unconditional — the *caller* (`AddressSearch.tsx`) is what checks
+`consent.ts#getConsent()` before calling it.
+
+---
+
+## `consent.ts` — cookie/localStorage consent
+
+Gates the one non-essential thing this app stores locally: recent searches.
+Theme preference (`theme.ts`) is deliberately **not** gated — it carries no
+personal data and exists only to avoid a themed flash before paint, so it's
+treated as strictly-necessary/functional storage (see `/cookies` for the
+plain-language version of this reasoning).
+
+`getConsent()`/`setConsent()` read/write `localStorage["streetwise.cookieConsent"]`
+(`"accepted" | "declined"`, `null` = undecided); `setConsent("declined")`
+also calls `recentSearches.ts#clearRecentSearches()`, covering both a fresh
+Decline and revoking a prior Accept. `reopenConsentBanner()`/`subscribeReopen()`
+are a **separate** event from the stored-choice change event — the footer's
+"Cookie Preferences" control uses this to force `CookieConsent.tsx` back open
+without touching (or being confused with) the undecided state. The
+`subscribeConsent`/`getConsentSnapshot`/`getConsentServerSnapshot` trio
+mirrors `theme.ts`'s external-store shape, server snapshot always `null` so
+there's no hydration mismatch.
+
+---
+
 ## `lru.ts` — server-only TTL cache
 
 `TtlCache<V>`, a ~30-line capacity+TTL map (not the `lru-cache` npm package —

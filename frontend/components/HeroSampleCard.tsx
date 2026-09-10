@@ -20,7 +20,7 @@ import type {
 import { FactRotator } from "./FactRotator";
 import { ArrowRightIcon } from "./icons";
 
-/** One score in the data face — the readout this product exists to produce. */
+/** One score in the data face - the readout this product exists to produce. */
 function ScoreReadout({
   label,
   score,
@@ -56,14 +56,14 @@ function ScoreReadout({
  * The card straddling the hero's bottom edge: one real report, so the output is
  * the argument.
  *
- * It used to render a deterministic fake — a seeded PRNG dressed up as "456 Park
+ * It used to render a deterministic fake - a seeded PRNG dressed up as "456 Park
  * Ave". Now there are exactly two ways it can show a number, and neither invents
  * one:
  *
- *  1. `item` — an address the backend already had cached, picked at random and
+ *  1. `item` - an address the backend already had cached, picked at random and
  *     server-rendered. No client fetch, no flash, the common case once the cache
  *     is warm.
- *  2. Nothing cached — it fetches a real score on mount for the address the
+ *  2. Nothing cached - it fetches a real score on mount for the address the
  *     backend nominated. That is a live Socrata call (0.3-2.5s, tail 8.3s),
  *     which is exactly why it happens HERE and not on the server: the rest of
  *     the page renders and is fully usable while this one card fills itself in.
@@ -95,7 +95,7 @@ export function HeroSampleCard({
   const address = item?.address ?? fallback?.address;
   const borough = item?.borough ?? fallback?.borough ?? null;
 
-  // No cached item and no subject to score means the backend is unreachable —
+  // No cached item and no subject to score means the backend is unreachable -
   // the same call that would fetch the score just failed. Show nothing.
   if (failed || !address) return null;
 
@@ -137,7 +137,7 @@ function Card({
     >
       <div className="min-w-0 flex-1">
         <p className="font-data text-[11px] uppercase tracking-[0.16em] text-(--text-muted)">
-          {/* Not "Sample report" any more — there is no sample, this is the
+          {/* Not "Sample report" any more - there is no sample, this is the
               address's actual 311 record. */}
           Live report{borough ? ` · ${borough}` : ""}
         </p>
@@ -149,7 +149,7 @@ function Card({
           style={{ color: `var(${BAND_VAR[band]}-ink)` }}
         >
           {BAND_VERDICT[band]}
-          {/* A secondary access chip, not folded into the one verdict above —
+          {/* A secondary access chip, not folded into the one verdict above -
               without it this card could say "Looks solid" and open a report
               that also says "Car-dependent", which reads as a contradiction. */}
           {accessBand && (
@@ -197,7 +197,7 @@ function Card({
  *
  * No spinner: the page around this is finished and usable, and a spinner would
  * claim otherwise. Renting facts rather than the NYC trivia the report waits
- * use — a visitor who has not searched anything yet is being given a reason to,
+ * use - a visitor who has not searched anything yet is being given a reason to,
  * not entertained through a wait they chose.
  *
  * Sized to roughly the card it replaces so the section below does not jump when

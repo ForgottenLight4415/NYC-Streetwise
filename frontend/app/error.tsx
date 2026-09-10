@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 
-// Root error boundary — catches an unexpected render-time throw anywhere
+// Root error boundary - catches an unexpected render-time throw anywhere
 // under the root layout (Header stays mounted; only this segment's content
 // is replaced). This is NOT the path a documented backend failure takes:
 // ReportView/CompareView already catch `fetchReport()`'s throw via SWR's
@@ -38,14 +38,11 @@ export default function GlobalError({
           type="button"
           onClick={reset}
           className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-md font-semibold transition-colors"
-          style={{ background: "var(--brand)", color: "#ffffff" }}
+          style={{ background: "var(--brand-tint)", color: "var(--brand-ink)" }}
         >
           Try again
         </button>
-        <Link
-          href="/"
-          className="text-sm underline text-(--text-secondary)"
-        >
+        <Link href="/" className="text-sm underline text-(--text-secondary)">
           Back to home
         </Link>
       </div>

@@ -35,7 +35,7 @@ export function ReportView() {
 
   usePrefetchTrends(coords);
 
-  // The report's one fixed-arity fanout — every complaint tier's own feed,
+  // The report's one fixed-arity fanout - every complaint tier's own feed,
   // in one hook. See useReportPanels for why this can't be a loop over the
   // category registry.
   const panels = useReportPanels(coords, report);
@@ -44,17 +44,25 @@ export function ReportView() {
 
   if (!address) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6">
+      <main
+        id="main"
+        className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6"
+      >
+        <h1 className="sr-only">Address report</h1>
         <p className="text-(--text-secondary)">
           Enter an address above to see its report.
         </p>
-      </div>
+      </main>
     );
   }
 
   if (error) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6">
+      <main
+        id="main"
+        className="mx-auto max-w-lg px-4 py-24 text-center sm:px-6"
+      >
+        <h1 className="sr-only">Address report</h1>
         <p style={{ color: "var(--status-critical)" }}>
           {error instanceof Error ? error.message : "Something went wrong"}
         </p>
@@ -64,14 +72,14 @@ export function ReportView() {
         >
           Back to search
         </Link>
-      </div>
+      </main>
     );
   }
 
   if (!report || !coords) {
     // The same view the Suspense boundary above already rendered, so the two
     // back-to-back waits read as one. This now covers only the geocode and
-    // /api/score — the complaint fetches it used to include have moved into the
+    // /api/score - the complaint fetches it used to include have moved into the
     // panels, which render their own skeletons.
     return <ReportLoading />;
   }

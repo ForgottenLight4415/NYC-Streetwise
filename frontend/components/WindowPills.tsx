@@ -5,7 +5,7 @@ import { TREND_WINDOW_OPTIONS, type TrendWindow } from "@/lib/api";
 /**
  * The trend-window radiogroup, extracted out of TrendSection so the report
  * toolbar can render the exact same control for the one global window it now
- * owns — same arrow-key roving tabindex, same touch sizing, same numerals.
+ * owns - same arrow-key roving tabindex, same touch sizing, same numerals.
  * One implementation, one accessibility behavior, wherever this appears.
  */
 export function WindowPills({

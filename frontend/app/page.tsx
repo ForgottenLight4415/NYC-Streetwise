@@ -4,13 +4,18 @@ import { AddressSearch } from "@/components/AddressSearch";
 import { CitywideBaselinePanel } from "@/components/CitywideBaselinePanel";
 import { FeaturedCarousel } from "@/components/FeaturedCarousel";
 import { HeroSampleCard } from "@/components/HeroSampleCard";
-import { ArrowRightIcon, BuildingIcon, BlockIcon, MapPinIcon } from "@/components/icons";
+import {
+  ArrowRightIcon,
+  BuildingIcon,
+  BlockIcon,
+  MapPinIcon,
+} from "@/components/icons";
 import { fetchShowcase } from "@/lib/api";
 
 /**
  * Statically rendered, revalidated every five minutes.
  *
- * The showcase endpoint is cache-only on the backend — it never calls Socrata —
+ * The showcase endpoint is cache-only on the backend - it never calls Socrata -
  * so this costs a few milliseconds, and ISR means no visitor ever waits on it at
  * all. Five minutes is short enough that an address someone looks up shows up on
  * the homepage while they are still in the session, and long enough that the
@@ -46,7 +51,7 @@ const CHIP_COUNT = 4;
 
 /**
  * The hero rail. These are the real scoring parameters from the backend
- * (RADIUS_TIERS in config/constants.js), not marketing figures — for a product
+ * (RADIUS_TIERS in config/constants.js), not marketing figures - for a product
  * whose whole claim is "we only report what the city recorded", the method is
  * the most trustworthy thing the page can lead with.
  */
@@ -61,7 +66,7 @@ const RADII = [
     value: "350",
     unit: "m",
     label: "Block radius",
-    body: "The surrounding street — noise, illegal parking, street condition.",
+    body: "The surrounding street: noise, illegal parking, street condition.",
   },
 ];
 
@@ -106,7 +111,7 @@ const STEPS = [
 
 export default async function Home() {
   // One call feeds all three address sections. Returns [] on any failure, and
-  // fewer items than asked for whenever the 24h counts cache has thinned out —
+  // fewer items than asked for whenever the 24h counts cache has thinned out -
   // every section below is written to render whatever it is handed.
   const { items, fallback } = await fetchShowcase("top", SHOWCASE_LIMIT, {
     next: { revalidate },
@@ -120,7 +125,7 @@ export default async function Home() {
 
   // The hero card gets the most-looked-up address; the carousel gets the rest,
   // so the same report is never on screen twice. With nothing cached it gets the
-  // backend's randomly-chosen curated address instead and scores it live —
+  // backend's randomly-chosen curated address instead and scores it live -
   // no address is hardcoded here, and none is privileged over the others.
   const [heroItem, ...carouselItems] = items;
 
@@ -134,7 +139,7 @@ export default async function Home() {
           `isolate` keeps the -z-10/-z-20 photo layers behind the hero content
           but in front of the page canvas; `z-10` lifts the section above the
           ones below it so the search dropdown is never painted under them.
-          Deliberately not clipped — the sample card hangs past the bottom edge.
+          Deliberately not clipped - the sample card hangs past the bottom edge.
           `-mt-16 pt-16` slides the hero up under the transparent 4rem header. */}
       <section className="relative isolate z-10 -mt-16 pt-16">
         {/* next/image rather than a CSS background: the source file is ~6.5MB,
@@ -195,7 +200,7 @@ export default async function Home() {
 
               {/* relative z-20: the `rise` entrance animates opacity and
                   transform, and an element whose fill-mode keeps those applied
-                  retains a stacking context — so the chips row below was
+                  retains a stacking context - so the chips row below was
                   painting over the open suggestion panel. Ordering the search
                   above its later siblings fixes it at the source. */}
               <div
@@ -312,7 +317,7 @@ export default async function Home() {
         <h2 className="font-data text-[11px] font-medium uppercase tracking-[0.18em] text-(--text-muted)">
           How it works
         </h2>
-        {/* Numbered because these three are a real sequence — you cannot read a
+        {/* Numbered because these three are a real sequence - you cannot read a
             score before entering an address. */}
         <ol className="mt-6 grid gap-8 sm:grid-cols-3 sm:gap-6">
           {STEPS.map((s, i) => (
@@ -368,7 +373,7 @@ export default async function Home() {
       {/* ===================== Recently checked / citywide baseline =====================
           Two different sections sharing one slot, chosen by what the backend
           actually holds. There is no third branch that fills the gap with
-          invented reports — that is what this section used to be.
+          invented reports - that is what this section used to be.
 
           Below MIN_CAROUSEL_ITEMS the carousel would be a duplicated one- or
           two-card loop, which reads as a bug. The baseline panel takes the slot
@@ -408,35 +413,6 @@ export default async function Home() {
           </div>
         )}
       </section>
-
-      {/* ===================== Footer ===================== */}
-      <footer
-        className="mt-4 border-t"
-        style={{ borderColor: "var(--border-hairline)" }}
-      >
-        <div className="mx-auto max-w-6xl px-4 py-12 text-center sm:px-6">
-          <Image
-            src="/logo-full.png"
-            alt="Streetwise — Rent smart in NYC"
-            width={907}
-            height={301}
-            className="mx-auto mb-6 h-auto w-55 sm:w-65"
-          />
-          <p className="mx-auto max-w-2xl text-xs leading-relaxed text-(--text-muted)">
-            Data source: NYC 311 Service Requests (Socrata, dataset erm2-nwe9).
-          </p>
-          <p className="mt-1.5 text-xs text-(--text-muted)">
-            Hero photo by{" "}
-            <a
-              href="https://unsplash.com/photos/manhattan-skyline-at-night-ZXBPMnNVtlE"
-              className="underline underline-offset-2 hover:text-(--text-secondary)"
-            >
-              Jan Folwarczny
-            </a>{" "}
-            on Unsplash.
-          </p>
-        </div>
-      </footer>
     </main>
   );
 }

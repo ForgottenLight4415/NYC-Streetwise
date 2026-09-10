@@ -7,7 +7,7 @@ import { useTrend } from "@/lib/hooks";
 import { sliceWindow } from "@/lib/reportMetrics";
 import type { ComplaintTierId } from "@/lib/types";
 
-/** A lookup, not a ternary — a ternary silently mislabels any tier beyond
+/** A lookup, not a ternary - a ternary silently mislabels any tier beyond
  *  the two it was written for. */
 const TIER_LABEL: Record<ComplaintTierId, string> = {
   building: "Building Health",
@@ -18,12 +18,12 @@ const TIER_LABEL: Record<ComplaintTierId, string> = {
  * The trend chart plus its window selector.
  *
  * Split out of ScorePanelCard because it is the one part of that card with its
- * own data source and its own state — the card is otherwise a pure render of
+ * own data source and its own state - the card is otherwise a pure render of
  * the score payload.
  *
  * Series come from /api/trend, which aggregates by month server-side. That
  * matters: the old chart bucketed the capped complaint LIST, so on a dense
- * block it charted the most recent 200 records — a couple of weeks — and drew
+ * block it charted the most recent 200 records - a couple of weeks - and drew
  * a cliff that read as "complaints started recently". This cannot be
  * truncated; every window returns one point per month.
  *
@@ -48,7 +48,7 @@ export function TrendSection({
   onMonthsChange?: (months: TrendWindow) => void;
 }) {
   // Always the widest window, sliced down for display. Every window is a suffix
-  // of a longer one — the last 9 months are the last 9 entries of the last 24 —
+  // of a longer one - the last 9 months are the last 9 entries of the last 24 -
   // so one request answers all six, and switching between them costs nothing.
   //
   // Keyed by coordinate+tier in the SWR cache, so ReportView's prefetch at

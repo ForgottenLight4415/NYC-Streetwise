@@ -2,52 +2,52 @@
   "_id": "v1",
   "perBucket": {
     "heatHotWater": {
-      "median": 30,
-      "p90": 245,
-      "mean": 107.59,
-      "max": 2494,
+      "median": 35,
+      "p90": 261,
+      "mean": 120.08,
+      "max": 6397,
       "zeroShare": 0.064,
-      "n": 251
+      "n": 250
     },
     "unsanitaryCondition": {
-      "median": 12,
-      "p90": 54,
-      "mean": 24.18,
-      "max": 238,
-      "zeroShare": 0.064,
-      "n": 251
+      "median": 13,
+      "p90": 67,
+      "mean": 28.98,
+      "max": 620,
+      "zeroShare": 0.092,
+      "n": 250
     },
     "plumbing": {
       "median": 7,
-      "p90": 34,
-      "mean": 14.44,
-      "max": 149,
-      "zeroShare": 0.139,
-      "n": 251
+      "p90": 43,
+      "mean": 18.52,
+      "max": 530,
+      "zeroShare": 0.148,
+      "n": 250
     },
     "noise": {
-      "median": 1121,
-      "p90": 3289,
-      "mean": 1512.08,
-      "max": 17068,
+      "median": 1018,
+      "p90": 4599,
+      "mean": 2459.61,
+      "max": 186123,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
     },
     "parking": {
-      "median": 1120,
-      "p90": 2639,
-      "mean": 1578.89,
-      "max": 18600,
+      "median": 1117,
+      "p90": 2760,
+      "mean": 1449.45,
+      "max": 11744,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
     },
     "streetCondition": {
-      "median": 121,
-      "p90": 273,
-      "mean": 147.8,
-      "max": 637,
+      "median": 114,
+      "p90": 277,
+      "mean": 140.75,
+      "max": 526,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
     }
   },
   "radiusMeters": {
@@ -55,15 +55,15 @@
     "block": 350
   },
   "windowMonths": 24,
-  "sampleSize": 251,
+  "sampleSize": 250,
   "sampleRequested": 250,
   "perTierSamples": {
-    "building": 251,
-    "block": 251
+    "building": 250,
+    "block": 250
   },
   "sampleSources": {
     "building": "HPD building-interior complaints",
     "block": "all complaint types"
   },
-  "computedAt": "2026-08-15T19:11:53.317Z"
+  "computedAt": "2026-09-10T20:08:41.718Z"
 }

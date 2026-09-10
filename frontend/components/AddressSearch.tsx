@@ -11,73 +11,13 @@ import { useRouter } from "next/navigation";
 import { useSuggestions } from "@/lib/hooks";
 import { SearchIcon, ClockIcon, MapPinIcon } from "./icons";
 import type { AutocompleteSuggestion } from "@/lib/types";
-
-const RECENT_KEY = "streetwise.recentSearches";
-const RECENT_EVENT = "streetwise:recentschange";
-const MAX_RECENT = 5;
-
-export function getRecentSearches(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed.filter((v) => typeof v === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentSearch(address: string) {
-  if (typeof window === "undefined") return;
-  const existing = getRecentSearches().filter((a) => a !== address);
-  const next = [address, ...existing].slice(0, MAX_RECENT);
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  } catch {
-    // Private browsing refuses writes; recents are a convenience, not state
-    // anything else depends on.
-  }
-  window.dispatchEvent(new Event(RECENT_EVENT));
-}
-
-/* Recents live in localStorage, so they are subscribed to as an external store
-   rather than copied into state on mount. Reading them during render instead
-   would return [] on the server and a populated list on the client, which is a
-   hydration mismatch. */
-
-const EMPTY: string[] = [];
-
-function subscribeRecents(onChange: () => void) {
-  window.addEventListener("storage", onChange);
-  window.addEventListener(RECENT_EVENT, onChange);
-  return () => {
-    window.removeEventListener("storage", onChange);
-    window.removeEventListener(RECENT_EVENT, onChange);
-  };
-}
-
-// Cached because useSyncExternalStore compares snapshots by identity, and
-// getRecentSearches() parses fresh JSON into a new array every call — which
-// would otherwise loop forever.
-let recentsCache: string[] = EMPTY;
-let recentsRaw: string | null = null;
-
-function getRecentsSnapshot(): string[] {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(RECENT_KEY);
-  } catch {
-    return EMPTY;
-  }
-  if (raw !== recentsRaw) {
-    recentsRaw = raw;
-    recentsCache = getRecentSearches();
-  }
-  return recentsCache;
-}
-
-const getRecentsServerSnapshot = (): string[] => EMPTY;
+import {
+  saveRecentSearch,
+  subscribeRecents,
+  getRecentsSnapshot,
+  getRecentsServerSnapshot,
+} from "@/lib/recentSearches";
+import { getConsent } from "@/lib/consent";
 
 /* One document-level pointerdown listener for every AddressSearch on the page,
    rather than one each. The compare view mounts three of these (two columns
@@ -126,7 +66,7 @@ export function AddressSearch({
   const [query, setQuery] = useState(initialValue);
   // The debounce is a separate piece of state from the query so the SWR key
   // only moves once typing settles. Every distinct key is a billed Places
-  // call, which is what the delay is protecting — not render cost.
+  // call, which is what the delay is protecting - not render cost.
   const [debounced, setDebounced] = useState(initialValue.trim());
   const recents = useSyncExternalStore(
     subscribeRecents,
@@ -149,9 +89,10 @@ export function AddressSearch({
   const fetchedSuggestions = useSuggestions(debounced);
   // Still gated on the key matching what is actually in the box. SWR clears
   // `data` when the key moves, but during the 150ms before it moves the hook
-  // is still holding the PREVIOUS query's results — which is exactly the
+  // is still holding the PREVIOUS query's results - which is exactly the
   // "clear the field, type again, see the old list" case.
-  const suggestions = debounced === trimmed ? fetchedSuggestions : NO_SUGGESTIONS;
+  const suggestions =
+    debounced === trimmed ? fetchedSuggestions : NO_SUGGESTIONS;
 
   useEffect(
     () =>
@@ -179,7 +120,9 @@ export function AddressSearch({
     const trimmed = address.trim();
     if (!trimmed) return;
     // Notifies the external-store subscription, which re-reads localStorage.
-    saveRecentSearch(trimmed);
+    // Off by default: nothing is written until the cookie-consent banner has
+    // been explicitly accepted (see lib/consent.ts).
+    if (getConsent() === "accepted") saveRecentSearch(trimmed);
     setOpen(false);
     setQuery(trimmed);
     if (onSelect) {
@@ -197,8 +140,8 @@ export function AddressSearch({
    * Prefers a real suggestion over the typed text, for the same reason Enter
    * does: picking one yields a placeId, which is what makes the resolved address
    * Google's own canonical string rather than something a person typed. Raw text
-   * still works — it has to, or the box would be unusable whenever Places is
-   * unreachable and the seed fallback is empty — it just resolves through plain
+   * still works - it has to, or the box would be unusable whenever Places is
+   * unreachable and the seed fallback is empty - it just resolves through plain
    * geocoding and is deliberately never recorded on the homepage.
    */
   function submit() {
@@ -342,7 +285,7 @@ export function AddressSearch({
                       go(opt.label, opt.placeId);
                     }}
                     onMouseEnter={() => setActiveIdx(i)}
-                    // 44px minimum target — this is the primary control on a phone.
+                    // 44px minimum target - this is the primary control on a phone.
                     className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors"
                     style={{
                       background:

@@ -14,7 +14,7 @@ export function FeaturedCarousel({ reports }: { reports: ShowcaseItem[] }) {
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  // Track fractional scroll position separately — browsers round scrollLeft to
+  // Track fractional scroll position separately - browsers round scrollLeft to
   // integers on read, so `el.scrollLeft += 0.18` would never accumulate.
   const scrollPos = useRef(0);
 
@@ -32,7 +32,7 @@ export function FeaturedCarousel({ reports }: { reports: ShowcaseItem[] }) {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     // The loop used to reschedule itself unconditionally for the life of the
-    // page — still ticking every frame while paused, while scrolled past, and
+    // page - still ticking every frame while paused, while scrolled past, and
     // while the tab was in the background. It now runs only when all three of
     // those say it should, and genuinely stops otherwise.
     let running = false;

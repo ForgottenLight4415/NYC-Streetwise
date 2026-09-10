@@ -11,7 +11,7 @@ import { ThemeToggle } from "./ThemeToggle";
 // Reads the current address off the URL, so the header's field opens
 // pre-filled with what the report is actually showing. Split out from Header
 // itself so the useSearchParams-driven client bailout during prerendering is
-// scoped to just this field rather than the whole bar — see the Suspense
+// scoped to just this field rather than the whole bar - see the Suspense
 // boundary around it below.
 function HeaderAddressSearch() {
   const searchParams = useSearchParams();
@@ -64,7 +64,7 @@ export function Header() {
         >
           {/* The asset is 226x281, not square, so the old 34x34 was squashing
               it. Intrinsic size now matches that ratio, and both dimensions are
-              given in CSS (h-9 + w-auto) — Tailwind's preflight sets
+              given in CSS (h-9 + w-auto) - Tailwind's preflight sets
               `height: auto` on images, and setting only one of the two is what
               Next warns about. */}
           <Image
@@ -78,7 +78,7 @@ export function Header() {
           {/* Hidden below `sm` on the report page: that's the one page where
               this row also carries the inline address search, and the
               wordmark's ~90px is exactly what that field is missing on a
-              phone — see the compare button below for the rest of it. */}
+              phone - see the compare button below for the rest of it. */}
           <span
             className={`font-display ${onReportPage ? "hidden sm:inline" : ""}`}
           >
@@ -98,7 +98,7 @@ export function Header() {
             (logo + inline search + this + the theme toggle) has no room left
             for a fourth control once the search field is present, and
             ReportToolbar already renders a contextual "Compare with another"
-            button just below — this one is purely redundant on a phone. */}
+            button just below - this one is purely redundant on a phone. */}
         <div
           className={`ml-1 flex shrink-0 items-center gap-2 sm:gap-3 ${
             onReportPage ? "hidden sm:flex" : ""
@@ -108,7 +108,10 @@ export function Header() {
             href="/compare"
             aria-current={pathname === "/compare" ? "page" : undefined}
             className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-md font-semibold transition-colors"
-            style={{ background: "var(--brand)", color: "#ffffff" }}
+            style={{
+              background: "var(--brand-tint)",
+              color: "var(--brand-ink)",
+            }}
           >
             <ScaleIcon className="h-4 w-4 sm:hidden" />
             <span className="hidden sm:inline">Compare</span>

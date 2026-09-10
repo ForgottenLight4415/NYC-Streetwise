@@ -4,8 +4,8 @@ import { BAND_VAR, CONFIDENCE_MESSAGE } from "@/lib/score";
 import type { Confidence, ScoreBand } from "@/lib/types";
 
 /**
- * The chrome every scored panel shares — card, header, meter, band badge,
- * confidence callout — split out of ScorePanelCard so a sibling amenity card
+ * The chrome every scored panel shares - card, header, meter, band badge,
+ * confidence callout - split out of ScorePanelCard so a sibling amenity card
  * can reuse it without inheriting ScorePanelCard's complaint-specific state
  * (the trend window, the recent-complaints list) which means nothing for a
  * subway station.
@@ -15,7 +15,7 @@ import type { Confidence, ScoreBand } from "@/lib/types";
  * between them.
  *
  * `compact` swaps the 96px donut meter for a smaller score chip and tightens
- * the card's padding — used by the amenity cards in the dashboard layout,
+ * the card's padding - used by the amenity cards in the dashboard layout,
  * where three cards now share a row that used to hold one. Every metric row,
  * the description, the badge, and the confidence callout are unchanged; only
  * the meter's screen space shrinks.
@@ -41,7 +41,7 @@ export function PanelShell({
   band: ScoreBand;
   confidence: Confidence;
   confidenceReason: string | null;
-  /** The line beside the meter — e.g. a complaint count, or a nearest-amenity
+  /** The line beside the meter - e.g. a complaint count, or a nearest-amenity
    *  sentence. Owned by the caller; the two kinds have nothing to generalise. */
   summary: React.ReactNode;
   compact?: boolean;

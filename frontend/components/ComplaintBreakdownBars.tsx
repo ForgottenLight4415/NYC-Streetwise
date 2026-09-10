@@ -5,7 +5,7 @@ import { WhyThisScore } from "./WhyThisScore";
 
 /**
  * Scores this close together are not meaningfully different, and the copy below
- * says one category is the "biggest"/"most-reported" — so a near-tie is broken
+ * says one category is the "biggest"/"most-reported" - so a near-tie is broken
  * by raw count. Mirrors SCORE_TIE_MARGIN in the backend's templateExplanation.js.
  */
 const SCORE_TIE_MARGIN = 10;
@@ -16,7 +16,7 @@ const STATUSES: ComplaintStatus[] = ["open", "in-progress", "closed"];
  * The category most responsible for the rating.
  *
  * Prefers `bucketScores` over raw counts, because counts are not comparable
- * across categories — a block with 2,876 noise and 144 street-condition
+ * across categories - a block with 2,876 noise and 144 street-condition
  * complaints may still be dragged down by street condition, the citywide norms
  * for the two being an order of magnitude apart. Falls back to the largest count
  * when the API sent no scores.
@@ -66,7 +66,7 @@ function plural(n: number) {
  *
  * Zero counts are handled FIRST, and are not an edge case: the backend's notes
  * record that 9 of 10 sampled coordinates have no building complaints at all
- * inside the 25m radius, and that this is real — all three building types are
+ * inside the 25m radius, and that this is real - all three building types are
  * >99.99% geocoded. So the commonest thing this says is "nothing was filed", and
  * it has to read as a clean record rather than as missing data.
  */
@@ -81,7 +81,7 @@ function explain(
   if (total === 0) {
     return tier === "building"
       ? "Nothing was filed against this building in the window - no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
-      : "Nothing was filed on this block in the window — no noise, parking, or street-condition complaints. That is a real clean record, not missing data.";
+      : "Nothing was filed on this block in the window - no noise, parking, or street-condition complaints. That is a real clean record, not missing data.";
   }
 
   const category = dominantCategory(counts, bucketScores);
@@ -99,9 +99,9 @@ function explain(
       return `This building scores well because complaints against it are rare. ${name} is the most-reported issue at ${count} ${plural(count)}, which is still low for a NYC building.`;
     }
     if (score >= 50) {
-      return `This building lands mid-range: ${lower(name)} is its most-reported issue, at ${count} ${plural(count)} in the window — enough to notice, not enough to dominate.`;
+      return `This building lands mid-range: ${lower(name)} is its most-reported issue, at ${count} ${plural(count)} in the window - enough to notice, not enough to dominate.`;
     }
-    return `This building is underperforming mainly on ${lower(name)} — ${count} ${plural(count)} in the window, filed often enough to pull the score down. Worth asking the landlord about directly.`;
+    return `This building is underperforming mainly on ${lower(name)} - ${count} ${plural(count)} in the window, filed often enough to pull the score down. Worth asking the landlord about directly.`;
   }
 
   if (score >= 75) {
@@ -118,11 +118,11 @@ function explain(
 /**
  * A compact, narrow, status-segmented bar for one category: open/in-progress/
  * closed sized by their share of that category's total, all pre-computed
- * server-side (see `bucketStatusCounts` on ScoreSection in lib/types.ts) — this
+ * server-side (see `bucketStatusCounts` on ScoreSection in lib/types.ts) - this
  * component only renders the numbers it is given, never infers or re-groups.
  *
  * The track itself (the flat `--gridline` pill) always renders, even at zero
- * complaints — a category with nothing to segment still gets a visible gray
+ * complaints - a category with nothing to segment still gets a visible gray
  * bar in the same lane every other category's bar occupies, rather than
  * empty space that reads as a layout gap.
  */
@@ -160,7 +160,7 @@ function StatusSegments({
   );
 }
 
-/** The open/in-progress/closed color key for `StatusSegments`' bars — shown
+/** The open/in-progress/closed color key for `StatusSegments`' bars - shown
  *  once per card, not per row, since every row in a card shares one key. */
 function StatusLegend() {
   return (
@@ -188,7 +188,7 @@ export function ComplaintBreakdownBars({
   counts: Record<string, number>;
   colorVar: string;
   /** Which panel this is. Keyed on the tier rather than the display label,
-   *  which is what previously gated this to Block Quality — renaming a panel
+   *  which is what previously gated this to Block Quality - renaming a panel
    *  would have silently dropped the feature. */
   tier: "building" | "block";
   score?: number;
@@ -201,7 +201,10 @@ export function ComplaintBreakdownBars({
    * missing from this map falls back to the plain label+count row rather than
    * showing an empty or invented bar.
    */
-  bucketStatusCounts?: Record<string, Record<ComplaintStatus, number> | undefined>;
+  bucketStatusCounts?: Record<
+    string,
+    Record<ComplaintStatus, number> | undefined
+  >;
 }) {
   const entries = Object.entries(counts);
 
@@ -219,15 +222,12 @@ export function ComplaintBreakdownBars({
         {entries.map(([cat, count]) => {
           const statusCounts = bucketStatusCounts?.[cat];
           return (
-            <div
-              key={cat}
-              className="flex items-center gap-3 py-1 text-sm"
-            >
+            <div key={cat} className="flex items-center gap-3 py-1 text-sm">
               <span className="w-40 min-w-0 shrink-0 truncate text-(--text-secondary)">
                 {CATEGORY_LABEL[cat]}
               </span>
               {/* Only a truly absent `statusCounts` (an old pre-status cache
-                  doc) falls back to a bare spacer — StatusSegments itself
+                  doc) falls back to a bare spacer - StatusSegments itself
                   now draws a flat gray track at zero complaints, so every
                   count still lines up at the same far-right edge. */}
               {statusCounts ? (
