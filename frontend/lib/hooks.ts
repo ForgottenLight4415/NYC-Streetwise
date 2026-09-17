@@ -259,15 +259,15 @@ export function useReportPanels(
 
 /**
  * Every real instance of one amenity bucket within its tier's radius — what
- * backs an amenity row's `>` affordance (AmenityBrowserModal) and the map's
- * extra markers while that modal is open.
+ * backs an amenity row's `>` affordance: both AmenityBrowserModal's list and
+ * the pins on the map that modal carries.
  *
- * Keyed on (coords, tier, bucket) so the SAME entry is shared — and fetched
- * only once — whether it is the modal or ReportBody (feeding MapPanel's
- * extraMarkers) that asks for it first, the same dedup `useReport`'s doc
- * comment describes for two ScorePanelCards. `tier`/`bucket` undefined
- * (nothing currently open) is how the caller says "don't fetch" — same null-
- * key convention every other hook here uses.
+ * Keyed on (coords, tier, bucket), so reopening the same bucket (or a second
+ * caller wanting the same one) is served from cache rather than refetched —
+ * the same dedup `useReport`'s doc comment describes for two
+ * ScorePanelCards. `tier`/`bucket` undefined (nothing currently open) is how
+ * the caller says "don't fetch" — same null-key convention every other hook
+ * here uses.
  */
 export function useNearbyAmenities(
   coords: Coords | undefined,

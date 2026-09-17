@@ -3,7 +3,6 @@
 import { useDeferredValue, useState } from "react";
 import { AMENITY_CATEGORIES, COMPLAINT_CATEGORIES, RADAR_LABEL } from "@/lib/categories";
 import { TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
-import { useNearbyAmenities } from "@/lib/hooks";
 import type { CategoryId, ReportResponse } from "@/lib/types";
 import type { RadarAxis } from "./ScoreRadar";
 
@@ -17,46 +16,31 @@ import type { RadarAxis } from "./ScoreRadar";
  * (once per address), each with its own independent trend window and open
  * amenity modal, exactly as the two separate report trees it replaces did.
  */
-export function useReportPanelState(
-  report: ReportResponse,
-  coords: { lat: number; lng: number },
-) {
+export function useReportPanelState(report: ReportResponse) {
   const [months, setMonths] = useState<TrendWindow>(
     TREND_DEFAULT_MONTHS as TrendWindow,
   );
   const deferredMonths = useDeferredValue(months);
 
-  // Which amenity bucket's "see all instances" modal is open, if any — the
-  // one piece of state the amenity cards and the map (both direct children
-  // of the report tree, siblings of each other) need to share, so it is
-  // lifted here rather than living inside either one. `tier` is the wire id
-  // (e.g. "transit"), matching what AmenityBrowserModal/useNearbyAmenities
-  // expect; `colorVar` lets the map tint its extra markers the same color as
-  // the tier's own card and radius ring.
+  // Which amenity bucket's "see all instances" modal is open, if any. Lifted
+  // to this hook rather than living inside a card because several sibling
+  // cards can each request it and only one may be open at a time. `tier` is
+  // the wire id (e.g. "transit"), matching what
+  // AmenityBrowserModal/useNearbyAmenities expect; `colorVar` lets that
+  // modal's own map tint its pins and radius ring the same color as the card
+  // that opened it.
+  //
+  // No amenity fetch here any more: the instances are needed by the modal
+  // alone (for its list AND the map it now carries), so it fetches them
+  // itself. This hook used to fetch them too, purely to hand the report
+  // page's map a set of extra markers — a repaint of a card the open modal
+  // was covering. See AmenityBrowserModal's and MapPanel's doc comments.
   const [openAmenity, setOpenAmenity] = useState<{
     tier: CategoryId;
     bucket: string;
     colorVar: string;
     label: string;
   } | null>(null);
-
-  // Fetched here (not inside the modal alone) so the SAME instances feed both
-  // the modal's list AND the map's extra markers below — SWR dedupes the
-  // request regardless of which of the two mounts/asks first, same sharing
-  // useReport's own doc comment describes for two ScorePanelCards.
-  const nearbyAmenities = useNearbyAmenities(
-    openAmenity ? coords : undefined,
-    openAmenity?.tier,
-    openAmenity?.bucket,
-  );
-  const extraMarkers =
-    openAmenity && nearbyAmenities.data
-      ? nearbyAmenities.data.instances.map((inst) => ({
-          lat: inst.lat,
-          lng: inst.lng,
-          label: inst.name ?? openAmenity.label,
-        }))
-      : undefined;
 
   // Present amenity categories only — a report can have all four, none (a
   // pre-rollout showcase cache, or the amenity datasets failing to load), or
@@ -99,7 +83,6 @@ export function useReportPanelState(
     deferredMonths,
     openAmenity,
     setOpenAmenity,
-    extraMarkers,
     amenityCats,
     rings,
     radarAxes,
