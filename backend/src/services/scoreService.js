@@ -16,9 +16,8 @@ import {
   fetchMonthlyTrend,
 } from "../providers/socrata.js";
 import {
-  readEntries,
+  readCoordDocuments,
   writeCounts,
-  readAmenityExplanation,
   writeAmenityExplanation,
   readTrend,
   writeTrend,
@@ -89,6 +88,14 @@ async function getAmenitiesForReport(lat, lng, { cacheOnly = false } = {}) {
 const ALL_TIERS = Object.keys(RADIUS_TIERS);
 
 /**
+ * The radiusTier slot the whole-report AI summary is stored under. Not a real
+ * radius tier — it is an explanation-only document sharing complaint_cache
+ * with the counts it describes, which is exactly what lets getCounts fetch
+ * both in a single query.
+ */
+const OVERALL_SUMMARY_TIER = "overall";
+
+/**
  * Bucket counts for both radius tiers around one point.
  *
  * The Socrata query uses the ROUNDED coordinate, not the caller's raw one. If it
@@ -114,7 +121,7 @@ const ALL_TIERS = Object.keys(RADIUS_TIERS);
 export async function getCounts(
   lat,
   lng,
-  { now, tiers = ALL_TIERS, forceRefresh = false, cacheOnly = false } = {}
+  { now, tiers = ALL_TIERS, forceRefresh = false, cacheOnly = false, withOverallSummary = false } = {}
 ) {
   const coord = { lat: roundCoord(lat), lng: roundCoord(lng) };
   // Resolved ONCE, up front, rather than defaulted separately wherever `now`
@@ -125,9 +132,19 @@ export async function getCounts(
   // resolveCachedOverallSummary's exact-timestamp comparison.
   const effectiveNow = now ?? new Date();
 
-  const entries = forceRefresh
-    ? Object.fromEntries(tiers.map((tier) => [tier, null]))
-    : await readEntries(coord.lat, coord.lng, tiers);
+  // One query for the counts AND (when asked) the stored whole-report summary:
+  // they are different radiusTier values on the same {lat, lng} in the same
+  // collection, so reading them apart was two Atlas round trips for one
+  // answer. Under forceRefresh the counts are deliberately re-fetched, so only
+  // the summary is read — still one query, never two.
+  const { entries, explanations } = await readCoordDocuments(
+    coord.lat,
+    coord.lng,
+    forceRefresh ? [] : tiers,
+    withOverallSummary ? [OVERALL_SUMMARY_TIER] : []
+  );
+  for (const tier of tiers) entries[tier] ??= null;
+  const overallSummary = explanations[OVERALL_SUMMARY_TIER] ?? null;
 
   const cached = Object.fromEntries(
     tiers.map((tier) => [tier, entries[tier]?.counts ?? null])
@@ -160,6 +177,7 @@ export async function getCounts(
       counts: cached,
       bucketStatusCounts: cachedStatusCounts,
       updatedAt,
+      overallSummary,
       cache: Object.fromEntries(
         tiers.map((tier) => [tier, misses.includes(tier) ? "miss" : "hit"])
       ),
@@ -214,6 +232,7 @@ export async function getCounts(
     counts,
     bucketStatusCounts,
     updatedAt,
+    overallSummary,
     cache: Object.fromEntries(
       tiers.map((tier) => [tier, misses.includes(tier) ? "miss" : "hit"])
     ),
@@ -264,20 +283,19 @@ async function buildScoreReportInternal(lat, lng, options) {
   if (isMockMode()) return { report: mockScoreReport(lat, lng), complaintsUpdatedAt: null };
 
   const [
-    { coord, counts, cache, updatedAt, bucketStatusCounts },
+    { coord, counts, cache, updatedAt, bucketStatusCounts, overallSummary: cachedSummary },
     baseline,
     { amenities, amenityBaseline },
-    cachedSummary,
   ] = await Promise.all([
-    getCounts(lat, lng, options),
+    // withOverallSummary folds the stored summary into the SAME query that
+    // reads the counts — it used to be its own readAmenityExplanation call,
+    // which was a second round trip to the same collection for the same
+    // coordinate. See readCoordDocuments in providers/cache.js.
+    getCounts(lat, lng, { ...options, withOverallSummary: true }),
     loadBaseline(),
     // cacheOnly defaults to false here — this IS the one path allowed to
     // trigger a live, billed Places call for walkability on a cache miss.
     getAmenitiesForReport(lat, lng),
-    // Issued alongside everything else, not after: same reasoning as the
-    // baseline load above — a cheap, memoization-free Mongo read has no
-    // reason to sit behind the counts/amenities calls it doesn't depend on.
-    readAmenityExplanation(roundCoord(lat), roundCoord(lng), "overall"),
   ]);
 
   const complaintsUpdatedAt = latestTimestamp(updatedAt);
@@ -328,12 +346,12 @@ export async function buildCachedScoreReport(lat, lng, options = {}) {
   if (isMockMode()) return mockScoreReport(lat, lng);
 
   const [
-    { coord, counts, cache, updatedAt, bucketStatusCounts },
+    { coord, counts, cache, updatedAt, bucketStatusCounts, overallSummary: cachedSummary },
     baseline,
     { amenities, amenityBaseline },
-    cachedSummary,
   ] = await Promise.all([
-    getCounts(lat, lng, { ...options, cacheOnly: true }),
+    // Same single-query fold as buildScoreReportInternal above.
+    getCounts(lat, lng, { ...options, cacheOnly: true, withOverallSummary: true }),
     loadBaseline(),
     // The three static-dataset tiers have no Socrata dependency at all —
     // no "cacheOnly" concept applies to them, already as cheap as the
@@ -342,9 +360,6 @@ export async function buildCachedScoreReport(lat, lng, options = {}) {
     // never trigger — cacheOnly: true here means a cold coordinate simply
     // omits walkabilityAccess rather than paying for it on the homepage.
     getAmenitiesForReport(lat, lng, { cacheOnly: true }),
-    // A plain Mongo read, same as the counts/amenity cache reads above —
-    // never a live AI call, so it belongs on this cache-only render path.
-    readAmenityExplanation(roundCoord(lat), roundCoord(lng), "overall"),
   ]);
 
   if (ALL_TIERS.some((tier) => counts[tier] === null)) return null;
@@ -452,7 +467,7 @@ export async function buildExplanation(lat, lng) {
     await writeAmenityExplanation(
       roundCoord(lat),
       roundCoord(lng),
-      "overall",
+      OVERALL_SUMMARY_TIER,
       explanation,
       explanationSource,
       // Stamped so a LATER counts refresh can be detected as making this

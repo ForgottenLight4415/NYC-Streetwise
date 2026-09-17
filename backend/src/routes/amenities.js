@@ -2,6 +2,7 @@ import { Router } from "express";
 import { bearerAuthStatus } from "../lib/bearerAuth.js";
 import { NON_DISCRETE_AMENITY_BUCKETS, RATE_LIMIT_READ } from "../config/constants.js";
 import { rateLimit } from "../lib/rateLimit.js";
+import { AMENITIES_NEARBY_CACHE } from "../lib/httpCache.js";
 import {
   validateAmenityBucket,
   validateAmenityTier,
@@ -131,6 +132,15 @@ amenitiesRouter.get(
 
       if (!result) {
         return res.status(503).json({ error: "amenity_dataset_unavailable" });
+      }
+
+      // Only the three static-dataset tiers are edge-cacheable. Walkability is
+      // served cache-only from whatever Places result /api/score last wrote,
+      // so a cold coordinate's empty list becomes populated the moment someone
+      // opens a report for it — caching that would outlive its own truth. See
+      // lib/httpCache.js.
+      if (tier !== "walkability") {
+        res.set("Cache-Control", AMENITIES_NEARBY_CACHE);
       }
 
       res.json(result);

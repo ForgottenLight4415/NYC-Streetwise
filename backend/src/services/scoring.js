@@ -69,7 +69,36 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
  * plumbing complaint reads as "worse than the 53% of the city with none"
  * instead of being interpolated as if it were halfway to the median.
  */
+/**
+ * anchorsFor() is called once per bucketScore(), i.e. ~19 times per report,
+ * and each call allocates and sorts a fresh array to describe a baseline that
+ * is memoized for the process lifetime and never mutated. Keyed on the
+ * baseline object itself via a WeakMap, so an entry disappears with the
+ * baseline it describes — a `forceRefresh` load or a test fixture swap gets a
+ * new object and therefore recomputes, rather than being served the previous
+ * baseline's curve.
+ *
+ * Purely an allocation saving. The curve is a pure function of its input, so
+ * this cannot change any score.
+ */
+const anchorCache = new WeakMap();
+
 function anchorsFor(bucketBaseline) {
+  // Primitives and null/undefined cannot key a WeakMap — and a missing bucket
+  // baseline is a real case (scoreTier passes perBucket?.[bucket]), so fall
+  // through to computing it rather than special-casing the caller.
+  if (bucketBaseline === null || typeof bucketBaseline !== "object") {
+    return computeAnchors(bucketBaseline);
+  }
+  let anchors = anchorCache.get(bucketBaseline);
+  if (!anchors) {
+    anchors = computeAnchors(bucketBaseline);
+    anchorCache.set(bucketBaseline, anchors);
+  }
+  return anchors;
+}
+
+function computeAnchors(bucketBaseline) {
   const { median: medianPct, p90: p90Pct } = SCORE_ANCHOR_PERCENTILES;
   const median = Math.max(0, Number(bucketBaseline?.median) || 0);
   const p90 = Math.max(median, Number(bucketBaseline?.p90) || 0);

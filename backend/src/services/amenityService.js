@@ -377,7 +377,7 @@ function groupSubwayComplexes(instances) {
  * just the single nearest one getAmenityMetrics() reports for scoring.
  *
  * Same dataset lookup getAmenityMetrics() uses — `datasets[tier.dataset]` —
- * just calling the index's allWithin() instead of nearestN()/countWithin().
+ * just calling the index's allWithinCounted() instead of nearestN()/countWithin().
  * Walkability has no `dataset` field (see AMENITY_TIERS), so `tierConfig
  * .dataset` is undefined for it and this returns null by the same
  * construction getAmenityMetrics()'s own loop already relies on — walkability
@@ -421,13 +421,18 @@ export async function getNearbyAmenityInstances(tierName, bucket, lat, lng, { li
 
   const radiusMeters = tierConfig.radiusMeters;
   const rawLimit = bucket === "subway" ? Math.max(limit ?? 0, SUBWAY_ENTRANCE_POOL_LIMIT) : limit;
-  // countWithin is O(cells in the square), not O(matches) — cheap enough to
-  // run alongside allWithin purely to detect truncation, without allWithin
-  // itself having to return an unbounded array just to know its own length
-  // was capped. Unused for subway/bus below, which compute their own
-  // post-grouping/capping truncation flag instead.
-  const total = index.countWithin(lat, lng, radiusMeters);
-  const rawInstances = index.allWithin(lat, lng, radiusMeters, rawLimit ? { limit: rawLimit } : undefined);
+  // One sweep, not two. This used to call countWithin() and then allWithin()
+  // with identical arguments — the same exhaustive cell scan, with a full
+  // haversine per point, run twice over datasets as dense as the 40m-resampled
+  // bike lanes. allWithinCounted returns the pre-cap total from the pass it
+  // was already making. `total` is unused for subway/bus below, which compute
+  // their own post-grouping/capping truncation flag instead.
+  const { matches: rawInstances, total } = index.allWithinCounted(
+    lat,
+    lng,
+    radiusMeters,
+    rawLimit ? { limit: rawLimit } : undefined
+  );
 
   if (bucket === "subway") {
     const { complexes, totalComplexes } = groupSubwayComplexes(rawInstances);
@@ -435,7 +440,7 @@ export async function getNearbyAmenityInstances(tierName, bucket, lat, lng, { li
   }
 
   if (bucket === "bus") {
-    // `total` (countWithin) already counts POLES, not raw GTFS stop records —
+    // `total` already counts POLES, not raw GTFS stop records —
     // the index itself was built from build-time-clustered points, so this
     // is the exact distinct-pole count within radius, not an approximation
     // capped at allWithin's own 50-point default.

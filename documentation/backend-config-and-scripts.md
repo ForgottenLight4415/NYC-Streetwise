@@ -77,7 +77,7 @@ the same way, via `statusBucket()`.
 | `CACHE_COLLECTION` / `TREND_CACHE_COLLECTION` / `COMPLAINT_GROUPS_COLLECTION` | `complaint_cache` / `trend_cache` / `complaint_groups_cache` — separate collections because `writeCounts()`'s `replaceOne` would otherwise drop anything stored alongside it on a refresh |
 | `ADDRESS_LOOKUPS_COLLECTION` | `address_lookups` — no TTL, unlike the three above (see [`backend-providers.md`](./backend-providers.md#addressdirectoryjs--the-address_lookups-collection)) |
 | `CACHE_COORD_PRECISION` / `CACHE_TTL_SECONDS` | 4 decimals (~11m) / 24h |
-| `BASELINE_SAMPLE_SIZE` / `SEED` | 250 / fixed, so a rerun samples the same points and hits cache |
+| `BASELINE_SAMPLE_SIZE` / `SEED` | 250 / fixed. The seed alone never delivered the reproducibility it claims — the date slices `candidateCoords` draws from are derived from `Date.now()`, the candidate query is deliberately unordered, and the cache it was meant to hit expires in 24h. The drawn points are committed instead (`--resample` to redraw); see `scripts/lib/samplePoints.js` |
 | `BASELINE_THINNING_GRID_DEGREES` / `MIN_BOROUGH_SHARE` | 0.003° (~330m) / 0.08 — spatial thinning plus a per-borough floor so Staten Island isn't drowned out |
 
 ### Showcase & rate limits
@@ -129,6 +129,37 @@ than needing an explicit exclusion list.
 | `AMENITY_ROUTE_CANDIDATES` | 3 | Straight-line-nearest candidates per bucket sent to Google Routes for real walking-distance correction |
 | `GOOGLE_ROUTES_TIMEOUT_MS` | 4000 | On the score request's critical path — must not make `/api/score` hang |
 
+### Google Routes cost & pacing
+
+`computeRouteMatrix` is billed per **element** (origins x destinations), not
+per request, and capped at 3,000 elements/minute. The single batched call per
+`/api/score` therefore costs `AMENITY_ROUTE_ELEMENTS_PER_CALL` = 27 billed
+elements, not one — batching bounds latency, not spend.
+
+| Constant | Value | Notes |
+|---|---|---|
+| `GOOGLE_ROUTES_ELEMENTS_PER_MINUTE` | 3000 | Google's published ceiling, in elements |
+| `AMENITY_ROUTE_ELEMENTS_PER_CALL` | 27 | Derived: dataset-backed buckets x `AMENITY_ROUTE_CANDIDATES`. Walkability has no `dataset` and is never routed |
+| `GOOGLE_ROUTES_QUOTA_UTILISATION` | 0.8 | Headroom. Pacing controls when a call *starts*, not when Google counts it, so jitter and retries land on top of the nominal rate |
+| `AMENITY_BASELINE_ROUTE_PACING_MS` | 675 (derived) | `60000 / ((3000 x 0.8) / 27)`. Stays correct if the candidate count or bucket list changes |
+| `AMENITY_DISTANCE_CACHE_COLLECTION` | `amenity_distance_cache` | Own collection so it can carry its own TTL — Mongo ties `expireAfterSeconds` to the collection's index |
+| `AMENITY_DISTANCE_CACHE_TTL_SECONDS` | 180 days | Was silently 24h while these lived in `complaint_cache`, re-buying a years-stable answer nightly |
+
+### HTTP cache headers (`src/lib/httpCache.js`)
+
+Endpoints whose answer is a pure function of the URL carry a `Cache-Control`
+so a repeat request costs no invocation. Three things deliberately do **not**:
+`GET /api/showcase` (randomises its `fallback` per call and offers
+`mode=random`), `GET /api/amenities/nearby?tier=walkability` (served
+cache-only, so a cold empty list becomes populated), and `POST /api/score`
+(a POST). Error responses never get a directive.
+
+| Endpoint | `s-maxage` | `stale-while-revalidate` |
+|---|---|---|
+| `GET /api/amenities/nearby` (static tiers) | 7d | 30d |
+| `GET /api/trend` | 1h | 1d |
+| `GET /health` | `no-store` | — |
+
 ### Walkability (live Google Places tier)
 
 | Constant | Value | Notes |
@@ -153,9 +184,9 @@ Run with `npm run <script>` (each loads `.env` via Node's built-in
 
 | Script | `npm run` | What it does |
 |---|---|---|
-| `buildBaseline.js` | `baseline` | Computes the citywide complaint baseline `scoring.js` compares every count against — a deterministic, borough-balanced, spatially-thinned sample of ~250 coordinates per tier (building-tier samples come only from HPD building-interior types; block-tier from all types, since mixing them once dragged the building median to ~1). Writes to Mongo **and** the committed `src/config/baseline.json`. |
+| `buildBaseline.js` | `baseline` | Computes the citywide complaint baseline `scoring.js` compares every count against — a borough-balanced, spatially-thinned sample of ~250 coordinates per tier, reused from the committed `src/config/baselineSamplePoints.json` unless `--resample` is passed (building-tier samples come only from HPD building-interior types; block-tier from all types, since mixing them once dragged the building median to ~1). Writes to Mongo **and** the committed `src/config/baseline.json`. |
 | `buildAmenities.js` | `build:amenities` | Fetches and distills all six amenity buckets (subway, rail, bus, parks, bike share, bike lanes) from their real sources — see `backend/CLAUDE.md`'s "Amenity Scores" section for each source and its quirks (bus has no Socrata dataset; subway/rail are on `data.ny.gov`, not the city catalog). Writes committed JSON under `src/config/amenities/`. |
-| `buildAmenityBaseline.js` | `baseline:amenities` | The amenity-tier equivalent of `buildBaseline.js` — samples ~150 coordinates (`AMENITY_BASELINE_SAMPLE_SIZE`) and computes median/p90 distance per bucket. Measures each point with the same live Google Routes walking-distance correction `/api/score` uses (with `GOOGLE_MAPS_API_KEY` set) — the baseline has to reflect the same distance definition scoring compares against it. Paced `AMENITY_BASELINE_ROUTE_PACING_MS` apart with `AMENITY_BASELINE_ROUTE_RETRIES` retries on 429/5xx so ~150 sequential live calls don't trip Google's quota. Walkability is excluded (no free dataset to sample against; see its reasoned-constants note above). |
+| `buildAmenityBaseline.js` | `baseline:amenities` | The amenity-tier equivalent of `buildBaseline.js` — samples ~150 coordinates (`AMENITY_BASELINE_SAMPLE_SIZE`) and computes median/p90 distance per bucket. Measures each point with the same live Google Routes walking-distance correction `/api/score` uses (with `GOOGLE_MAPS_API_KEY` set) — the baseline has to reflect the same distance definition scoring compares against it. Sample coordinates come from the committed `src/config/amenityBaselineSamplePoints.json` unless `--resample` is passed. Calls are *started* `AMENITY_BASELINE_ROUTE_PACING_MS` apart (derived from Google's 3,000-elements/minute ceiling and `AMENITY_ROUTE_ELEMENTS_PER_CALL`, not guessed) rather than sleeping between completed ones, so response latency overlaps and ~150 points take ~100s instead of 4-8 minutes at an identical element rate. `AMENITY_BASELINE_ROUTE_RETRIES` absorbs transient 429/5xx, and the run **refuses to write** if any point still degraded to straight-line — those distances are systematically short and would bias the baseline. Walkability is excluded (no free dataset to sample against; see its reasoned-constants note above). |
 | `verifyDataset.js` | `verify:dataset` | One-off checks against the live 311 Socrata dataset: identity/title, geo column name, null-geocoding rate per bucket. Rerun any time NYC changes the dataset shape. |
 | `verifyAmenities.js` | `verify:amenities` | The amenity-dataset equivalent — re-fetches each source and compares row counts/shape against what's committed, to catch a source moving or thinning out silently. |
 | `verifyCache.js` | `verify:cache` | Exercises the Mongo cache read/write path against a real (or in-memory) Mongo instance, outside the test suite. |

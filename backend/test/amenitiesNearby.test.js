@@ -207,3 +207,41 @@ describe("GET /api/amenities/nearby — walkability (cache-only)", () => {
     expect(res.body.instances.map((i) => i.name)).toEqual(["Near Grocer", "Far Grocer"]);
   });
 });
+
+describe("edge cache headers", () => {
+  it("marks the static-dataset tiers cacheable for a week", async () => {
+    // These come from a committed dataset rebuilt on a scale of years, and the
+    // request never touches Socrata, Mongo, or Google — so the whole response
+    // is a pure function of the URL and belongs at the edge.
+    const res = await server.request(
+      `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=transit&bucket=subway`
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe(
+      "public, max-age=0, s-maxage=604800, stale-while-revalidate=2592000"
+    );
+  });
+
+  it("does NOT cache walkability, whose empty result is temporary", async () => {
+    // The walkability path is cache-only: a cold coordinate answers with an
+    // empty list and becomes populated as soon as /api/score runs for it. An
+    // edge-cached [] would outlive the emptiness it describes, so this tier is
+    // deliberately excluded.
+    readWalkabilityPlacesSpy.mockResolvedValue(null);
+    const res = await server.request(
+      `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=walkability&bucket=grocery`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ instances: [] });
+    expect(res.headers.get("cache-control")).toBeNull();
+  });
+
+  it("does not put a cache directive on a rejected request", async () => {
+    // A 400 handed to a CDN with a cache directive would pin the error.
+    const res = await server.request(
+      `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=transit&bucket=nonsense`
+    );
+    expect(res.status).toBe(400);
+    expect(res.headers.get("cache-control")).toBeNull();
+  });
+});

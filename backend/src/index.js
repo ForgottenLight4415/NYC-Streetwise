@@ -3,6 +3,7 @@ import {
   ensureCacheIndexes,
   ensureTrendCacheIndexes,
   ensureComplaintGroupsIndexes,
+  ensureAmenityDistanceCacheIndexes,
 } from "./providers/cache.js";
 import { ensureAddressLookupIndexes } from "./providers/addressDirectory.js";
 import { closeMongo, isMongoConfigured } from "./providers/mongo.js";
@@ -42,6 +43,7 @@ if (!isMongoConfigured()) {
     ensureCacheIndexes(),
     ensureTrendCacheIndexes(),
     ensureComplaintGroupsIndexes(),
+    ensureAmenityDistanceCacheIndexes(),
     ensureAddressLookupIndexes(),
   ])
     .then(() => console.log("[cache] indexes ready"))

@@ -1,16 +1,18 @@
 /**
  * The citywide 311 baseline every score is measured against.
  *
- * COPIED FROM backend/src/config/baseline.json — the committed output of
- * `npm run baseline`, computed over 251 coordinates sampled across the five
- * boroughs with a minimum share per borough. If that file is ever rebuilt, these
- * numbers must be re-copied or the homepage will describe an older city than the
- * scores do.
+ * GENERATED FILE - DO NOT EDIT BY HAND.
+ * Source: backend/src/config/baseline.json (the committed output of
+ * `npm run baseline`). Regenerate with `npm run sync:baseline` from
+ * frontend/, which `npm run baseline` also does for you; `npm run
+ * verify:baseline` fails if this file has fallen behind.
  *
- * Copied rather than fetched deliberately: this is what the homepage falls back
- * to when the score cache is cold, so it cannot itself depend on the backend
- * being reachable. It is real measured data either way — the point of showing it
- * is that a page with nothing cached still has something true to say.
+ * Committed rather than fetched deliberately: CitywideBaselinePanel is what the
+ * homepage shows when the score cache is cold, so it cannot itself depend on
+ * the backend being reachable, and compareToBaseline() is a synchronous pure
+ * function called from client components. It is real measured data either way -
+ * the point of showing it is that a page with nothing cached still has
+ * something true to say.
  */
 
 export interface BaselineBucket {
@@ -34,7 +36,7 @@ export const CITYWIDE_BASELINE: {
   tiers: BaselineTier[];
 } = {
   windowMonths: 24,
-  sampleSize: 251,
+  sampleSize: 250,
   version: "v1",
   tiers: [
     {
@@ -42,9 +44,9 @@ export const CITYWIDE_BASELINE: {
       radiusMeters: 25,
       colorVar: "--series-building",
       buckets: [
-        { key: "heatHotWater", median: 30, p90: 245 },
-        { key: "unsanitaryCondition", median: 12, p90: 54 },
-        { key: "plumbing", median: 7, p90: 34 },
+        { key: "heatHotWater", median: 32, p90: 169 },
+        { key: "unsanitaryCondition", median: 10, p90: 48 },
+        { key: "plumbing", median: 6, p90: 38 },
       ],
     },
     {
@@ -52,9 +54,9 @@ export const CITYWIDE_BASELINE: {
       radiusMeters: 350,
       colorVar: "--series-block",
       buckets: [
-        { key: "noise", median: 1121, p90: 3289 },
-        { key: "parking", median: 1120, p90: 2639 },
-        { key: "streetCondition", median: 121, p90: 273 },
+        { key: "noise", median: 1005, p90: 3851 },
+        { key: "parking", median: 1153, p90: 2661 },
+        { key: "streetCondition", median: 106, p90: 217 },
       ],
     },
   ],

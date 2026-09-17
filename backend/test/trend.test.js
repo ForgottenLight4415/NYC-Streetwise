@@ -111,6 +111,24 @@ describe("GET /api/trend", () => {
     expect(opts).toMatchObject({ tier: "building", months: 18 });
   });
 
+  describe("edge cache headers", () => {
+    it("is cacheable for an hour, on top of its own 24h Mongo cache", async () => {
+      const { status, headers } = await server.request(`/api/trend?${NYC}&tier=block`);
+      expect(status).toBe(200);
+      expect(headers.get("cache-control")).toBe(
+        "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400"
+      );
+    });
+
+    it("does not put a cache directive on a rejected request", async () => {
+      // The series is labelled by calendar month relative to now, so an error
+      // pinned at the edge would outlast the input that caused it.
+      const { status, headers } = await server.request(`/api/trend?${NYC}&tier=nonsense`);
+      expect(status).toBe(400);
+      expect(headers.get("cache-control")).toBeNull();
+    });
+  });
+
   describe("validation", () => {
     it("rejects a window outside the offered set", async () => {
       for (const bad of [7, 36, 0, -3, 2.5]) {

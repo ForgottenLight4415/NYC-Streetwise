@@ -140,6 +140,15 @@ call per `/api/score` (top 3 straight-line candidates per bucket, whichever
 comes back real-shortest wins) — without `GOOGLE_MAPS_API_KEY`, every
 distance just stays straight-line; nothing fails.
 
+**That call is billed per ELEMENT (origins x destinations), not per request.**
+Batching bounds latency to one round trip; it does not bound cost, which is
+9 buckets x `AMENITY_ROUTE_CANDIDATES` = **27 elements per uncached score**.
+So the corrections get their own `amenity_distance_cache` collection with a
+180-day TTL: they used to sit in `complaint_cache` under a pseudo-tier and
+silently inherit its 24h expiry, which re-bought a years-stable answer nightly.
+Google's ceiling is 3,000 elements/minute, which is also what
+`AMENITY_BASELINE_ROUTE_PACING_MS` is now derived from rather than guessed.
+
 ## Walkability score
 
 The odd one out: no free public dataset exists for "groceries/restaurants/
@@ -164,6 +173,7 @@ grid's job; every cache lookup is an exact match on a *rounded* coordinate.
 | `complaint_cache` | 311 counts + `bucketStatusCounts` + per-tier explanation, keyed `{lat, lng, radiusTier}` | 24h, sliding (refreshed on every write) |
 | `trend_cache` | `/api/trend` series, keyed `{lat, lng, radiusTier, months}` | 24h |
 | `complaint_groups_cache` | grouped complaint-browser rows, keyed `{lat, lng, radiusTier}` (no `months` — a shorter window is a prefix) | 24h |
+| `amenity_distance_cache` | Google-routed walking distances per amenity bucket, keyed `{lat, lng}` | 180d |
 | `walkability_cache` | raw Places results, keyed at ~111m precision | 30d |
 | `baseline` / `amenity_baseline` | the citywide percentile baselines, `_id: "v1"` | none — refreshed only by rerunning the build scripts |
 | `address_lookups` | address text ↔ coordinate + lookup counter, for `/api/showcase` | **none** — this is a name mapping, not a data cache, and must outlive the 24h counts it's paired with |
