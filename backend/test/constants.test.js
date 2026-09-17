@@ -14,6 +14,12 @@ import {
   STATUS_TO_BUCKET,
   STATUS_BUCKET_NAMES,
   statusBucket,
+  AMENITY_TIERS,
+  AMENITY_ROUTE_CANDIDATES,
+  AMENITY_ROUTE_ELEMENTS_PER_CALL,
+  AMENITY_BASELINE_ROUTE_PACING_MS,
+  GOOGLE_ROUTES_ELEMENTS_PER_MINUTE,
+  GOOGLE_ROUTES_QUOTA_UTILISATION,
 } from "../src/config/constants.js";
 
 // These tests guard the decisions recorded in CLAUDE.md. A failure here usually
@@ -209,5 +215,44 @@ describe("status buckets", () => {
     for (const bucket of Object.values(STATUS_TO_BUCKET)) {
       expect(STATUS_BUCKET_NAMES).toContain(bucket);
     }
+  });
+});
+
+describe("Google Routes quota pacing", () => {
+  // The whole point of deriving these: the baseline script's pacing used to be
+  // a hand-picked 250ms measured against REQUESTS per second, while Google's
+  // ceiling is denominated in ELEMENTS per minute. At 27 elements a call that
+  // nominal cadence is 6,480 elements/min — more than twice the limit — and it
+  // only ever stayed under because response latency padded the interval.
+  it("counts elements per call from the dataset-backed buckets, not requests", () => {
+    const routedBuckets = Object.values(AMENITY_TIERS)
+      .filter((tier) => tier.dataset)
+      .flatMap((tier) => tier.buckets);
+
+    expect(AMENITY_ROUTE_ELEMENTS_PER_CALL).toBe(
+      routedBuckets.length * AMENITY_ROUTE_CANDIDATES
+    );
+    // Walkability has no `dataset` and is never route-corrected, so it must
+    // not inflate the element count and slow every run down for nothing.
+    expect(routedBuckets).not.toContain("grocery");
+  });
+
+  it("paces the baseline run strictly under the element ceiling", () => {
+    const callsPerMinute = 60_000 / AMENITY_BASELINE_ROUTE_PACING_MS;
+    const elementsPerMinute = callsPerMinute * AMENITY_ROUTE_ELEMENTS_PER_CALL;
+
+    expect(elementsPerMinute).toBeLessThan(GOOGLE_ROUTES_ELEMENTS_PER_MINUTE);
+    // And with real headroom, not by a rounding hair — pacing controls when a
+    // call STARTS, not when Google counts it, so jitter and retries land on
+    // top of the nominal rate.
+    expect(elementsPerMinute).toBeLessThanOrEqual(
+      GOOGLE_ROUTES_ELEMENTS_PER_MINUTE * GOOGLE_ROUTES_QUOTA_UTILISATION
+    );
+    expect(GOOGLE_ROUTES_QUOTA_UTILISATION).toBeLessThan(1);
+  });
+
+  it("stays within the per-request element cap Google enforces", () => {
+    // computeRouteMatrix rejects a request over 625 elements for WALK.
+    expect(AMENITY_ROUTE_ELEMENTS_PER_CALL).toBeLessThanOrEqual(625);
   });
 });

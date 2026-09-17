@@ -22,12 +22,15 @@ import {
   readComplaintGroups,
   writeComplaintGroups,
   ensureComplaintGroupsIndexes,
+  ensureAmenityDistanceCacheIndexes,
 } from "../src/providers/cache.js";
 import { getDb, isMongoConfigured, closeMongo } from "../src/providers/mongo.js";
 import {
   CACHE_COLLECTION,
   CACHE_TTL_SECONDS,
   COMPLAINT_GROUPS_COLLECTION,
+  AMENITY_DISTANCE_CACHE_COLLECTION,
+  AMENITY_DISTANCE_CACHE_TTL_SECONDS,
 } from "../src/config/constants.js";
 
 const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0 };
@@ -46,6 +49,10 @@ afterAll(async () => {
 beforeEach(async () => {
   const db = await getDb();
   await db.collection(CACHE_COLLECTION).deleteMany({});
+  // Amenity walking distances moved out of CACHE_COLLECTION into their own
+  // collection (so they can carry their own, much longer TTL), so clearing
+  // complaint_cache alone no longer isolates these tests from each other.
+  await db.collection(AMENITY_DISTANCE_CACHE_COLLECTION).deleteMany({});
 });
 
 describe("key derivation (pure)", () => {
@@ -384,15 +391,32 @@ describe("amenity distance caching", () => {
   });
 
   it("does not collide with a complaint-count document for the same coordinate", async () => {
-    // Both live in CACHE_COLLECTION, keyed on {lat, lng, radiusTier} — this
-    // only stays safe because AMENITY_DISTANCE_CACHE_RADIUS_TIER ("amenityDistances")
-    // can never equal a real radiusTier value ("building", "block", "transit", ...).
+    // These now live in SEPARATE collections, so this is no longer about a
+    // radiusTier discriminator — it guards that the split kept both readable
+    // for the same coordinate rather than one shadowing the other.
     await writeCounts(LAT, LNG, "building", { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
     await writeAmenityDistances(LAT, LNG, DISTANCES);
 
     const counts = await readCounts(LAT, LNG, ["building"]);
     expect(counts.building).toEqual({ heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
     expect(await readAmenityDistances(LAT, LNG)).toEqual(DISTANCES);
+  });
+
+  it("expires on its OWN long TTL, not complaint_cache's 24h one", async () => {
+    // The whole point of the dedicated collection. Mongo ties
+    // expireAfterSeconds to the collection's index, so while these documents
+    // sat in CACHE_COLLECTION they inherited its 24h expiry — and a walking
+    // distance that is stable for years was re-bought from Google (at ~27
+    // billed route-matrix elements a time) every single morning.
+    await ensureAmenityDistanceCacheIndexes();
+    const db = await getDb();
+    const indexes = await db.collection(AMENITY_DISTANCE_CACHE_COLLECTION).indexes();
+    const byName = Object.fromEntries(indexes.map((i) => [i.name, i]));
+
+    expect(byName.coord.key).toEqual({ lat: 1, lng: 1 });
+    expect(byName.coord.unique).toBe(true);
+    expect(byName.createdAt_ttl.expireAfterSeconds).toBe(AMENITY_DISTANCE_CACHE_TTL_SECONDS);
+    expect(AMENITY_DISTANCE_CACHE_TTL_SECONDS).toBeGreaterThan(CACHE_TTL_SECONDS);
   });
 
   it("returns null / false rather than throwing when Mongo is unreachable", async () => {

@@ -830,7 +830,6 @@ export const AMENITY_BASELINE_SAMPLE_SEED = 20260829;
  * react after the quota is already tripped.
  */
 export const AMENITY_BASELINE_ROUTE_RETRIES = 3;
-export const AMENITY_BASELINE_ROUTE_PACING_MS = 250;
 
 /**
  * Weighted mean weights for the amenity buckets. Separate from BUCKET_WEIGHTS
@@ -871,6 +870,61 @@ export const AMENITY_WEIGHTS = {
 export const AMENITY_ROUTE_CANDIDATES = 3;
 
 /**
+ * Google's published ceiling for computeRouteMatrix: 3,000 ELEMENTS per
+ * minute, where elements = origins x destinations.
+ *
+ * The unit is the whole point. Pacing used to be a flat 250ms between points,
+ * chosen against requests per second — but the quota is not denominated in
+ * requests, and one of our requests carries up to
+ * AMENITY_ROUTE_CANDIDATES x (dataset-backed buckets) = 27 elements. 250ms
+ * between STARTS would be 240 calls/min = 6,480 elements/min, over twice the
+ * ceiling; it only ever stayed under because each iteration also blocked on
+ * ~1-2s of response latency, which padded the real interval by accident. That
+ * accident is what the 429s in buildAmenityBaseline.js's header were.
+ */
+export const GOOGLE_ROUTES_ELEMENTS_PER_MINUTE = 3000;
+
+/**
+ * Worst-case billed elements in one /api/score route-matrix call: every
+ * dataset-backed amenity bucket contributing AMENITY_ROUTE_CANDIDATES
+ * destinations against a single origin. Walkability is excluded by the same
+ * `dataset` test amenityService.js's loop uses — it has no static index and is
+ * never routed.
+ */
+export const AMENITY_ROUTE_ELEMENTS_PER_CALL =
+  Object.values(AMENITY_TIERS).filter((tier) => tier.dataset).flatMap((tier) => tier.buckets)
+    .length * AMENITY_ROUTE_CANDIDATES;
+
+/**
+ * How much of the element quota the baseline script is allowed to use.
+ *
+ * Not 1.0: pacing controls when a call STARTS, not when Google counts it, so
+ * network jitter, a retry, and any other caller sharing the key all land on
+ * top of our nominal rate. Running at exactly the ceiling guarantees the first
+ * such wobble is a 429 — and a 429 here does not just slow the run down, it
+ * silently degrades that sample point to straight-line and biases the baseline
+ * (see this file's AMENITY_BASELINE_ROUTE_RETRIES note). 80% buys the margin
+ * that makes the retry budget a backstop instead of the mechanism.
+ */
+export const GOOGLE_ROUTES_QUOTA_UTILISATION = 0.8;
+
+/**
+ * Milliseconds between successive route-matrix call STARTS in the baseline
+ * script, DERIVED from the quota above rather than guessed — so it stays
+ * correct if the candidate count or the bucket list ever changes.
+ *
+ * Paired with a scheduler that starts a call every interval instead of
+ * sleeping between completed calls: the steady-state element rate is
+ * unchanged, but ~150 points stop costing (interval + latency) each and the
+ * run takes roughly interval x n overall.
+ */
+export const AMENITY_BASELINE_ROUTE_PACING_MS = Math.ceil(
+  60_000 /
+    ((GOOGLE_ROUTES_ELEMENTS_PER_MINUTE * GOOGLE_ROUTES_QUOTA_UTILISATION) /
+      AMENITY_ROUTE_ELEMENTS_PER_CALL)
+);
+
+/**
  * computeRouteMatrix is one HTTP call for the whole batch (all buckets, all
  * candidates), not one per candidate — that batching is what keeps this
  * feature's cost and latency bounded to ONE extra request per score, same
@@ -891,11 +945,42 @@ export const GOOGLE_ROUTES_TIMEOUT_MS = 4000;
  * Real walking distances are cached per rounded coordinate — unlike the
  * straight-line grid lookup this replaces, a Google Routes call costs money
  * and network time, so repeat views of the same address (a refresh, the
- * explanation fetch, a compare page) must not re-bill it. Reuses the
- * complaint cache's collection/TTL/rounding rather than standing up a new
- * one — see providers/cache.js.
+ * explanation fetch, a compare page) must not re-bill it.
+ *
+ * ITS OWN COLLECTION, not a pseudo-tier inside CACHE_COLLECTION, for exactly
+ * the reason WALKABILITY_CACHE_COLLECTION has its own: Mongo ties
+ * expireAfterSeconds to the COLLECTION's index, not to the document. Sharing
+ * complaint_cache meant silently inheriting its 24h TTL — so a walking
+ * distance that is stable for YEARS (subway entrances and park boundaries do
+ * not move) was being thrown away nightly and re-bought from Google the next
+ * morning.
+ *
+ * That is not a small bill. computeRouteMatrix is priced per ELEMENT
+ * (origins x destinations), not per request — the single batched call in
+ * providers/googleRoutes.js bounds LATENCY to one round trip but costs
+ * 9 buckets x AMENITY_ROUTE_CANDIDATES = 27 billed elements. Every cache miss
+ * avoided is worth 27 elements, not 1.
+ *
+ * Note the coordinate key stays at CACHE_COORD_PRECISION (4dp, ~11m) rather
+ * than borrowing walkability's coarser 3dp. Walkability can afford 3dp because
+ * its buckets are shallow; these are not. The amenity curve's sensitivity near
+ * the origin is 50/median score points per metre, so at the citywide median a
+ * bus stop (155m) moves 0.32 points per metre — 3dp rounding (up to ~70m of
+ * origin displacement) would swing the bike tier by up to ~14 points and flip
+ * AMENITY_BAND_THRESHOLDS bands. The TTL fix below is free; coarsening the key
+ * is not, and is deliberately left alone.
  */
-export const AMENITY_DISTANCE_CACHE_RADIUS_TIER = "amenityDistances";
+export const AMENITY_DISTANCE_CACHE_COLLECTION = "amenity_distance_cache";
+
+/**
+ * 180 days. The underlying geometry (subway entrances, park centroids, rail
+ * stations, bike-lane alignments) is rebuilt by scripts/buildAmenities.js on a
+ * scale of years; only the bike-share bucket moves monthly, and that has its
+ * own refresh path (GET /api/refresh-amenities). Six months bounds how long a
+ * genuinely relocated dock can report a stale walk, while still making the
+ * common case "bill this coordinate once" instead of "once a day".
+ */
+export const AMENITY_DISTANCE_CACHE_TTL_SECONDS = 180 * 24 * 60 * 60;
 
 /**
  * Bus stops within this distance of each other are treated as one physical

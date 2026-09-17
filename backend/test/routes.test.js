@@ -120,6 +120,11 @@ describe("GET /health", () => {
     expect(body.status).toBe("ok");
     expect(body.uptimeSeconds).toBeTypeOf("number");
   });
+
+  it("is never cached — a cached 200 would mask a wedged instance", async () => {
+    const { headers } = await server.request("/health");
+    expect(headers.get("cache-control")).toBe("no-store");
+  });
 });
 
 describe("POST /api/score", () => {

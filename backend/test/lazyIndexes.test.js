@@ -13,6 +13,10 @@ import {
   writeTrend,
   readComplaintGroups,
   writeComplaintGroups,
+  ensureAmenityDistanceCacheIndexes,
+  resetAmenityDistanceCacheIndexMemo,
+  readAmenityDistances,
+  writeAmenityDistances,
 } from "../src/providers/cache.js";
 import {
   ensureAddressLookupIndexes,
@@ -27,6 +31,8 @@ import {
   COMPLAINT_GROUPS_COLLECTION,
   ADDRESS_LOOKUPS_COLLECTION,
   CACHE_TTL_SECONDS,
+  AMENITY_DISTANCE_CACHE_COLLECTION,
+  AMENITY_DISTANCE_CACHE_TTL_SECONDS,
 } from "../src/config/constants.js";
 
 // Indexes must exist on FIRST REAL USE, not because a startup script ran.
@@ -66,12 +72,14 @@ async function coldDatabase() {
     TREND_CACHE_COLLECTION,
     COMPLAINT_GROUPS_COLLECTION,
     ADDRESS_LOOKUPS_COLLECTION,
+    AMENITY_DISTANCE_CACHE_COLLECTION,
   ]) {
     await db.collection(name).drop().catch(() => {});
   }
   resetCacheIndexMemo();
   resetTrendCacheIndexMemo();
   resetComplaintGroupsIndexMemo();
+  resetAmenityDistanceCacheIndexMemo();
   resetAddressLookupIndexMemo();
 }
 
@@ -127,6 +135,20 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  it("amenity_distance_cache — a write builds them", async () => {
+    await writeAmenityDistances(LAT, LNG, { transit: { subway: { meters: 174, name: "2 Av" } } });
+    expect(await indexNames(AMENITY_DISTANCE_CACHE_COLLECTION)).toEqual(
+      expect.arrayContaining(["coord", "createdAt_ttl"])
+    );
+  });
+
+  it("amenity_distance_cache — a read builds them", async () => {
+    await readAmenityDistances(LAT, LNG);
+    expect(await indexNames(AMENITY_DISTANCE_CACHE_COLLECTION)).toEqual(
+      expect.arrayContaining(["coord", "createdAt_ttl"])
+    );
+  });
+
   it("address_lookups — a write builds them, with no help from /api/warm", async () => {
     // The regression this guards: warming used to be the only thing that built
     // these in production, which made an unrelated endpoint load-bearing.
@@ -165,6 +187,16 @@ describe("indexes are built by first use, not by a startup hook", () => {
       expect(ttl?.expireAfterSeconds).toBe(CACHE_TTL_SECONDS);
     }
 
+    // amenity_distance_cache carries an expiry too, but deliberately a much
+    // longer one — it exists precisely so a route correction that is stable for
+    // years stops inheriting complaint_cache's 24h clock.
+    await writeAmenityDistances(LAT, LNG, { transit: { subway: { meters: 174, name: "2 Av" } } });
+    const amenityTtl = (await db.collection(AMENITY_DISTANCE_CACHE_COLLECTION).indexes()).find(
+      (i) => i.name === "createdAt_ttl"
+    );
+    expect(amenityTtl?.expireAfterSeconds).toBe(AMENITY_DISTANCE_CACHE_TTL_SECONDS);
+    expect(AMENITY_DISTANCE_CACHE_TTL_SECONDS).toBeGreaterThan(CACHE_TTL_SECONDS);
+
     // The directory is the deliberate exception — see ADDRESS_LOOKUPS_COLLECTION.
     await recordLookup({ address: "1 Test St, Brooklyn, NY 11249", lat: 40.7178, lng: -73.9647 });
     const directory = await db.collection(ADDRESS_LOOKUPS_COLLECTION).indexes();
@@ -178,6 +210,11 @@ describe("memoization — one round trip per process, not per request", () => {
     ["trend_cache", TREND_CACHE_COLLECTION, ensureTrendCacheIndexes],
     ["complaint_groups_cache", COMPLAINT_GROUPS_COLLECTION, ensureComplaintGroupsIndexes],
     ["address_lookups", ADDRESS_LOOKUPS_COLLECTION, ensureAddressLookupIndexes],
+    [
+      "amenity_distance_cache",
+      AMENITY_DISTANCE_CACHE_COLLECTION,
+      ensureAmenityDistanceCacheIndexes,
+    ],
   ];
 
   for (const [label, collection, ensure] of cases) {

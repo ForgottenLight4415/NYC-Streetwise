@@ -63,6 +63,9 @@ import { ensureCacheIndexes } from "../src/providers/cache.js";
 import { closeMongo, isMongoConfigured } from "../src/providers/mongo.js";
 import { saveBaseline, BASELINE_FILE_PATH } from "../src/providers/baseline.js";
 import { seededRandom, boroughQuotas, sampleCoordinates } from "./lib/sampleCoords.js";
+import { loadSamplePoints, saveSamplePoints } from "./lib/samplePoints.js";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // --- args --------------------------------------------------------------------
 
@@ -75,6 +78,9 @@ const args = Object.fromEntries(
 
 const SAMPLE_SIZE = Number(args.samples) || BASELINE_SAMPLE_SIZE;
 const DRY_RUN = args["dry-run"] === "true";
+// Redraw the sample coordinates instead of reusing the committed ones. See
+// scripts/lib/samplePoints.js for why they are committed at all.
+const RESAMPLE = args.resample === "true";
 // Oversample before thinning: dense boroughs lose a lot of points to the grid.
 const OVERSAMPLE = 6;
 const CHUNKS_PER_BOROUGH = 5;
@@ -91,6 +97,12 @@ const SAMPLING_TIMEOUT_MS = 30000;
 const rand = seededRandom(BASELINE_SAMPLE_SEED);
 
 const CUTOFF = windowCutoffISO();
+
+/** Where the drawn sample coordinates are committed. See ./lib/samplePoints.js. */
+const SAMPLE_POINTS_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../src/config/baselineSamplePoints.json"
+);
 
 /**
  * Where each tier's sample coordinates come from. See the header: building
@@ -256,16 +268,43 @@ if (isMongoConfigured()) {
   );
 }
 
-const quotas = await boroughQuotas({
-  size: SAMPLE_SIZE,
-  cutoffISO: CUTOFF,
-  timeoutMs: SAMPLING_TIMEOUT_MS,
-});
+// Drawing costs one borough-quota query plus 5 chunk queries per borough per
+// tier — 25+ sequential Socrata calls before a single count is measured. The
+// committed set skips all of that AND makes the run reproducible, which the
+// fixed seed alone does not achieve (see ./lib/samplePoints.js).
+let samples = RESAMPLE
+  ? null
+  : await loadSamplePoints(SAMPLE_POINTS_PATH, {
+      sampleSize: SAMPLE_SIZE,
+      seed: BASELINE_SAMPLE_SEED,
+      // Both tiers must be present, or collectCounts would throw on an
+      // undefined array after the sampling step had already been skipped.
+      keys: Object.keys(RADIUS_TIERS),
+    });
+
+if (!samples) {
+  const quotas = await boroughQuotas({
+    size: SAMPLE_SIZE,
+    cutoffISO: CUTOFF,
+    timeoutMs: SAMPLING_TIMEOUT_MS,
+  });
+  samples = {};
+  // Sequential, and in RADIUS_TIERS order, because both tiers draw from the
+  // one seeded RNG stream — interleaving them would change every later draw.
+  for (const tier of Object.keys(RADIUS_TIERS)) {
+    samples[tier] = await buildSample(quotas, tier);
+  }
+  if (!DRY_RUN) {
+    await saveSamplePoints(SAMPLE_POINTS_PATH, samples, {
+      sampleSize: SAMPLE_SIZE,
+      seed: BASELINE_SAMPLE_SEED,
+    });
+  }
+}
 
 const countsByTier = {};
 for (const tier of Object.keys(RADIUS_TIERS)) {
-  const sample = await buildSample(quotas, tier);
-  countsByTier[tier] = await collectCounts(sample, tier);
+  countsByTier[tier] = await collectCounts(samples[tier], tier);
 }
 
 const { perBucket, perTierSamples } = summarize(countsByTier);

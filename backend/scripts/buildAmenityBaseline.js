@@ -31,18 +31,26 @@
  * once suggested — see AMENITY_BASELINE_ROUTE_RETRIES/_PACING_MS below for
  * how it stays reliable anyway.
  *
- * ~150 sequential, uncached, live Routes calls with no other caller sharing
- * the quota is enough to trip Google's per-second rate limit mid-run — that
- * showed up as `[googleRoutes] computeRouteMatrix 429` warnings degrading
- * scattered points to straight-line, which would make the baseline a
- * nondeterministic mix depending on exactly when the quota was hit, breaking
- * the determinism this baseline is documented to have. Two mitigations, both
- * in getAmenityMetrics()/computeWalkingDistances(): a fixed pacing delay
- * between points (AMENITY_BASELINE_ROUTE_PACING_MS) to stay under the
- * steady-state quota, plus bounded jittered retry-with-backoff on 429/5xx
+ * ~150 uncached, live Routes calls with no other caller sharing the quota is
+ * enough to trip Google's rate limit mid-run — that showed up as
+ * `[googleRoutes] computeRouteMatrix 429` warnings degrading scattered points
+ * to straight-line, which would make the baseline a nondeterministic mix
+ * depending on exactly when the quota was hit, breaking the determinism this
+ * baseline is documented to have.
+ *
+ * THE QUOTA IS MEASURED IN ELEMENTS, NOT REQUESTS — 3,000 per minute, where
+ * elements = origins x destinations. One of our calls carries up to
+ * AMENITY_ROUTE_ELEMENTS_PER_CALL (27), so the safe cadence is ~111 calls/min,
+ * and AMENITY_BASELINE_ROUTE_PACING_MS is DERIVED from exactly that rather
+ * than guessed. Three mitigations now: that derived pacing, applied by
+ * mapPaced() below to call STARTS (so response latency overlaps instead of
+ * serialising — ~150 points take ~100s rather than 4-8 minutes at an identical
+ * element rate); bounded jittered retry-with-backoff on 429/5xx
  * (AMENITY_BASELINE_ROUTE_RETRIES, same pattern as providers/socrata.js's
- * query()) to absorb the rest. The request path keeps its 0-retry fail-fast
- * default — this override is scoped to this script only.
+ * query()); and a hard refusal to write a baseline if ANY point still degraded
+ * to straight-line, since those distances are systematically short. The
+ * request path keeps its 0-retry fail-fast default — this override is scoped
+ * to this script only.
  *
  * Sampled from ALL_COMPLAINT_TYPES (the same source as buildBaseline.js's
  * block tier), not just HPD building-interior types — amenity access is not
@@ -65,6 +73,8 @@ import {
   AMENITY_BASELINE_ID,
   AMENITY_BASELINE_ROUTE_RETRIES,
   AMENITY_BASELINE_ROUTE_PACING_MS,
+  AMENITY_ROUTE_ELEMENTS_PER_CALL,
+  GOOGLE_ROUTES_ELEMENTS_PER_MINUTE,
   AMENITY_BUCKET_NAMES,
   AMENITY_MAX_METERS,
   AMENITY_TIERS,
@@ -72,8 +82,11 @@ import {
   windowCutoffISO,
 } from "../src/config/constants.js";
 import { seededRandom, boroughQuotas, sampleCoordinates } from "./lib/sampleCoords.js";
+import { loadSamplePoints, saveSamplePoints } from "./lib/samplePoints.js";
+import { fileURLToPath } from "node:url";
 import { getAmenityMetrics } from "../src/services/amenityService.js";
-import { closeMongo, isMongoConfigured } from "../src/providers/mongo.js";
+import { routeFallbackCount, routeCallCount } from "../src/providers/googleRoutes.js";
+import { closeMongo } from "../src/providers/mongo.js";
 import {
   saveAmenityBaseline,
   AMENITY_BASELINE_FILE_PATH,
@@ -90,7 +103,15 @@ const args = Object.fromEntries(
 
 const SAMPLE_SIZE = Number(args.samples) || AMENITY_BASELINE_SAMPLE_SIZE;
 const DRY_RUN = args["dry-run"] === "true";
+// Redraw the sample coordinates instead of reusing the committed ones.
+const RESAMPLE = args.resample === "true";
 const SAMPLING_TIMEOUT_MS = 30000;
+
+/** Where the drawn sample coordinates are committed. See ./lib/samplePoints.js. */
+const SAMPLE_POINTS_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../src/config/amenityBaselineSamplePoints.json"
+);
 
 const rand = seededRandom(AMENITY_BASELINE_SAMPLE_SEED);
 const CUTOFF = windowCutoffISO();
@@ -135,22 +156,39 @@ function summarize(metersByBucket) {
 
 // --- run -----------------------------------------------------------------
 
-if (isMongoConfigured()) {
-  // Amenities load lazily inside getAmenityMetrics() on first call; nothing
-  // to pre-warm here the way ensureCacheIndexes() does for the 311 caches —
-  // amenity_datasets and amenity_baseline are both accessed by _id only.
-}
+// No index pre-warm here, deliberately: amenities load lazily inside
+// getAmenityMetrics() on first call, and amenity_datasets / amenity_baseline
+// are both accessed by _id only — there is nothing to build ahead of time the
+// way ensureCacheIndexes() does for the 311 caches.
 
-console.log(`Sampling ${SAMPLE_SIZE} coordinates for the amenity baseline...`);
-const quotas = await boroughQuotas({ size: SAMPLE_SIZE, cutoffISO: CUTOFF, timeoutMs: SAMPLING_TIMEOUT_MS });
-const sample = await sampleCoordinates({
-  quotas,
-  types: ALL_COMPLAINT_TYPES,
-  label: "all complaint types (amenity baseline)",
-  cutoffISO: CUTOFF,
-  rand,
-  timeoutMs: SAMPLING_TIMEOUT_MS,
-});
+const stored = RESAMPLE
+  ? null
+  : await loadSamplePoints(SAMPLE_POINTS_PATH, {
+      sampleSize: SAMPLE_SIZE,
+      seed: AMENITY_BASELINE_SAMPLE_SEED,
+      keys: ["all"],
+    });
+
+let sample = stored?.all ?? null;
+
+if (!sample) {
+  console.log(`Sampling ${SAMPLE_SIZE} coordinates for the amenity baseline...`);
+  const quotas = await boroughQuotas({ size: SAMPLE_SIZE, cutoffISO: CUTOFF, timeoutMs: SAMPLING_TIMEOUT_MS });
+  sample = await sampleCoordinates({
+    quotas,
+    types: ALL_COMPLAINT_TYPES,
+    label: "all complaint types (amenity baseline)",
+    cutoffISO: CUTOFF,
+    rand,
+    timeoutMs: SAMPLING_TIMEOUT_MS,
+  });
+  if (!DRY_RUN) {
+    await saveSamplePoints(SAMPLE_POINTS_PATH, { all: sample }, {
+      sampleSize: SAMPLE_SIZE,
+      seed: AMENITY_BASELINE_SAMPLE_SEED,
+    });
+  }
+}
 
 console.log(
   `\n=== Measuring amenity distances at ${sample.length} points ` +
@@ -160,16 +198,74 @@ console.log(
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Starts one call every `intervalMs` rather than sleeping between COMPLETED
+ * calls, and collects results by index.
+ *
+ * The old loop did `await sleep(pacing); await measure(point)`, so each point
+ * cost the pacing delay PLUS ~1-2s of Routes latency and ~150 points took
+ * 4-8 minutes — while sitting far below the quota the whole time, because the
+ * latency was padding the interval. Starting on a fixed cadence leaves the
+ * steady-state element rate exactly where the pacing constant puts it (see
+ * AMENITY_BASELINE_ROUTE_PACING_MS) and lets the latency overlap.
+ *
+ * In-flight work is self-bounding: a call cannot outlive
+ * GOOGLE_ROUTES_TIMEOUT_MS, so at most ceil(timeout / intervalMs) are ever
+ * open at once. Results are written by index, so the aggregation below stays
+ * in sample order and the run remains deterministic.
+ *
+ * AND IT PACES CALLS, NOT ITERATIONS. The quota is spent by requests on the
+ * wire; a point already in amenity_distance_cache issues none. Sleeping
+ * between cache hits would make a fully-warm rerun cost the same wall clock
+ * as a cold one — measured at 100s for 149 already-cached points, against
+ * ~1s once this check was added. So the delay is skipped unless the shared
+ * counter shows a request actually went out since the last time we waited.
+ * Worst case the counter lags a call behind and one sleep is skipped, which
+ * the GOOGLE_ROUTES_QUOTA_UTILISATION headroom already covers.
+ */
+async function mapPaced(items, intervalMs, worker) {
+  const results = new Array(items.length);
+  const started = [];
+  let callsAtLastPause = routeCallCount();
+
+  for (let i = 0; i < items.length; i++) {
+    const callsNow = routeCallCount();
+    if (callsNow > callsAtLastPause) {
+      await sleep(intervalMs);
+      callsAtLastPause = callsNow;
+    }
+    started.push(
+      worker(items[i], i).then((value) => {
+        results[i] = value;
+      })
+    );
+  }
+  await Promise.all(started);
+  return results;
+}
+
 const metersByBucket = Object.fromEntries(
   Object.values(AMENITY_BUCKET_NAMES).flat().map((bucket) => [bucket, []])
 );
 
-let usable = 0;
-for (const [index, point] of sample.entries()) {
-  if (index > 0) await sleep(AMENITY_BASELINE_ROUTE_PACING_MS);
+const fallbacksBefore = routeFallbackCount();
+const startedAt = performance.now();
+let completed = 0;
+
+const measured = await mapPaced(sample, AMENITY_BASELINE_ROUTE_PACING_MS, async (point) => {
   const metrics = await getAmenityMetrics(point.lat, point.lng, {
     routeRetries: AMENITY_BASELINE_ROUTE_RETRIES,
   });
+  completed++;
+  if (completed % 25 === 0 || completed === sample.length) {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    console.log(`  ${String(completed).padStart(4)}/${sample.length}  ${elapsed.toFixed(0)}s elapsed`);
+  }
+  return metrics;
+});
+
+let usable = 0;
+for (const metrics of measured) {
   if (!metrics) continue;
   usable++;
   for (const [tierName, { buckets }] of Object.entries(AMENITY_TIERS)) {
@@ -181,6 +277,28 @@ for (const [index, point] of sample.entries()) {
       metersByBucket[bucket].push(meters ?? AMENITY_MAX_METERS);
     }
   }
+}
+
+// A degraded point is not an error anywhere else in the system — the request
+// path is SUPPOSED to fall back to straight-line when Google is unavailable.
+// Here it is a data-quality problem: straight-line distances are
+// systematically shorter than walked ones, so a run that quietly trips the
+// quota writes a baseline every live score is then measured against too
+// favourably. Refuse rather than publish that.
+const degraded = routeFallbackCount() - fallbacksBefore;
+if (degraded > 0) {
+  const share = ((degraded / sample.length) * 100).toFixed(1);
+  // Only reachable with a key set: computeWalkingDistances returns without
+  // attempting (and without counting) when GOOGLE_MAPS_API_KEY is absent, so
+  // a keyless run is straight-line by design and not a degradation.
+  throw new Error(
+    `${degraded}/${sample.length} points (${share}%) fell back to straight-line — ` +
+      `their distances are systematically short and would bias the baseline.\n` +
+      `Pacing is ${AMENITY_BASELINE_ROUTE_PACING_MS}ms ` +
+      `(${AMENITY_ROUTE_ELEMENTS_PER_CALL} elements/call against a ` +
+      `${GOOGLE_ROUTES_ELEMENTS_PER_MINUTE}/min ceiling). If these were 429s, ` +
+      `lower GOOGLE_ROUTES_QUOTA_UTILISATION and rerun.`
+  );
 }
 
 if (usable < sample.length * 0.7) {

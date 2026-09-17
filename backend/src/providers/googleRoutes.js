@@ -3,6 +3,45 @@ import { GOOGLE_ROUTES_MATRIX_URL, GOOGLE_ROUTES_TIMEOUT_MS } from "../config/co
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * How many times this process fell back to straight-line because the call
+ * failed outright (no key, timeout, non-2xx after retries, malformed body).
+ *
+ * Exported for scripts/buildAmenityBaseline.js, which cannot otherwise see the
+ * difference: a degraded point still returns a perfectly well-formed distance,
+ * just a straight-line one, so a run that quietly trips Google's quota
+ * produces a baseline built from systematically smaller numbers rather than an
+ * error. Counting it is what lets that run fail loudly instead.
+ *
+ * Request-path code must not read this — it is a diagnostic for batch jobs,
+ * not per-request state, and it is per-process so it means nothing on
+ * serverless.
+ */
+let degradedCallCount = 0;
+
+/** @returns {number} straight-line fallbacks since process start. */
+export function routeFallbackCount() {
+  return degradedCallCount;
+}
+
+/**
+ * How many route-matrix requests this process has actually put on the wire.
+ *
+ * Also for the baseline script, and for a different question than the counter
+ * above: its pacing exists to respect a quota measured in billed elements, so
+ * it must throttle CALLS, not loop iterations. A point already in
+ * amenity_distance_cache issues no request at all, and sleeping between those
+ * would make a fully-warm rerun take as long as a cold one for no reason.
+ * Watching this counter is how the scheduler tells the two apart without
+ * duplicating the cache lookup.
+ */
+let attemptedCallCount = 0;
+
+/** @returns {number} route-matrix requests issued since process start. */
+export function routeCallCount() {
+  return attemptedCallCount;
+}
+
+/**
  * Real walking distance from one origin to a batch of destinations, via
  * Google's Routes API (`computeRouteMatrix`, travelMode WALK).
  *
@@ -55,6 +94,7 @@ export async function computeWalkingDistances(origin, destinations, { retries = 
     }
 
     try {
+      attemptedCallCount++;
       const res = await fetch(GOOGLE_ROUTES_MATRIX_URL, {
         method: "POST",
         headers: {
@@ -75,11 +115,15 @@ export async function computeWalkingDistances(origin, destinations, { retries = 
           continue;
         }
         console.warn(`[googleRoutes] computeRouteMatrix ${res.status}, falling back to straight-line`);
+        degradedCallCount++;
         return missing;
       }
 
       const rows = await res.json();
-      if (!Array.isArray(rows)) return missing;
+      if (!Array.isArray(rows)) {
+        degradedCallCount++;
+        return missing;
+      }
 
       const result = [...missing];
       for (const row of rows) {
@@ -101,6 +145,7 @@ export async function computeWalkingDistances(origin, destinations, { retries = 
         continue;
       }
       console.warn("[googleRoutes] computeRouteMatrix failed, falling back to straight-line:", err.message);
+      degradedCallCount++;
       return missing;
     }
   }

@@ -4,10 +4,21 @@
 import { haversineMeters } from "../../lib/geo.js";
 import { AMENITY_GRID_DEGREES } from "../../config/constants.js";
 
+// Grid cells are keyed by a single packed integer rather than a `${row},${col}`
+// template string. The three query functions below each look up one key per
+// visited cell — a 7x7 sweep per bucket, nine buckets per report — and a string
+// key allocates a fresh object for every one of those, purely to be hashed and
+// discarded. COL_SPAN is far wider than NYC needs (the city spans ~120 cells at
+// AMENITY_GRID_DEGREES) so distinct (row, col) pairs cannot collide onto one
+// key, and the products stay well inside Number.MAX_SAFE_INTEGER.
+const COL_SPAN = 1_000_000;
+
+function packCell(row, col) {
+  return row * COL_SPAN + col;
+}
+
 function cellKey(lat, lng, gridDegrees) {
-  const row = Math.floor(lat / gridDegrees);
-  const col = Math.floor(lng / gridDegrees);
-  return `${row},${col}`;
+  return packCell(Math.floor(lat / gridDegrees), Math.floor(lng / gridDegrees));
 }
 
 // Metres per degree of latitude is ~constant everywhere; metres per degree of
@@ -113,7 +124,7 @@ export function buildIndex(
           // Only the new outer shell of this ring — inner cells were already
           // visited in a previous iteration.
           if (Math.max(Math.abs(dr), Math.abs(dc)) !== ring) continue;
-          const cell = cells.get(`${row + dr},${col + dc}`);
+          const cell = cells.get(packCell(row + dr, col + dc));
           if (!cell) continue;
           for (const i of cell) {
             const meters = haversineMeters(lat, lng, points[i * 3], points[i * 3 + 1]);
@@ -164,7 +175,7 @@ export function buildIndex(
     let count = 0;
     for (let dr = -ringSpan; dr <= ringSpan; dr++) {
       for (let dc = -ringSpan; dc <= ringSpan; dc++) {
-        const cell = cells.get(`${row + dr},${col + dc}`);
+        const cell = cells.get(packCell(row + dr, col + dc));
         if (!cell) continue;
         for (const i of cell) {
           const d = haversineMeters(lat, lng, points[i * 3], points[i * 3 + 1]);
@@ -189,13 +200,15 @@ export function buildIndex(
    * @param {{limit?: number}} [options] `limit` (default 50) bounds the
    *   returned array — a bucket can legitimately have more than that within
    *   800m in dense Manhattan, and a caller (the amenity browser modal)
-   *   doesn't need an unbounded list. Use countWithin() alongside this to
-   *   detect truncation cheaply, without materialising every match just to
-   *   count them.
-   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[], complexId?: string|null}[]}
+   *   doesn't need an unbounded list. The pre-cap count comes back in `total`,
+   *   so detecting truncation costs nothing extra.
+   * @returns {{matches: {meters: number, name: string|null, lat: number, lng: number, routes?: string[], complexId?: string|null}[], total: number}}
+   *   `total` is how many fell inside the radius BEFORE `limit` was applied —
+   *   free here, since the sweep already visited every one of them, and it
+   *   saves the caller re-running the identical scan via countWithin().
    */
-  function allWithin(lat, lng, radiusMeters, { limit = 50 } = {}) {
-    if (n === 0) return [];
+  function allWithinCounted(lat, lng, radiusMeters, { limit = 50 } = {}) {
+    if (n === 0) return { matches: [], total: 0 };
     const row = Math.floor(lat / gridDegrees);
     const col = Math.floor(lng / gridDegrees);
     const ringSpan = Math.ceil(radiusMeters / safeCellSizeMeters) + 1;
@@ -203,7 +216,7 @@ export function buildIndex(
     const matches = [];
     for (let dr = -ringSpan; dr <= ringSpan; dr++) {
       for (let dc = -ringSpan; dc <= ringSpan; dc++) {
-        const cell = cells.get(`${row + dr},${col + dc}`);
+        const cell = cells.get(packCell(row + dr, col + dc));
         if (!cell) continue;
         for (const i of cell) {
           const meters = haversineMeters(lat, lng, points[i * 3], points[i * 3 + 1]);
@@ -230,10 +243,23 @@ export function buildIndex(
       }
     }
 
+    // Captured BEFORE the cap: this is the number countWithin would return for
+    // the same query, and it is the whole reason callers no longer have to run
+    // that identical sweep a second time just to detect truncation.
+    const total = matches.length;
+
     matches.sort((a, b) => a.meters - b.meters);
     if (matches.length > limit) matches.length = limit;
-    return matches;
+    return { matches, total };
   }
 
-  return { nearest, nearestN, countWithin, allWithin };
+  /**
+   * The matches alone, for callers that do not need the pre-cap total.
+   * @returns {{meters: number, name: string|null, lat: number, lng: number, routes?: string[], complexId?: string|null}[]}
+   */
+  function allWithin(lat, lng, radiusMeters, options) {
+    return allWithinCounted(lat, lng, radiusMeters, options).matches;
+  }
+
+  return { nearest, nearestN, countWithin, allWithin, allWithinCounted };
 }

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:baseline": "node scripts/sync-baseline.mjs",
+    "verify:baseline": "node scripts/sync-baseline.mjs --check"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.3.1",

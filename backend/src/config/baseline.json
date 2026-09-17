@@ -2,50 +2,50 @@
   "_id": "v1",
   "perBucket": {
     "heatHotWater": {
-      "median": 35,
-      "p90": 261,
-      "mean": 120.08,
+      "median": 32,
+      "p90": 169,
+      "mean": 92.19,
       "max": 6397,
-      "zeroShare": 0.064,
+      "zeroShare": 0.044,
       "n": 250
     },
     "unsanitaryCondition": {
-      "median": 13,
-      "p90": 67,
-      "mean": 28.98,
-      "max": 620,
-      "zeroShare": 0.092,
+      "median": 10,
+      "p90": 48,
+      "mean": 20.36,
+      "max": 191,
+      "zeroShare": 0.112,
       "n": 250
     },
     "plumbing": {
-      "median": 7,
-      "p90": 43,
-      "mean": 18.52,
-      "max": 530,
-      "zeroShare": 0.148,
+      "median": 6,
+      "p90": 38,
+      "mean": 15.02,
+      "max": 165,
+      "zeroShare": 0.16,
       "n": 250
     },
     "noise": {
-      "median": 1018,
-      "p90": 4599,
-      "mean": 2459.61,
-      "max": 186123,
+      "median": 1005,
+      "p90": 3851,
+      "mean": 2294.13,
+      "max": 176586,
       "zeroShare": 0,
       "n": 250
     },
     "parking": {
-      "median": 1117,
-      "p90": 2760,
-      "mean": 1449.45,
-      "max": 11744,
+      "median": 1153,
+      "p90": 2661,
+      "mean": 1509.46,
+      "max": 18003,
       "zeroShare": 0,
       "n": 250
     },
     "streetCondition": {
-      "median": 114,
-      "p90": 277,
-      "mean": 140.75,
-      "max": 526,
+      "median": 106,
+      "p90": 217,
+      "mean": 125.67,
+      "max": 568,
       "zeroShare": 0,
       "n": 250
     }
@@ -65,5 +65,5 @@
     "building": "HPD building-interior complaints",
     "block": "all complaint types"
   },
-  "computedAt": "2026-09-10T20:08:41.718Z"
+  "computedAt": "2026-09-17T20:34:58.794Z"
 }

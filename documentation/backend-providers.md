@@ -254,10 +254,21 @@ this to one extra network call per `/api/score`, the same order of magnitude
 as the Socrata call already on that path. Requires `GOOGLE_MAPS_API_KEY`;
 without it (or on any failure — timeout, non-2xx, malformed body) every
 distance simply stays straight-line, never a 500. Corrected distances are
-cached per rounded coordinate in `CACHE_COLLECTION`
-(`AMENITY_DISTANCE_CACHE_RADIUS_TIER`) — a completely empty correction
-(Google down, no key) is deliberately **not** cached, since that's a
-transient failure, not a fact about the address.
+cached per rounded coordinate in their own `amenity_distance_cache`
+collection (`AMENITY_DISTANCE_CACHE_COLLECTION`, keyed `{lat, lng}`, 180-day
+TTL) — a completely empty correction (Google down, no key) is deliberately
+**not** cached, since that's a transient failure, not a fact about the address.
+
+The dedicated collection matters more than it looks. These used to live in
+`CACHE_COLLECTION` under a pseudo-tier, which meant inheriting its 24h TTL —
+Mongo ties `expireAfterSeconds` to the collection's index, not the document —
+so a walking distance that is stable for *years* was discarded nightly and
+re-bought. And `computeRouteMatrix` bills per **element** (origins x
+destinations), so each of those misses was ~27 billed elements, not one call.
+The coordinate key deliberately stays at `CACHE_COORD_PRECISION` (4dp, ~11m)
+rather than borrowing walkability's coarser 3dp: the amenity curve runs
+`50/median` score points per metre, so at the citywide `bus` median (155m)
+every ~3m of origin error is a full score point.
 
 ## `googlePlaces.js` — walkability's live lookup
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { RATE_LIMIT_UPSTREAM } from "../config/constants.js";
 import { rateLimit } from "../lib/rateLimit.js";
+import { TREND_CACHE } from "../lib/httpCache.js";
 import { validateCoords, validateTier, validateMonths } from "../lib/validate.js";
 import { fetchTrend } from "../services/scoreService.js";
 import {
@@ -43,6 +44,9 @@ trendRouter.get(
     const radiusMeters = RADIUS_TIERS[tier].radiusMeters;
     const points = await fetchTrend(lat, lng, radiusMeters, { tier, months });
 
+    // Set only now, after every throw-on-invalid-input path above: a 400 must
+    // not be handed to a CDN with a cache directive on it.
+    res.set("Cache-Control", TREND_CACHE);
     res.json({
       tier,
       months,
