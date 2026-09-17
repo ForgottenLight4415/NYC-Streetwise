@@ -118,12 +118,11 @@ export function ReportBody({
     deferredMonths,
     openAmenity,
     setOpenAmenity,
-    extraMarkers,
     amenityCats,
     rings,
     radarAxes,
     showRadar,
-  } = useReportPanelState(report, coords);
+  } = useReportPanelState(report);
 
   // Page layout only: Transit Access joins Building/Block in one top row
   // (see OverviewHeader's doc comment for why the radar+KPI header moved up
@@ -171,7 +170,7 @@ export function ReportBody({
   // no memoization of its own), so it can't be the useMemo dep either -
   // depend on the actual stable pieces nested inside it instead: `data` is
   // an SWR cache array (stable when unchanged), the rest are primitives.
-  // Same "primitive/stable-key, not raw-object" trick as MapPanel's
+  // Same "primitive/stable-key, not raw-object" trick as MapCanvas's
   // ringsKey/extraMarkersKey and ComplaintsBrowserModal's requestKey.
   // Otherwise ActivitySpine's own [tiers, cutoff] useMemo recomputes its
   // flat-map/filter/sort on every unrelated ReportBody re-render (trend-pill
@@ -352,8 +351,6 @@ export function ReportBody({
             centerLat={coords.lat}
             centerLng={coords.lng}
             rings={rings}
-            extraMarkers={extraMarkers}
-            extraMarkersColorVar={openAmenity?.colorVar}
           />
         </div>
       )}
@@ -365,6 +362,7 @@ export function ReportBody({
           tier={openAmenity.tier}
           bucket={openAmenity.bucket}
           bucketLabel={openAmenity.label}
+          colorVar={openAmenity.colorVar}
           onClose={() => setOpenAmenity(null)}
         />
       )}
@@ -416,8 +414,6 @@ export function ReportBody({
           centerLat={coords.lat}
           centerLng={coords.lng}
           rings={rings}
-          extraMarkers={extraMarkers}
-          extraMarkersColorVar={openAmenity?.colorVar}
         />
 
         {openAmenity && (
@@ -427,6 +423,7 @@ export function ReportBody({
             tier={openAmenity.tier}
             bucket={openAmenity.bucket}
             bucketLabel={openAmenity.label}
+            colorVar={openAmenity.colorVar}
             onClose={() => setOpenAmenity(null)}
           />
         )}

@@ -10,6 +10,7 @@ import { useNearbyAmenities } from "@/lib/hooks";
 import { useDialog } from "@/lib/useDialog";
 import type { CategoryId } from "@/lib/types";
 import { CloseIcon } from "./icons";
+import { MapCanvas } from "./MapCanvas";
 import { Portal } from "./Portal";
 import { TransitLineBadge } from "./TransitLineBadge";
 
@@ -41,6 +42,21 @@ import { TransitLineBadge } from "./TransitLineBadge";
  * than timing only the single nearest door - the tag's distance range and
  * the row's walk-time range describe the same spread in each unit, instead
  * of one collapsing to nearest-only.
+ *
+ * The list sits under its OWN map (`MapCanvas`), pinning every instance it
+ * lists plus the searched address. Those pins used to be drawn on the report
+ * page's `MapPanel` instead - opening a bucket repainted that card - which
+ * put the answer to "where are these?" on a panel sitting behind this
+ * modal's overlay, invisible until the reader closed the thing that drew it.
+ * Here it is beside the rows it explains, and the page's map holds its own
+ * address-plus-rings view steady. It is framed to the pins
+ * (`fitToMarkers`) rather than held at the report map's fixed zoom 16: at an
+ * 800m walkshed the outermost instances fall well outside that view.
+ *
+ * Mounted only once the instances have arrived. Mounting it earlier would
+ * build a WebGL context and a tile chain for the address alone, then throw
+ * both away and rebuild when the pins landed a moment later - one billed map
+ * load per open is enough.
  */
 export function AmenityBrowserModal({
   lat,
@@ -48,6 +64,7 @@ export function AmenityBrowserModal({
   tier,
   bucket,
   bucketLabel,
+  colorVar,
   onClose,
 }: {
   lat: number;
@@ -55,6 +72,9 @@ export function AmenityBrowserModal({
   tier: CategoryId;
   bucket: string;
   bucketLabel: string;
+  /** The owning tier's CSS custom property (sans `var()`) - tints this
+   *  modal's map pins and its radius ring to match the card that opened it. */
+  colorVar: string;
   onClose: () => void;
 }) {
   const panelRef = useDialog(onClose);
@@ -67,6 +87,17 @@ export function AmenityBrowserModal({
   // TransitLineBadge only knows these two modes - every other bucket has no
   // route concept, and AmenityInstance.routes is absent for them anyway.
   const mode = bucket === "subway" || bucket === "bus" ? bucket : null;
+
+  // The map's pins are derived from the very same `data.instances` the list
+  // below renders, so the two can never disagree about what is nearby. Both
+  // this array and the single-ring array passed with it are fresh every
+  // render; MapCanvas depends on serialised keys, not array identity, so
+  // that costs nothing (see its ringsKey/extraMarkersKey comments).
+  const markers = data?.instances.map((inst) => ({
+    lat: inst.lat,
+    lng: inst.lng,
+    label: inst.name ?? bucketLabel,
+  }));
 
   return (
     <Portal>
@@ -110,6 +141,30 @@ export function AmenityBrowserModal({
               <CloseIcon className="h-5 w-5" />
             </button>
           </div>
+
+          {data && markers && markers.length > 0 && (
+            <section
+              aria-label={`Map of every ${bucketLabel.toLowerCase()} nearby`}
+              className="shrink-0 border-b"
+              style={{ borderColor: "var(--border-hairline)" }}
+            >
+              <MapCanvas
+                centerLat={lat}
+                centerLng={lng}
+                rings={[
+                  {
+                    radiusMeters: data.radiusMeters,
+                    colorVar,
+                    label: bucketLabel,
+                  },
+                ]}
+                extraMarkers={markers}
+                extraMarkersColorVar={colorVar}
+                fitToMarkers
+                className="h-48 w-full sm:h-56"
+              />
+            </section>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-1 sm:px-6">
             {error ? (

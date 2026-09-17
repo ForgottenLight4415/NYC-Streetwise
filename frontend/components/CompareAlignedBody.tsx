@@ -70,8 +70,8 @@ type Side = {
  * two columns.
  */
 export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
-  const panelsA = useReportPanelState(a.report, a.coords);
-  const panelsB = useReportPanelState(b.report, b.coords);
+  const panelsA = useReportPanelState(a.report);
+  const panelsB = useReportPanelState(b.report);
 
   const left: ReactNode[] = [];
   const right: ReactNode[] = [];
@@ -234,8 +234,6 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
       centerLat={a.coords.lat}
       centerLng={a.coords.lng}
       rings={panelsA.rings}
-      extraMarkers={panelsA.extraMarkers}
-      extraMarkersColorVar={panelsA.openAmenity?.colorVar}
     />,
   );
   right.push(
@@ -244,8 +242,6 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
       centerLat={b.coords.lat}
       centerLng={b.coords.lng}
       rings={panelsB.rings}
-      extraMarkers={panelsB.extraMarkers}
-      extraMarkersColorVar={panelsB.openAmenity?.colorVar}
     />,
   );
 
@@ -266,6 +262,7 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
           tier={panelsA.openAmenity.tier}
           bucket={panelsA.openAmenity.bucket}
           bucketLabel={panelsA.openAmenity.label}
+          colorVar={panelsA.openAmenity.colorVar}
           onClose={() => panelsA.setOpenAmenity(null)}
         />
       )}
@@ -276,6 +273,7 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
           tier={panelsB.openAmenity.tier}
           bucket={panelsB.openAmenity.bucket}
           bucketLabel={panelsB.openAmenity.label}
+          colorVar={panelsB.openAmenity.colorVar}
           onClose={() => panelsB.setOpenAmenity(null)}
         />
       )}
