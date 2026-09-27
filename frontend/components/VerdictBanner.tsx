@@ -194,12 +194,18 @@ export function VerdictBanner({
         )}
       </div>
 
+      {/* min-h reserves ~4 lines in both states so the AI text arriving
+          doesn't grow the row; wrap-anywhere (not the body's break-word)
+          lowers the min-content width, so one long unbroken token in the
+          model's output can't widen the grid track past a phone viewport. */}
       {summaryLoading ? (
-        <p className="mt-4 animate-pulse text-sm text-(--text-muted)">
+        <p className="mt-4 min-h-[4lh] animate-pulse text-sm text-(--text-muted)">
           Reasoning...
         </p>
       ) : (
-        <p className="mt-4 text-sm text-(--text-secondary)">{summaryText}</p>
+        <p className="mt-4 min-h-[4lh] text-sm wrap-anywhere text-(--text-secondary)">
+          {summaryText}
+        </p>
       )}
 
       {layout === "page" &&

@@ -17,7 +17,7 @@ export function LegalPageLayout({
   children: ReactNode;
 }) {
   return (
-    <main id="main" className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+    <main id="main" className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
       <Link
         href="/"
         className="text-sm text-(--text-muted) underline underline-offset-2 hover:text-(--text-secondary)"
