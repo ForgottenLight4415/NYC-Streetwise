@@ -218,7 +218,7 @@ export function ReportBody({
         // that need less (2/5). Stacks to one column below `lg` rather than
         // squeezing both into a narrow phone width.
         <div className="grid gap-4 lg:grid-cols-5">
-          <div className="lg:col-span-3">
+          <div className="min-w-0 lg:col-span-3">
             <VerdictBanner
               report={report}
               panels={panels}
@@ -230,7 +230,7 @@ export function ReportBody({
               layout="page"
             />
           </div>
-          <div className="lg:col-span-2">
+          <div className="min-w-0 lg:col-span-2">
             {showRadar && <ScoreRadar axes={radarAxes} />}
           </div>
         </div>

@@ -95,7 +95,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <StructuredData />
         {/* The Express backend is a different origin, and the first call to it
             is on the critical path of every page: the report's score, and the
             homepage's own hero card. This gets the DNS lookup and TLS handshake
@@ -117,6 +116,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {children}
         <Footer />
         <CookieConsent />
+        {/* In <body>, not <head>: the Maps SDK bootstrap (report/compare)
+            injects its own <script> tags (util.js, ...) into <head> before
+            React hydrates, so an inline script there gets matched against the
+            injected one and throws a hydration mismatch. JSON-LD is valid
+            anywhere in the document. */}
+        <StructuredData />
       </body>
     </html>
   );

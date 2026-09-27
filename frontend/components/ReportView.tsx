@@ -85,7 +85,7 @@ export function ReportView() {
   }
 
   return (
-    <main id="main" className="mx-auto max-w-[1920px] px-4 pt-4 pb-8 sm:px-6">
+    <main id="main" className="mx-auto w-full max-w-[1920px] px-4 pt-4 pb-8 sm:px-6">
       <ReportBody
         report={report}
         coords={coords}

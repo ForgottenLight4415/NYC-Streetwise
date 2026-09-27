@@ -87,7 +87,7 @@ export function buildOverallSummaryPrompt({ sections }) {
     "",
     ...sections.map(formatSection),
     "",
-    "Write ONE summary, under 120 words total (roughly 3-5 short sentences), covering only what stands out.",
+    "Write ONE summary, under 120 words total (roughly 5-7 short sentences), covering only what stands out.",
     "",
     "Rules:",
     "- Mention only what is unusual: a notably high or low complaint count, or a notably close or far amenity. Most of the sections above will not be worth a sentence — do not describe every one of them.",
