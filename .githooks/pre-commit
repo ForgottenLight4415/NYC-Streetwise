@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Pre-commit checks: the backend test suite and the frontend's ESLint, each run
-# only when the commit touches that side of the repo (a docs-only commit runs
-# neither).
+# Pre-commit checks: ESLint on both sides, plus the backend test suite, each
+# run only when the commit touches that side of the repo (a docs-only commit
+# runs neither).
 #
 # Enable once per clone:   git config core.hooksPath .githooks
 # Run by hand, both sides: .githooks/pre-commit --all
@@ -45,6 +45,10 @@ require_deps() {
 
 if $run_backend; then
   require_deps backend
+  echo "pre-commit: backend ESLint..."
+  if ! (cd backend && npm run lint --silent); then
+    failed+=("backend ESLint (cd backend && npm run lint)")
+  fi
   echo "pre-commit: backend tests..."
   if ! (cd backend && npm test --silent); then
     failed+=("backend tests (cd backend && npm test)")

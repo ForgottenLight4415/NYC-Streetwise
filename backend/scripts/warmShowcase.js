@@ -34,7 +34,7 @@ if (!isMongoConfigured()) {
 console.log(`Warming ${SHOWCASE_ADDRESSES.length} curated addresses.\n`);
 const startedAt = Date.now();
 
-const { warmed, failed, results } = await warmShowcase({
+const { warmed, failed } = await warmShowcase({
   onProgress: (result) => {
     if (result.ok) {
       const tiers = Object.entries(result.cache)

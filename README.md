@@ -256,13 +256,14 @@ documentation/    module-by-module reference docs for this whole repo — see be
 
 ```bash
 cd backend && npm test        # vitest, 700+ tests, no network needed
+cd backend && npm run lint    # ESLint
 cd frontend && npm run lint   # ESLint
 cd frontend && npm run build  # type-checks + builds; no dedicated test suite yet
 ```
 
-**Pre-commit hook.** `.githooks/pre-commit` runs the backend tests when a commit
-touches `backend/`, and the frontend's ESLint when it touches `frontend/`
-(about 5s and 3s). Enable it once per clone:
+**Pre-commit hook.** `.githooks/pre-commit` runs the backend's ESLint and tests
+when a commit touches `backend/`, and the frontend's ESLint when it touches
+`frontend/` (about 7s and 3s). Enable it once per clone:
 
 ```bash
 git config core.hooksPath .githooks

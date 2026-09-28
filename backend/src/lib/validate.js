@@ -255,6 +255,7 @@ export function validateComplaintType(value) {
  * including the zero-width and direction-override tricks that make one string
  * render as another.
  */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const ADDRESS_FORBIDDEN = /[<>{}\\|`\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e]/;
 
 /**

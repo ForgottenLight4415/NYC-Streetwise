@@ -82,7 +82,10 @@ export function createApp() {
 
   // Central error handler. Routes throw BadRequestError (400) via the shared
   // validator; anything else is a 500 with no internals leaked.
-  app.use((err, req, res, next) => {
+  // Four parameters even though `_next` goes unused: Express recognises an
+  // error handler by its arity, so dropping it would silently turn this into
+  // ordinary middleware that never sees an error.
+  app.use((err, req, res, _next) => {
     // Dispatch on error TYPE, never on `err.status` alone. SocrataError also
     // carries a `status`, but it is the UPSTREAM's status, not ours — a generic
     // "4xx means client error" branch here would forward Socrata's 400 body
