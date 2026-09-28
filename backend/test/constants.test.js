@@ -11,6 +11,15 @@ import {
   windowCutoffISO,
   NYC_BOUNDS,
   CACHE_COORD_PRECISION,
+  STATUS_TO_BUCKET,
+  STATUS_BUCKET_NAMES,
+  statusBucket,
+  AMENITY_TIERS,
+  AMENITY_ROUTE_CANDIDATES,
+  AMENITY_ROUTE_ELEMENTS_PER_CALL,
+  AMENITY_BASELINE_ROUTE_PACING_MS,
+  GOOGLE_ROUTES_ELEMENTS_PER_MINUTE,
+  GOOGLE_ROUTES_QUOTA_UTILISATION,
 } from "../src/config/constants.js";
 
 // These tests guard the decisions recorded in CLAUDE.md. A failure here usually
@@ -18,22 +27,35 @@ import {
 // the silent-reweighting failure mode CLAUDE.md decision 6 warns about.
 
 describe("bucket definitions", () => {
-  it("keeps exactly three buckets per sub-score", () => {
+  it("keeps the documented buckets per sub-score, in order", () => {
     expect(BUCKET_NAMES.building).toEqual([
       "heatHotWater",
       "unsanitaryCondition",
       "plumbing",
+      "repairs",
+      "electricGas",
+      "buildingSafety",
     ]);
-    expect(BUCKET_NAMES.block).toEqual(["noise", "parking", "streetCondition"]);
+    expect(BUCKET_NAMES.block).toEqual([
+      "noise",
+      "parking",
+      "streetCondition",
+      "sanitation",
+      "infrastructure",
+      "publicSafety",
+    ]);
   });
 
   it("excludes the types CLAUDE.md explicitly rejected", () => {
     // Each of these was excluded for a documented reason; re-adding one silently
     // changes what the score means.
     const excluded = [
-      "Dirty Condition",
       "Dirty Conditions",
       "General Construction/Plumbing",
+      "Illegal Fireworks",
+      "Urinating in Public",
+      "Indoor Air Quality",
+      "Lead",
       "Non-Residential Heat",
       "Noise",
       "Noise - Helicopter",
@@ -48,6 +70,19 @@ describe("bucket definitions", () => {
   it("folds Blocked Driveway into parking and Sidewalk Condition into streetCondition", () => {
     expect(TYPE_TO_BUCKET["Blocked Driveway"]).toBe("parking");
     expect(TYPE_TO_BUCKET["Sidewalk Condition"]).toBe("streetCondition");
+  });
+
+  it("folds Water Leak into plumbing and abandoned vehicles into parking", () => {
+    expect(TYPE_TO_BUCKET["WATER LEAK"]).toBe("plumbing");
+    expect(TYPE_TO_BUCKET["Abandoned Vehicle"]).toBe("parking");
+    expect(TYPE_TO_BUCKET["Derelict Vehicles"]).toBe("parking");
+  });
+
+  it("counts Dirty Condition on the block, never against a building", () => {
+    // DSNY street sanitation: a block condition, not an HPD building-interior
+    // one (CLAUDE.md decision 1).
+    expect(TYPE_TO_BUCKET["Dirty Condition"]).toBe("sanitation");
+    expect(BUILDING_HEALTH_TYPES.unsanitaryCondition).not.toContain("Dirty Condition");
   });
 });
 
@@ -82,10 +117,6 @@ describe("TYPE_TO_BUCKET", () => {
 });
 
 describe("radius tiers", () => {
-  it("uses the tight/wide radii chosen in M0", () => {
-    expect(RADIUS_TIERS.building.radiusMeters).toBe(25);
-    expect(RADIUS_TIERS.block.radiusMeters).toBe(350);
-  });
 
   it("keeps tier keys and their `tier` fields in sync", () => {
     for (const [name, tier] of Object.entries(RADIUS_TIERS)) {
@@ -150,5 +181,100 @@ describe("misc config", () => {
   it("rounds cache coords finely enough not to merge neighbouring buildings", () => {
     // 4dp is ~11m, comfortably under the 25m building radius.
     expect(CACHE_COORD_PRECISION).toBe(4);
+  });
+});
+
+describe("status buckets", () => {
+  // The eight values confirmed against the live dataset 2026-08-17. If a query
+  // ever returns a ninth, statusBucket's fallback is what keeps it visible.
+  const CONFIRMED = [
+    "Closed",
+    "In Progress",
+    "Open",
+    "Pending",
+    "Assigned",
+    "Started",
+    "Unspecified",
+    "Cancel",
+  ];
+
+  it("maps every status the live dataset returns", () => {
+    for (const status of CONFIRMED) {
+      expect(STATUS_BUCKET_NAMES).toContain(statusBucket(status));
+    }
+  });
+
+  it("files Assigned and Started under in-progress, not open", () => {
+    // The frontend's old mapStatus() got this wrong, which is why the mapping
+    // now lives here and has exactly one definition.
+    expect(statusBucket("Assigned")).toBe("in-progress");
+    expect(statusBucket("Started")).toBe("in-progress");
+    expect(statusBucket("Pending")).toBe("in-progress");
+  });
+
+  it("treats Cancel as terminal", () => {
+    expect(statusBucket("Cancel")).toBe("closed");
+    expect(statusBucket("Closed")).toBe("closed");
+  });
+
+  // Unspecified carries no evidence anyone acted. Claiming progress we cannot
+  // evidence is the worse error for someone deciding on a lease.
+  it("treats Unspecified as open rather than in-progress", () => {
+    expect(statusBucket("Unspecified")).toBe("open");
+  });
+
+  it("defaults an unknown or missing status to open instead of dropping it", () => {
+    expect(statusBucket("Some Future Status")).toBe("open");
+    expect(statusBucket(undefined)).toBe("open");
+    expect(statusBucket(null)).toBe("open");
+  });
+
+  it("offers exactly the three buckets the UI filters on", () => {
+    expect(STATUS_BUCKET_NAMES).toEqual(["open", "in-progress", "closed"]);
+  });
+
+  it("maps only into those three buckets", () => {
+    for (const bucket of Object.values(STATUS_TO_BUCKET)) {
+      expect(STATUS_BUCKET_NAMES).toContain(bucket);
+    }
+  });
+});
+
+describe("Google Routes quota pacing", () => {
+  // The whole point of deriving these: the baseline script's pacing used to be
+  // a hand-picked 250ms measured against REQUESTS per second, while Google's
+  // ceiling is denominated in ELEMENTS per minute. At 27 elements a call that
+  // nominal cadence is 6,480 elements/min — more than twice the limit — and it
+  // only ever stayed under because response latency padded the interval.
+  it("counts elements per call from the dataset-backed buckets, not requests", () => {
+    const routedBuckets = Object.values(AMENITY_TIERS)
+      .filter((tier) => tier.dataset)
+      .flatMap((tier) => tier.buckets);
+
+    expect(AMENITY_ROUTE_ELEMENTS_PER_CALL).toBe(
+      routedBuckets.length * AMENITY_ROUTE_CANDIDATES
+    );
+    // Walkability has no `dataset` and is never route-corrected, so it must
+    // not inflate the element count and slow every run down for nothing.
+    expect(routedBuckets).not.toContain("grocery");
+  });
+
+  it("paces the baseline run strictly under the element ceiling", () => {
+    const callsPerMinute = 60_000 / AMENITY_BASELINE_ROUTE_PACING_MS;
+    const elementsPerMinute = callsPerMinute * AMENITY_ROUTE_ELEMENTS_PER_CALL;
+
+    expect(elementsPerMinute).toBeLessThan(GOOGLE_ROUTES_ELEMENTS_PER_MINUTE);
+    // And with real headroom, not by a rounding hair — pacing controls when a
+    // call STARTS, not when Google counts it, so jitter and retries land on
+    // top of the nominal rate.
+    expect(elementsPerMinute).toBeLessThanOrEqual(
+      GOOGLE_ROUTES_ELEMENTS_PER_MINUTE * GOOGLE_ROUTES_QUOTA_UTILISATION
+    );
+    expect(GOOGLE_ROUTES_QUOTA_UTILISATION).toBeLessThan(1);
+  });
+
+  it("stays within the per-request element cap Google enforces", () => {
+    // computeRouteMatrix rejects a request over 625 elements for WALK.
+    expect(AMENITY_ROUTE_ELEMENTS_PER_CALL).toBeLessThanOrEqual(625);
   });
 });

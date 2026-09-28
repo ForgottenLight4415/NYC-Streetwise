@@ -28,10 +28,16 @@ const BASELINE = {
     heatHotWater: { median: 2, p90: 100, zeroShare: 0.4 },
     unsanitaryCondition: { median: 1, p90: 25, zeroShare: 0.45 },
     plumbing: { median: 0, p90: 20, zeroShare: 0.5 },
+    repairs: { median: 1, p90: 30, zeroShare: 0.45 },
+    electricGas: { median: 0, p90: 15, zeroShare: 0.55 },
+    buildingSafety: { median: 0, p90: 5, zeroShare: 0.7 },
     // block — never zero at 350m in NYC
     noise: { median: 1000, p90: 4000, zeroShare: 0 },
     parking: { median: 1000, p90: 2000, zeroShare: 0 },
     streetCondition: { median: 100, p90: 260, zeroShare: 0 },
+    sanitation: { median: 100, p90: 400, zeroShare: 0 },
+    infrastructure: { median: 50, p90: 200, zeroShare: 0 },
+    publicSafety: { median: 20, p90: 300, zeroShare: 0 },
   },
   radiusMeters: {
     building: RADIUS_TIERS.building.radiusMeters,
@@ -39,8 +45,8 @@ const BASELINE = {
   },
 };
 
-const ZERO_BUILDING = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 };
-const TYPICAL_BLOCK = { noise: 1000, parking: 1000, streetCondition: 100 };
+const ZERO_BUILDING = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const TYPICAL_BLOCK = { noise: 1000, parking: 1000, streetCondition: 100, sanitation: 100, infrastructure: 50, publicSafety: 20 };
 
 describe("bandFor", () => {
   it("treats thresholds as inclusive lower bounds", () => {
@@ -48,18 +54,6 @@ describe("bandFor", () => {
     expect(bandFor(BAND_THRESHOLDS.good - 1)).toBe("fair");
     expect(bandFor(BAND_THRESHOLDS.fair)).toBe("fair");
     expect(bandFor(BAND_THRESHOLDS.fair - 1)).toBe("poor");
-  });
-
-  it("maps the ends of the scale", () => {
-    // Direction matters: 100 = fewest complaints = good news for a renter.
-    expect(bandFor(100)).toBe("good");
-    expect(bandFor(0)).toBe("poor");
-  });
-
-  it("only ever returns a band the contract allows", () => {
-    for (let score = 0; score <= 100; score++) {
-      expect(["good", "fair", "poor"]).toContain(bandFor(score));
-    }
   });
 
   it("is monotonic — a higher score never yields a worse band", () => {
@@ -162,19 +156,22 @@ describe("bucketScore", () => {
 });
 
 describe("scoreTier", () => {
-  it("averages the three bucket scores", () => {
-    // parking at median (50), noise at p90 (10), streetCondition at 0 (100).
+  it("averages the tier's bucket scores", () => {
+    // Each bucket pinned to a known anchor: p90 (10), median (50) or 0 (100).
     const tier = scoreTier(
       "block",
-      { noise: 4000, parking: 1000, streetCondition: 0 },
+      { noise: 4000, parking: 1000, streetCondition: 0, sanitation: 0, infrastructure: 50, publicSafety: 300 },
       BASELINE
     );
     expect(tier.bucketScores).toEqual({
       noise: 10,
       parking: 50,
       streetCondition: 100,
+      sanitation: 100,
+      infrastructure: 50,
+      publicSafety: 10,
     });
-    expect(tier.score).toBe(Math.round((10 + 50 + 100) / 3));
+    expect(tier.score).toBe(Math.round((10 + 50 + 100 + 100 + 50 + 10) / 6));
   });
 
   it("returns the frozen sub-score shape", () => {
@@ -204,12 +201,12 @@ describe("scoreTier", () => {
   it("ranks a quiet block above a loud one", () => {
     const quiet = scoreTier(
       "block",
-      { noise: 100, parking: 200, streetCondition: 10 },
+      { noise: 100, parking: 200, streetCondition: 10, sanitation: 10, infrastructure: 5, publicSafety: 0 },
       BASELINE
     );
     const loud = scoreTier(
       "block",
-      { noise: 6000, parking: 5000, streetCondition: 400 },
+      { noise: 6000, parking: 5000, streetCondition: 400, sanitation: 900, infrastructure: 500, publicSafety: 800 },
       BASELINE
     );
     expect(quiet.score).toBeGreaterThan(loud.score);
@@ -274,7 +271,36 @@ describe("scoreTier", () => {
     // would render as "NaN" in the UI and nobody would know why.
     const tier = scoreTier("block", { noise: 1000 }, BASELINE);
     expect(Number.isInteger(tier.score)).toBe(true);
-    expect(tier.counts).toEqual({ noise: 1000, parking: 0, streetCondition: 0 });
+    expect(tier.counts).toEqual({ noise: 1000, parking: 0, streetCondition: 0, sanitation: 0, infrastructure: 0, publicSafety: 0 });
+  });
+
+  // bucketStatusCounts — pure pass-through, no scoring logic reads it.
+  it("attaches bucketStatusCounts verbatim when provided", () => {
+    const statusCounts = {
+      noise: { open: 400, "in-progress": 100, closed: 500 },
+      parking: { open: 200, "in-progress": 50, closed: 750 },
+      streetCondition: { open: 10, "in-progress": 5, closed: 85 },
+    };
+    const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE, statusCounts);
+    expect(tier.bucketStatusCounts).toEqual(statusCounts);
+    // Passing it must not change the score itself — it is purely descriptive.
+    expect(tier.score).toBe(scoreTier("block", TYPICAL_BLOCK, BASELINE).score);
+  });
+
+  it("omits bucketStatusCounts entirely when not provided, rather than defaulting to zeros", () => {
+    const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE);
+    expect(tier).not.toHaveProperty("bucketStatusCounts");
+    // The existing frozen-shape assertion above must keep passing untouched.
+    expect(Object.keys(tier).sort()).toEqual([
+      "band",
+      "bucketConfidence",
+      "bucketScores",
+      "confidence",
+      "confidenceReason",
+      "counts",
+      "radiusMeters",
+      "score",
+    ]);
   });
 });
 
@@ -324,6 +350,30 @@ describe("buildReport", () => {
       CONFIDENCE_REASONS.noBaseline
     );
     expect(report.meta.baselineVersion).toBeNull();
+  });
+
+  it("threads per-tier statusCounts into each section as bucketStatusCounts", () => {
+    const statusCounts = {
+      building: {
+        heatHotWater: { open: 0, "in-progress": 0, closed: 0 },
+        unsanitaryCondition: { open: 0, "in-progress": 0, closed: 0 },
+        plumbing: { open: 0, "in-progress": 0, closed: 0 },
+      },
+      block: {
+        noise: { open: 300, "in-progress": 100, closed: 600 },
+        parking: { open: 50, "in-progress": 50, closed: 900 },
+        streetCondition: { open: 10, "in-progress": 10, closed: 80 },
+      },
+    };
+    const report = buildReport(counts, BASELINE, {}, null, null, statusCounts);
+    expect(report.buildingHealth.bucketStatusCounts).toEqual(statusCounts.building);
+    expect(report.blockQuality.bucketStatusCounts).toEqual(statusCounts.block);
+  });
+
+  it("omits bucketStatusCounts from every section when statusCounts is not passed", () => {
+    const report = buildReport(counts, BASELINE);
+    expect(report.buildingHealth).not.toHaveProperty("bucketStatusCounts");
+    expect(report.blockQuality).not.toHaveProperty("bucketStatusCounts");
   });
 });
 

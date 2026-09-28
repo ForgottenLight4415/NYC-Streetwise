@@ -1,0 +1,113 @@
+{
+  "_id": "v1",
+  "perBucket": {
+    "subway": {
+      "median": 490,
+      "p90": 2000,
+      "mean": 710.7,
+      "max": 2317,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "bus": {
+      "median": 164,
+      "p90": 455,
+      "mean": 231.3,
+      "max": 2000,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "rail": {
+      "median": 2000,
+      "p90": 2202,
+      "mean": 1814.9,
+      "max": 3095,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "park": {
+      "median": 474,
+      "p90": 1020,
+      "mean": 538,
+      "max": 2326,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "playground": {
+      "median": 609,
+      "p90": 1463,
+      "mean": 736.6,
+      "max": 2225,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "garden": {
+      "median": 1141,
+      "p90": 2000,
+      "mean": 1184,
+      "max": 3678,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "bikeShare": {
+      "median": 247,
+      "p90": 2000,
+      "mean": 894.5,
+      "max": 3072,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "bikeLane": {
+      "median": 215,
+      "p90": 1173,
+      "mean": 468.2,
+      "max": 6164,
+      "zeroShare": 0,
+      "n": 149
+    },
+    "protectedLane": {
+      "median": 491,
+      "p90": 2000,
+      "mean": 807.4,
+      "max": 6186,
+      "zeroShare": 0.007,
+      "n": 149
+    },
+    "grocery": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "restaurant": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "cafe": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    },
+    "school": {
+      "median": 0,
+      "p90": 0,
+      "mean": 0,
+      "max": 0,
+      "zeroShare": 1,
+      "n": 0
+    }
+  },
+  "sampleSize": 149,
+  "sampleRequested": 150,
+  "maxMeters": 2000,
+  "computedAt": "2026-09-17T20:40:47.777Z"
+}

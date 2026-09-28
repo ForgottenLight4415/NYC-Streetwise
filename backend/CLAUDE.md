@@ -1,394 +1,332 @@
-# CLAUDE.md
+# CLAUDE.md — backend
 
-## Project: "Should I Live Here" (NYC 311 address risk tool)
+## What this is
 
-A hackathon web app. User enters an NYC address; app returns one report with two
-scores: a Building Health Score and a Block Quality Score, both derived from NYC
-311 complaint data. This file covers the BACKEND / DATA layer only (Person 1).
+Express API for **Streetwise**, an NYC address-risk tool. Given a
+coordinate, it returns a livability report: two complaint-based scores
+(**Building Health**, **Block Quality**) from NYC 311 data, up to four
+amenity-based scores (**Transit / Parks / Bike / Walkability Access**) from
+static datasets plus a live Google Places lookup, and a plain-English
+summary. This file covers the backend/data layer only — the frontend lives
+in `../frontend`.
 
-## What this backend does
+**For anything beyond "what and why," read the module docs first — this file
+is deliberately short:**
 
-- Exposes an API that takes a coordinate and returns two 0-100 sub-scores.
-- Queries NYC Open Data 311 live, caches results in Mongo, scores them against a
-  precomputed citywide baseline.
-- Does NOT geocode. The frontend sends {lat, lng} from Google Places Autocomplete.
+- [`../documentation/backend-architecture.md`](../documentation/backend-architecture.md) — layering, request lifecycle
+- [`../documentation/backend-routes.md`](../documentation/backend-routes.md) — every endpoint, request/response shapes
+- [`../documentation/backend-services.md`](../documentation/backend-services.md) — orchestration + the scoring algorithm
+- [`../documentation/backend-providers.md`](../documentation/backend-providers.md) — Socrata, Mongo, amenity datasets, Google/AI adapters
+- [`../documentation/backend-config-and-scripts.md`](../documentation/backend-config-and-scripts.md) — every tunable constant, offline scripts
+- [`README.md`](README.md) — setup: Docker, every env var, Ollama/Gemini
 
 ## Architecture
 
 Three layers, kept separate for testability:
-routes (Express) -> services (scoring + orchestration) -> providers (Socrata + cache)
 
-The route never calls Socrata directly. Service checks cache, falls back to
-Socrata provider, then runs scoring. Scoring is a pure function tested against
-fixtures with no network.
-
-## Data source
-
-- Dataset: NYC 311 Service Requests, Socrata UID `erm2-nwe9`
-- Endpoint: https://data.cityofnewyork.us/resource/erm2-nwe9.json
-- Auth: Socrata app token in `X-App-Token` header (register one; unauthenticated
-  requests throttle hard under load)
-
-## Two scores, six buckets (RESOLVED — see complaint_type strings below)
-
-Building Health (tight radius ~20-30m): heat/hot water, unsanitary condition, plumbing
-Block Quality (wider radius ~300-400m): noise, parking, street condition
-
-Both use the same lat/lng with different radius sizes. No BBL join (that field is
-not reliably present in 311 data).
-
-## complaint_type strings — CONFIRMED against live API (RESOLVED, was open item 1)
-
-Pulled via `$select=complaint_type&$group=complaint_type` against erm2-nwe9. Full
-distinct list has ~280 values; only the ones relevant to our six buckets are below.
-Do not re-derive these from memory elsewhere in the codebase, import from constants.js.
-
-```js
-// constants.js
-
-const BUILDING_HEALTH_TYPES = {
-  heatHotWater: ["HEAT/HOT WATER", "Heat/Hot Water"],
-  unsanitaryCondition: ["UNSANITARY CONDITION", "Unsanitary Condition"],
-  plumbing: ["PLUMBING", "Plumbing"],
-};
-
-const BLOCK_QUALITY_TYPES = {
-  noise: [
-    "Noise - Residential",
-    "Noise - Street/Sidewalk",
-    "Noise - Vehicle",
-    "Noise - Commercial",
-  ],
-  parking: ["Illegal Parking", "Blocked Driveway"],
-  streetCondition: ["Street Condition", "Sidewalk Condition", "DEP Street Condition"],
-};
+```
+routes (Express) -> services (scoring + orchestration) -> providers (Socrata, Mongo, Google, AI)
 ```
 
-Decisions made and why (do not silently change these without updating this file):
+Routes never call Socrata/Mongo/Google directly. `services/scoring.js` is a
+**pure function** — no network, no clock — tested against fixtures. Never
+geocodes: the frontend sends `{lat, lng}` from Google Places Autocomplete.
 
-1. **Dirty Condition / Dirty Conditions excluded from Unsanitary Condition.** These
-   are a separate DSNY street/curb sanitation complaint_type, distinct from HPD's
-   Unsanitary Condition (building interior). Building Health should reflect landlord
-   maintenance, not curb sanitation, so excluded.
-2. **General Construction/Plumbing excluded from Plumbing.** Ambiguous DOB combined
-   category, not clearly plumbing-specific. Excluded to avoid overcounting.
-3. **Non-Residential Heat excluded from Heat/Hot Water.** Commercial, not relevant
-   to a residential livability score.
-4. **Noise scope limited to 4 of 9 possible noise types** (Residential,
-   Street/Sidewalk, Vehicle, Commercial). Helicopter, Park, House of Worship, and
-   generic "Noise" excluded as not representative of daily block-level noise
-   experience for a resident. Revisit if scores feel too low in noise-heavy areas
-   near flight paths or parks.
-5. **Blocked Driveway folded into the parking bucket** alongside Illegal Parking.
-   Blocked Driveway alone is 1,056,637 records citywide, larger than some of
-   Illegal Parking's own minor variants, so this materially changes the bucket if
-   omitted.
-6. **Sidewalk Condition folded into streetCondition**, not a separate 4th bucket,
-   to preserve even weighting across 3 buckets per score. If sidewalk condition
-   ever needs its own weight, it must be split out explicitly in the scoring
-   function, not just added to the type list.
+## Data source & the twelve complaint buckets
 
-**Critical implementation note on weighting:** `getCounts` MUST sum all string
-variants within a bucket into ONE number before scoring. Do not compute a
-percentile per string and average those, buckets have different variant counts
-(noise has 4 strings, plumbing has 1), and per-string averaging would silently
-underweight noise relative to plumbing.
+Dataset: NYC 311 Service Requests, Socrata UID `erm2-nwe9`. Two radius tiers,
+six buckets each — **Building Health** (~25m: heat/hot water, unsanitary
+condition, plumbing & leaks, repairs, electric & gas, building safety) and
+**Block Quality** (~350m: noise, parking & vehicles, street condition,
+sanitation, infrastructure, public safety). Full string lists live in
+`src/config/constants.js` (`TYPE_TO_BUCKET`) — **never re-derive them
+elsewhere.**
 
-## API contract (FROZEN once agreed with team; do not change unilaterally)
+Non-obvious inclusion/exclusion decisions (do not silently change without
+updating this file):
 
-**CONTRACT CHANGE (post-freeze): explanationSource field + new /api/explanation
-endpoint added below. Flag to Person 2 — this affects frontend swap-in-place UI.**
+1. **Dirty Condition is a block type, never a building one** — it is DSNY
+   street/curb sanitation, distinct from HPD's building-interior Unsanitary
+   Condition. It counts in block `sanitation`, and must not be added to
+   `unsanitaryCondition`.
+2. **General Construction/Plumbing excluded** — an ambiguous DOB combined
+   category, mostly construction-site and permit work, not the unit's
+   condition. Title-case `Plumbing` is **DOB's** type, not an HPD case
+   variant, and it counts in `plumbing` **by descriptor**:
+   `EXCLUDED_DESCRIPTORS` drops "Plumbing Work - Illegal/No Permit/
+   Standpipe/Sprinkler" (about 25% of it: unpermitted work, not a condition)
+   and keeps defective/leaking plumbing, improper drainage (LL103/89), gas
+   hook-up/piping, and inadequate sprinklers. Drainage is kept deliberately:
+   it is a real condition of the property, even if often outside the unit.
+   Sprinklers stay in `plumbing` rather than moving to `buildingSafety`
+   (about 300 complaints in 24 months, and they are plumbing-code systems;
+   moving them would need a synthetic complaint type in every list query).
+   The exclusion lives in `socrata.js#typeInClause()`, which every query and
+   the baseline sampler share, so scores, complaint lists and baselines agree.
+3. **Non-Residential Heat excluded** — commercial, not relevant to a
+   residential livability score.
+4. **Noise scoped to 4 of 9 raw NYPD types** (Residential, Street/Sidewalk,
+   Vehicle, Commercial) — Helicopter/Park/House of Worship are excluded as
+   unrepresentative of daily block-level noise. DEP's generic `Noise` is also
+   excluded: ~60% of it is construction (checked 2026-09), a different agency
+   with a different reporting population, and folding it in would inflate
+   `noise` near job sites. It could be revisited with a score-impact check.
+5. **`parking` holds Illegal Parking, Blocked Driveway, Abandoned Vehicle and
+   Derelict Vehicles** — all the same curb-space problem. Blocked Driveway
+   alone is 1M+ records, so it materially changes the bucket if omitted.
+6. **Buckets are weighted equally, never by padding a type list.** Related
+   types fold into one bucket (Sidewalk Condition into `streetCondition`,
+   WATER LEAK into `plumbing`, since it is the same HPD water-system repair
+   domain) rather than becoming a thin bucket of their own. If a bucket ever
+   needs a different weight, set it in `BUCKET_WEIGHTS`.
+7. **Building buckets beyond the original three** use the rest of HPD's
+   housing-code types: `repairs` (PAINT/PLASTER, DOOR/WINDOW,
+   FLOORING/STAIRS, OUTSIDE BUILDING), `electricGas` (ELECTRIC, APPLIANCE,
+   GENERAL — GENERAL's top descriptor is cooking gas), `buildingSafety`
+   (SAFETY — smoke/CO detectors, fire escapes, window guards — plus HPD
+   `ELEVATOR` and DOB `Elevator`). Pests and mold are already counted: they
+   are descriptors under UNSANITARY CONDITION.
+8. **`publicSafety` is a deliberate, contestable inclusion** — Encampment,
+   Homeless Person Assistance, Drug Activity, Panhandling, Drinking. These
+   counts reflect where unhoused people are and how heavily an area is
+   policed and reported, not only physical conditions. They were included on
+   purpose as something a prospective renter asks about. They stay in their
+   own bucket so they can be reweighted or removed without touching the
+   others. Illegal Fireworks (seasonal), Urinating in Public and
+   Non-Emergency Police Matter (too vague) are excluded.
+9. **Other excluded types.** DOHMH indoor types (Indoor Air Quality, Mold,
+   Asbestos, Indoor Sewage) are tiny and overlap HPD's MOLD/SEWAGE
+   descriptors, so at 25m they would almost always be zero. DEP `Lead` is
+   100% "Lead Kit" (requests for a water-test kit, not hazard reports).
+   Overgrown/Dead tree, Curb Condition, Street Sweeping, Standing Water and Air
+   Quality are small or ambiguous and remain candidates.
 
-**CONTRACT CHANGE (post-freeze, M7): AUTH IS NOW REQUIRED on all three data
-endpoints.** They return 401 without `Authorization: Bearer <accessToken>`.
-Response BODIES are unchanged — no field added, removed, or renamed. See the
-Authentication section below and documentation/m7-auth.md.
+**Critical weighting rule:** `getCounts` sums all string variants within a
+bucket into ONE number before scoring. Never percentile a bucket's raw
+strings individually and average — buckets have different variant counts
+(noise has 4, plumbing has 3), and per-string averaging silently underweights
+noise vs. plumbing.
 
-POST /api/score
-  body: { lat: number, lng: number }
-  returns: {
-    address: null,
-    buildingHealth: {
-      score, band, counts: {heatHotWater, unsanitaryCondition, plumbing}, radiusMeters,
-      explanation: string,               // AI text if cached, else template text
-      explanationSource: "ai" | "template"
-    },
-    blockQuality: {
-      score, band, counts: {noise, parking, streetCondition}, radiusMeters,
-      explanation: string,
-      explanationSource: "ai" | "template"
-    }
-  }
-  ALWAYS FAST. Never blocks on an AI call. On cache miss, explanation is the
-  deterministic template result, explanationSource: "template".
-
-GET /api/explanation?lat=&lng=&tier=building|block
-  returns: { explanation: string, explanationSource: "ai" }
-  SLOW PATH. Only called by frontend when /api/score returned
-  explanationSource: "template". Calls the active AI adapter (Ollama or Gemini
-  per AI_PROVIDER), writes result to the SAME cache doc /api/score reads from,
-  returns the real explanation once resolved. Synchronous (frontend waits on
-  this one call, no polling) — deliberate hackathon simplification, not an
-  oversight. Frontend swaps the template text for this result in place once
-  it resolves; if /api/score already returned explanationSource: "ai", frontend
-  skips this call entirely.
-
-GET /api/complaints?lat=&lng=&radius=
-  returns: [ { type, lat, lng, created_date, status }, ... ]   // for frontend heatmap
-
-GET /health
-  returns: 200 OK   // for deploy checks + keep-warm pings
-  PUBLIC — deliberately not authenticated. A 401 here reads to a host as a
-  failed deploy, and it exposes only "the process is up".
-
-band = "good" | "fair" | "poor"
-
-## Authentication (NEW SCOPE, M7 — not in the original build order)
-
-Username + password, JWT bearer tokens, tenant/landlord roles. Full rationale in
-documentation/m7-auth.md; this section is the spec-level summary.
-
-POST /api/auth/register  body: { username, password, role }   // role: tenant|landlord
-POST /api/auth/login     body: { username, password }
-POST /api/auth/refresh   body: { refreshToken }
-POST /api/auth/logout    header: Authorization: Bearer <accessToken>
-GET  /api/auth/me        header: Authorization: Bearer <accessToken>
-
-The first three return:
-  { accessToken, refreshToken, tokenType: "Bearer", expiresIn, expiresAt,
-    user: { id, username, role, createdAt } }
-
-Design rules (do not change these without updating this file):
-
-1. **Access token is a 7-day JWT that is ALSO checked against a live session
-   document.** Every token carries the `sid` of its session; requireAuth
-   verifies that session still exists. This is what makes logout real — a
-   stateless 7-day JWT cannot be revoked. Costs one indexed findOne per
-   authenticated request, deliberately.
-2. **Refresh token is opaque random bytes, NOT a JWT**, 30-day TTL, and only a
-   SHA-256 hash is stored. It ROTATES on every refresh (single-use).
-3. **Passwords use node:crypto scrypt**, not bcrypt — no native build step, which
-   matters on the alpine/musl image. Self-describing hash format.
-4. **Login returns one error for both unknown-user and wrong-password**, and
-   spends the same CPU in both branches (dummy-hash verify). Both halves are
-   required; the response alone is not enough, timing leaks it too.
-5. **`algorithms` is pinned on jwt.verify.** Without it an `alg: none` token is
-   accepted.
-6. **Role is required at registration with no default**, and is carried in the
-   token. Nothing branches on it yet.
-7. **JWT_SECRET has no fallback** and the app exits at boot without it, or
-   without MONGODB_URI.
-
-Collections: `users` (username unique) and `auth_sessions` (TTL on expiresAt,
-unique refreshTokenHash).
-
-**Mongo is no longer optional.** It was an optimisation for the cache — every
-cache path still degrades to "miss" — but auth needs a real user store, so
-providers/mongo.js now has BOTH `getDb()` (returns null, for the cache) and
-`requireDb()` (throws 503, for auth). Which one a provider calls is the
-statement of whether it can degrade.
-
-## Socrata query pattern
-
-Two HTTP calls per uncached address (one per radius tier), NOT six or twelve.
-Group by type within each radius call:
-
-  $where  = within_circle(<LOCATION_FIELD>, lat, lng, radius)
-            AND complaint_type in (...)
-            AND created_date > '<cutoff>'
-  $select = complaint_type, count(*)
-  $group  = complaint_type
-  $limit  = 50000
-
-Then sum the returned per-string counts into their bucket (see weighting note above).
-
-Client must set: app token header, ~5s timeout, retry-with-backoff on 429/5xx (max 2).
+**Status buckets** (eight raw 311 `status` values → three UI buckets) are
+similarly centralized in `STATUS_TO_BUCKET` — see
+[`backend-config-and-scripts.md`](../documentation/backend-config-and-scripts.md#status-buckets).
+`Unspecified` maps to `open`, not `in-progress`, deliberately: it carries no
+evidence anyone acted, and overclaiming progress is the worse error for
+someone deciding on a lease.
 
 ## Scoring
 
-score(counts, baseline) is a PURE function.
-1. Per bucket: convert summed count to percentile position vs baseline for that
-   bucket + radius tier.
-2. Aggregate three bucket percentiles into one sub-score (start: simple mean).
-3. Map to band at fixed thresholds.
+`score(counts, baseline)` is a pure function: convert each bucket's raw count
+(or, for amenity buckets, distance in meters) to a citywide percentile via a
+piecewise curve anchored at `[0,0]`, `[median,50]`, `[p90,90]`, with a
+zero-tie ceiling and an extrapolated tail; average the tier's bucket
+percentiles into one sub-score; map to a band. Full algorithm in
+[`backend-services.md`](../documentation/backend-services.md).
 
-Baseline is computed ONCE by scripts/buildBaseline.js (sample ~few hundred spread
-NYC coords, compute median + p90 per bucket per tier, write one baseline doc, commit
-output). This is what makes the score defensible vs a raw count map. Do not skip.
+The baseline is computed by `scripts/buildBaseline.js` (a deterministic,
+spatially-thinned, borough-balanced sample of ~250 coordinates per tier) and
+committed to `src/config/baseline.json`, with a live copy in Mongo that wins
+when present. Production has never had a Mongo copy: it scores against the
+committed file. It is refreshed monthly by
+`.github/workflows/monthly-baseline.yml`, which rebuilds on the committed
+sample points and opens a PR with the new file, the regenerated frontend copy,
+and a median/p90 diff table (`scripts/baselineDiff.js`); merging it is the
+deploy. This baseline —
+not a raw count — is what makes the score defensible. Do not skip rebuilding
+it after changing `RADIUS_TIERS`, `WINDOW_MONTHS` or any bucket's type list;
+the scorer catches a radius change (`stale_baseline_radius`) but not a window
+or type-list change. Adding a bucket is self-protecting: a baseline (Mongo or
+committed) missing any bucket is rejected whole, so an old Mongo copy is
+ignored in favour of the committed file until the rebuilt one reaches Mongo.
+After a type-list or descriptor change, run `npm run verify:dataset` (every
+string and every excluded descriptor must have rows in the window) and
+`npm run baseline` (which also regenerates the frontend's
+`citywide-baseline.ts`). Cached counts, grouped rows and trend series are
+stamped with `typeSignature()` (providers/cache.js), a hash of the tier's
+bucket-to-type map and excluded descriptors, and any mismatch reads as a miss.
+So a type or descriptor change invalidates every cache at once, in dev and in
+production, and the baseline build cannot reuse counts from the old
+definition. `--refresh` remains for forcing fresh counts regardless.
 
-Config constants (radii, time window, weights, thresholds) live in /config/constants.js.
-Time window: start at trailing 24 months, tunable.
+## API contract
+
+The `POST /api/score` response shape is **append-only** — every field ever
+added to it (amenity sections, `summary`, `bucketStatusCounts`, per-bucket
+`routes`, ...) has been additive, and existing fields never change name,
+type, or meaning without updating this file and
+[`backend-routes.md`](../documentation/backend-routes.md) first. The full,
+current, endpoint-by-endpoint contract with request/response shapes lives in
+**[`backend-routes.md`](../documentation/backend-routes.md)** — that is the
+canonical reference; don't let a second copy of it drift here.
+
+**Two things worth calling out because they're easy to get backwards:**
+
+- **`GET /api/explanation` only accepts `tier=overall`.** Building/block/
+  transit/parks/bike/walkability each carry a deterministic "Why this score?"
+  directly on `/api/score` — only the whole-report `summary` goes through an
+  AI model, on its own slow-path request, so the AI latency never sits on
+  `/api/score`.
+- **`bucketStatusCounts` and `routes` are optional per-response** — absent on
+  a cache document written before they shipped (self-heals within the 24h
+  TTL) or on a hand-built payload that doesn't pass them. A caller must
+  render its plain-count fallback rather than inventing or zero-filling one.
+
+## Amenity scores (transit / parks / bike)
+
+Distance-to-nearest, not complaint count, through the *same* `bucketScore()`
+curve — distance is already lower-is-better. Sourced from small, static,
+slow-changing public datasets (`scripts/buildAmenities.js`, committed under
+`src/config/amenities/`), loaded once at process start, scored via an
+in-memory grid index (`providers/amenities/spatialIndex.js`) — no Socrata, no
+Mongo, no network on the request path. Deliberately **not** part of
+`RADIUS_TIERS`/`BUCKET_NAMES` — those are Socrata- and baseline-coupled by
+derivation, so a static tier mixed in would risk injecting a bucket name into
+a live 311 query or instantly invalidating the committed complaint baseline.
+
+**Subway is grouped by MTA's own `complex_id`** (e.g. Herald Sq's 6th Ave and
+Broadway entrances are one complex), with a 1km outlier guard: a small number
+of entrances (11 of 2,120, confirmed live) carry a `complex_id` whose *other*
+entrances are 1km+ away — real mislabeling in MTA's own data. Trusting it
+blindly merges the wrong station's name/routes together in both directions.
+An outlier entrance keeps its own row's name/routes and becomes its own
+single-entrance group. **Bus stops within 10m cluster into one physical
+pole**, unioning routes — GTFS gives each route its own stop record even when
+several board from the same curb. Both are capped and deduped in
+`GET /api/amenities/nearby`; see
+[`backend-routes.md`](../documentation/backend-routes.md#amenities--amenitiesjs)
+for the exact behavior.
+
+Optional walking-distance correction via one **batched** Google Routes API
+call per `/api/score` (top 3 straight-line candidates per bucket, whichever
+comes back real-shortest wins) — without `GOOGLE_MAPS_API_KEY`, every
+distance just stays straight-line; nothing fails.
+
+**That call is billed per ELEMENT (origins x destinations), not per request.**
+Batching bounds latency to one round trip; it does not bound cost, which is
+9 buckets x `AMENITY_ROUTE_CANDIDATES` = **27 elements per uncached score**.
+So the corrections get their own `amenity_distance_cache` collection with a
+180-day TTL: they used to sit in `complaint_cache` under a pseudo-tier and
+silently inherit its 24h expiry, which re-bought a years-stable answer nightly.
+Google's ceiling is 3,000 elements/minute, which is also what
+`AMENITY_BASELINE_ROUTE_PACING_MS` is now derived from rather than guessed.
+
+## Walkability score
+
+The odd one out: no free public dataset exists for "groceries/restaurants/
+cafes/schools near here," so this tier calls Google Places **live, per
+report, cached per coordinate** (30-day TTL, coarser ~111m rounding than the
+other caches — maximizing hit rate matters more on a billed call). Has **no**
+`dataset` field in `AMENITY_TIERS`, which is what makes the generic amenity
+loop skip it by construction; it's scored by its own function,
+`getWalkabilityMetrics()`, with an independent failure mode from the other
+three tiers. `buildCachedScoreReport()` (the homepage/showcase path) always
+passes `cacheOnly: true` — a miss there returns the section omitted, never a
+live billed call. Its baseline (`WALKABILITY_BASELINE_PER_BUCKET`) is
+reasoned, not sampled, for the same cost reason.
 
 ## Mongo
 
-collection complaint_cache:
-  { lat (rounded ~4dp), lng (rounded), radiusTier: "building"|"block",
-    counts: {...six buckets...}, createdAt }
-  - compound index {lat, lng, radiusTier}
-  - TTL index on createdAt (~24h) for self-refresh
-  - NO 2dsphere index. Spatial filtering is done by Socrata, not Mongo. Cache
-    lookup is exact key match on rounded coords.
+No 2dsphere index anywhere — spatial filtering is Socrata's/the in-memory
+grid's job; every cache lookup is an exact match on a *rounded* coordinate.
 
-collection baseline:
-  { _id: "v1", perBucket: { <bucket>: {median, p90} }, radiusTier, computedAt }
+| Collection | Holds | TTL |
+|---|---|---|
+| `complaint_cache` | 311 counts + `bucketStatusCounts` + per-tier explanation, keyed `{lat, lng, radiusTier}`; stamped with `typeSignature` (as are the two below), a mismatch reads as a miss | 24h, sliding (refreshed on every write) |
+| `trend_cache` | `/api/trend` series, keyed `{lat, lng, radiusTier, months}` | 24h |
+| `complaint_groups_cache` | grouped complaint-browser rows, keyed `{lat, lng, radiusTier}` (no `months` — a shorter window is a prefix) | 24h |
+| `amenity_distance_cache` | Google-routed walking distances per amenity bucket, keyed `{lat, lng}` | 180d |
+| `walkability_cache` | raw Places results, keyed at ~111m precision | 30d |
+| `baseline` / `amenity_baseline` | the citywide percentile baselines, `_id: "v1"` | none — refreshed only by rerunning the build scripts |
+| `address_lookups` | address text ↔ coordinate + lookup counter, for `/api/showcase` | **none** — this is a name mapping, not a data cache, and must outlive the 24h counts it's paired with |
 
-## AI Explanation Layer (NEW SCOPE)
+**Every collection's indexes are built lazily**, memoized per process, from
+inside that collection's own provider functions (`ensure*Indexes()`) —
+**never** from `src/index.js`. That file has a startup phase; the Vercel
+entrypoint (`api/index.js`) does not — each request is its own short-lived
+invocation, so code that only runs at `src/index.js` boot never executes in
+production. `src/index.js` still calls them too, purely as a latency
+optimization for the long-running paths (Docker, `npm run dev`).
 
-Each sub-score (Building Health, Block Quality) is accompanied by a 1-2 sentence
-AI-generated explanation of why it got that band ("Good to live" / "Proceed with
-caution" / etc). This is a separate step AFTER scoring, not inside the pure
-score() function — scoring stays deterministic and fixture-tested; the AI call is
-neither, and must be isolated so it can fail without breaking scoring.
+## AI explanation layer
 
-**Two adapters, same interface, swapped by env var:**
-- `ollama` — local dev only. Requires Ollama running locally with `llama3` pulled.
-  Cannot run on Vercel (serverless has no persistent local process).
-- `gemini` — deployed (Vercel) target. Hosted HTTP API, works identically in any
-  environment including serverless.
+**Only the whole-report `summary` (`tier=overall`) ever goes through an AI
+model.** Every per-section explanation (both complaint tiers, all four
+amenity tiers) is a deterministic template, computed inline on
+`POST /api/score` — this used to not be true (each section had its own AI
+path), but those six calls were being made unconditionally on every
+uncached view while the text was never rendered anywhere; removed.
 
-Shared contract both adapters must implement:
-`generateExplanation({ label, band, counts, radiusLabel }) -> Promise<string>`
+Two adapters behind one interface, swapped by `AI_PROVIDER`:
+`ollama` (local dev only — needs a running local Ollama, can't run on
+Vercel) and `gemini` (works anywhere, including serverless). Both implement
+`generateExplanation({ sections }) -> Promise<string>`, built from
+`providers/ai/prompt.js#buildOverallSummaryPrompt()` — the one prompt either
+adapter sends; **never diverge prompt rules per adapter.**
 
-```
-/providers/ai
-  index.js      factory: reads AI_PROVIDER env var, returns ollama.js or gemini.js
-  ollama.js     calls http://localhost:11434/api/generate, model "llama3"
-  gemini.js     calls generativelanguage.googleapis.com, model "gemini-2.5-flash-lite"
-  prompt.js     buildPrompt() — SHARED by both adapters so output tone stays consistent
-```
+Prompt rules (baked into `prompt.js`): base the summary only on the given
+sections, never invent addresses/dates/incidents; no ratios or "X times
+more" comparisons (the model has done real arithmetic wrong before);
+distances quoted in imperial units, as given, never recomputed; every count
+described must use the word "complaints," never phrased as a fact about the
+building itself (a real failure mode: a zero heat-complaint count summarized
+as "there is no heat," the opposite of what a zero-complaint record means).
 
-Prompt rules (baked into prompt.js, do not duplicate/diverge per adapter):
-- Explicitly instruct: base explanation ONLY on the provided counts, do not invent
-  addresses, dates, or specific incidents. This is the main defense against
-  hallucinated specifics.
-- temperature 0.3 (consistency over creativity), short output cap (~80-100 tokens).
-- No mention of "percentile" or other technical scoring terms in the output.
+**Fallback is not optional.** `services/explain.js` wraps every AI call in
+try/catch; any failure (timeout, rate limit, provider down) falls through to
+a deterministic template. The AI feature must never show a broken or empty
+state.
 
-**Env vars:**
-- `AI_PROVIDER` = "ollama" (local `.env`) or "gemini" (Vercel dashboard)
-- `GEMINI_API_KEY` = set in Vercel dashboard only, never committed
+**Caching and staleness.** The summary is generated once and cached, stamped
+with `basedOn` — the complaint-counts timestamp it describes. A cached
+summary is only trusted when `basedOn` matches the *current* counts
+timestamp; otherwise it regenerates. This exists because the summary's own
+cache TTL is independent of the counts documents it describes — without the
+stamp, a counts refresh could outlive a cached summary that was written
+about the old numbers.
 
-**Fallback is not optional.** services/explain.js wraps the adapter call in
-try/catch; on ANY failure (timeout, rate limit, service down), fall back to
-services/templateExplanation.js, a deterministic template keyed by band + dominant
-bucket. Demo must never show a broken/error state for this feature.
-
-**Caching:** explanation is generated once and stored on the SAME complaint_cache
-Mongo document as the score (same TTL), not regenerated per request. This matters
-more for Ollama (slow on CPU) but keep it for Gemini too, to stay under free-tier
-daily request caps.
-
-**Two-call pattern (see API contract for exact shapes):** POST /api/score never
-blocks on the AI call — on a cache miss it returns the deterministic template
-explanation immediately with explanationSource: "template". Frontend then fires
-GET /api/explanation as a second call ONLY when it sees "template", which does
-the actual AI generation, writes it to the same cache doc, and returns the real
-text for the frontend to swap in. Synchronous, no polling — deliberate hackathon
-simplification. This is what actually solves the Vercel timeout risk: the slow
-AI call is now its own request with its own budget, not stacked behind the
-Socrata + scoring latency on the main score request.
-
-**Model deprecation flag:** gemini-2.5-flash and gemini-2.5-flash-lite are
-scheduled to shut down Oct 16, 2026 per Google's notice. Fine for the hackathon
-timeline, but if this project continues past that date, swap the model string —
-it lives in ONE place (constants.js), not hardcoded in gemini.js directly, so
-confirm that's actually how it's wired before relying on it.
-
-**Tone-consistency check:** Llama 3 8B and Gemini Flash-Lite are different models
-and may not produce similarly-toned output from an identical prompt. Before
-demo day, run both adapters against the same cached counts and eyeball the two
-outputs side by side. If they diverge noticeably, tighten prompt.js (more explicit
-tone/length constraints) rather than shipping two different-feeling products
-depending on environment.
+**Model deprecation is a live risk, not a one-time note.** Model strings live
+in exactly one place (`AI_MODELS` in `constants.js`) for this reason — the
+originally-planned Gemini model was already unavailable to new keys by the
+time this was verified live. Confirm the configured model is still served
+before assuming an old note here is current.
 
 ## Deployment (Vercel)
 
-- Express app must be adapted for serverless, not run as-is with app.listen().
-  Wrap the whole app with `serverless-http` in api/index.js (least restructuring
-  for a hackathon timeline vs splitting every route into its own /api file).
-- Mongo connections MUST be cached on `global`, not opened fresh per invocation,
-  or you'll exhaust Atlas's connection limit under any real traffic:
-  see db.js pattern — cache client on global._mongoClient, reuse if present.
-- Env vars (SOCRATA_APP_TOKEN, MONGODB_URI, JWT_SECRET, AI_PROVIDER,
-  GEMINI_API_KEY) go in Vercel dashboard > Project Settings. .env files do NOT
-  deploy. JWT_SECRET and MONGODB_URI are REQUIRED — the app exits at boot
-  without them, so a missing one is a failed deploy, not a degraded one.
-- Hobby tier function execution cap (reportedly ~10s) — verify actual current
-  limit on Vercel's own pricing page before assuming. This is another reason the
-  AI explanation call happens at cache-write time, not inline in the live request
-  path when deployed.
-- Ollama-based local dev and Gemini-based deployed behavior are expected to
-  differ in this one respect: this is intentional, not a bug, per adapter design
-  above.
-
-## Repo shape
-
-/src
-  /routes      score.js, complaints.js, health.js, explanation.js, auth.js
-  /services    scoreService.js, scoring.js (pure), explain.js, templateExplanation.js,
-               authService.js
-  /providers   socrata.js, cache.js, mongo.js, baseline.js, users.js, sessions.js
-    /ai        index.js, ollama.js, gemini.js, prompt.js
-  /middleware  requireAuth.js
-  /lib         validate.js, errors.js, password.js, tokens.js
-  /config      constants.js
-/scripts       buildBaseline.js, createUser.js, verify*.js
-/test          scoring.test.js, auth.test.js, password.test.js, ...
-api/index.js   Vercel serverless entrypoint (wraps Express app)
-
-## OPEN ITEMS — verify against live API before building on top
-
-1. ~~Exact complaint_type strings~~ — RESOLVED, see table above.
-2. Exact geolocation column name for within_circle (the geo-typed column, not the
-   separate latitude/longitude text fields). Check via a single-row pull:
-   `erm2-nwe9.json?$limit=1` and inspect field types on the dataset's About page.
-3. ~~Null-geocoding rate PER bucket~~ — RESOLVED for the Building Health buckets.
-   Measured against live `erm2-nwe9` over the trailing 24 months, counting
-   `location IS NOT NULL` (the geo column `within_circle` actually uses):
-
-   | complaint_type | total | geocoded | missing |
-   |---|---|---|---|
-   | HEAT/HOT WATER | 651,313 | 651,263 | 50 (0.008%) |
-   | UNSANITARY CONDITION | 247,974 | 247,954 | 20 (0.008%) |
-   | PLUMBING | 149,848 | 149,835 | 13 (0.009%) |
-
-   The concern that plumbing/unsanitary would be spottier than noise/parking is
-   NOT borne out — all three are >99.99% geocoded. No fallback to
-   `incident_address` is needed. **Block Quality buckets still unmeasured.**
-
-   Consequence worth knowing: zero building counts are therefore REAL data, not
-   a geocoding artifact. At a 25m radius, 9 of 10 sampled NYC coordinates had
-   zero building complaints — citywide there are only ~0.65 heat complaints per
-   building over 24 months. This is what makes the Building Health explanation
-   land on the template path at nearly every address (see explain.js's
-   deliberate zero-complaint short-circuit), and it is the strongest argument
-   for revisiting the 25m radius in open item 5.
-4. Dataset title has changed over time on the Socrata page (same UID). Confirm
-   current title + date range on the dataset page.
-5. Tight building radius may bleed into adjacent buildings on dense blocks. Person 3
-   owns radius testing; coordinate before trusting building scores.
-6. Gemini free-tier RPM/RPD caps — figures used in planning came from third-party
-   reporting, not confirmed directly against ai.google.dev/gemini-api/docs/pricing.
-   Check that page directly before assuming the exact numbers.
-
-## Build order
-
-P0: Express skeleton + MOCKED /api/score in frozen shape, deployed. Unblocks team.
-P1: Socrata client + null-geocoding check (item 3). Item 1 already resolved above.
-P2: real getCounts (with bucket-level summing) + cache read/write + TTL.
-P3: buildBaseline.js, then score() against it.
-P3.5: AI explanation layer — both adapters, factory, template fallback, GET
-    /api/explanation endpoint as the separate slow-path call (see AI
-    Explanation Layer and API contract sections above).
-P4: swap mock for real, integrate. Budget full time; clean integration is rare.
-P5: pre-warm cache for demo addresses (score + explanation both); serve cached
-    value on live-API/AI failure; keep backend warm (free tiers cold-start and
-    look broken mid-demo).
+- `api/index.js` exports the built Express app directly — Vercel's Node
+  runtime calls it with plain `(req, res)`, which an Express app already
+  implements. No serverless adapter needed.
+- Every collection's indexes are lazy (see Mongo section above) — this is
+  the thing that makes the app correct on Vercel, not just fast.
+- Mongo client is cached on `globalThis` (a `Symbol.for()`-keyed slot, which
+  survives module-registry rebuilds under serverless instance reuse / `node
+  --watch` the way a module-local memo does not), pool bounded at
+  `MONGO_MAX_POOL_SIZE` (10) against Atlas's connection cap.
+- Dev and prod point at different databases; no code branches on this — only
+  `MONGODB_URI`/`MONGODB_DB` differ. Prod values are recorded in
+  `.env.production.example`.
+- Every env var degrades gracefully except `CRON_SECRET`, which **fails
+  closed**: unset, `GET /api/warm` and `GET /api/refresh-amenities` both
+  answer 503 rather than becoming open, expensive, unauthenticated endpoints.
+- Function execution cap is confirmed **300s** (Fluid Compute enabled) —
+  this is why `SOCRATA_TIMEOUT_MS` can afford to be 25s × 3 retries, and why
+  the AI call was moved off the score request as a latency/UX choice rather
+  than a timeout necessity.
 
 ## Conventions
 
-- Live-proxy + cache. NOT bulk ingest (millions of rows would blow free Atlas tier).
-- Validate coords in NYC bounds (~lat 40.4-40.95, lng -74.3 to -73.7); 400 on bad input.
-- Do not put personal data or coordinates in logs beyond what debugging needs.
-- AI adapters are provider-agnostic at the call site (services/explain.js). Never
-  branch on AI_PROVIDER outside providers/ai/index.js.
+- **Live-proxy + cache, not bulk ingest.** The dataset has hundreds of
+  millions of rows; the backend never stores more than aggregate counts per
+  coordinate and a bounded number of individual points/rows.
+- Validate coordinates against `NYC_BOUNDS` (`lib/validate.js`); 400 on bad
+  input.
+- Every route that can reach an upstream API or spend money is rate limited
+  (`lib/rateLimit.js`), tiered by cost, not by how the request looks — see
+  [`backend-config-and-scripts.md`](../documentation/backend-config-and-scripts.md#showcase--rate-limits).
+- Do not put personal data or coordinates in logs beyond what debugging
+  needs. Nothing in this system stores caller identity — `address_lookups`
+  and rate-limit buckets key on the address/IP, never a session or account.
+- AI adapters are provider-agnostic at the call site (`services/explain.js`).
+  Never branch on `AI_PROVIDER` outside `providers/ai/index.js`.
+- Complaint-type strings, status strings, and amenity bucket definitions are
+  each centralized in exactly one place in `config/constants.js`. Import
+  them; never re-derive or duplicate the list elsewhere.

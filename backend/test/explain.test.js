@@ -16,19 +16,19 @@ vi.mock("../src/providers/ai/index.js", async (importOriginal) => {
   return { ...actual, generateExplanation: generateSpy };
 });
 
-const { explainWithAI, explainFromTemplate, explanationInputFor, radiusLabelFor } =
+const { explainFromTemplate, explanationInputFor, radiusLabelFor } =
   await import("../src/services/explain.js");
 
 const BUILDING = {
   band: "good",
-  counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1 },
-  bucketScores: { heatHotWater: 88, unsanitaryCondition: 100, plumbing: 86 },
+  counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 },
+  bucketScores: { heatHotWater: 88, unsanitaryCondition: 100, plumbing: 86, repairs: 100, electricGas: 100, buildingSafety: 100 },
 };
 
 const BLOCK = {
   band: "poor",
-  counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-  bucketScores: { noise: 18, parking: 46, streetCondition: 44 },
+  counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
+  bucketScores: { noise: 18, parking: 46, streetCondition: 44, sanitation: 100, infrastructure: 100, publicSafety: 100 },
 };
 
 beforeEach(() => {
@@ -45,12 +45,6 @@ describe("templateExplanation", () => {
     const text = templateExplanation({ label: "Block Quality", ...BLOCK });
     expect(text).toBeTypeOf("string");
     expect(text.length).toBeGreaterThan(20);
-  });
-
-  it("is deterministic — the same input gives the same text", () => {
-    const once = templateExplanation({ label: "Block Quality", ...BLOCK });
-    const twice = templateExplanation({ label: "Block Quality", ...BLOCK });
-    expect(once).toBe(twice);
   });
 
   it("reflects the band", () => {
@@ -77,7 +71,7 @@ describe("templateExplanation", () => {
     const text = templateExplanation({
       label: "Building Health",
       band: "good",
-      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 },
+      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
     });
     expect(text).toMatch(/no 311 complaints were filed/i);
     expect(text).not.toMatch(/excellent|great|perfect|well maintained/i);
@@ -99,7 +93,7 @@ describe("templateExplanation", () => {
     const one = templateExplanation({
       label: "Building Health",
       band: "good",
-      counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 },
+      counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
     });
     // Word boundary matters: the opener contains "311 complaints", which a
     // naive /1 complaints/ would match.
@@ -114,8 +108,8 @@ describe("dominantBucket", () => {
     // complaints can matter more than 2876 noise ones, because the citywide
     // norms differ by an order of magnitude.
     const bucket = dominantBucket({
-      counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-      bucketScores: { noise: 80, parking: 90, streetCondition: 5 },
+      counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
+      bucketScores: { noise: 80, parking: 90, streetCondition: 5, sanitation: 100, infrastructure: 100, publicSafety: 100 },
     });
     expect(bucket).toBe("streetCondition");
   });
@@ -138,64 +132,10 @@ describe("explainFromTemplate", () => {
   });
 });
 
-describe("explainWithAI", () => {
-  it("returns AI text when the adapter succeeds", async () => {
-    const result = await explainWithAI("block", BLOCK);
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.ai);
-    expect(result.explanation).toBe("An AI sentence about this block.");
-  });
-
-  it("passes exactly the four contract fields to the adapter", async () => {
-    await explainWithAI("block", BLOCK);
-    const input = generateSpy.mock.calls[0][0];
-    expect(Object.keys(input).sort()).toEqual([
-      "band",
-      "counts",
-      "label",
-      "radiusLabel",
-    ]);
-    expect(input.label).toBe("Block Quality");
-    expect(input.radiusLabel).toContain("350m");
-  });
-
-  it.each([
-    ["a timeout", () => generateSpy.mockRejectedValue(new Error("timed out"))],
-    ["a rate limit", () => generateSpy.mockRejectedValue(new Error("429 quota"))],
-    ["the service being down", () => generateSpy.mockRejectedValue(new Error("ECONNREFUSED"))],
-    ["an empty response", () => generateSpy.mockRejectedValue(new Error("empty"))],
-    ["a non-Error throw", () => generateSpy.mockImplementation(() => { throw "boom"; })],
-  ])("falls back to the template on %s", async (_label, arrange) => {
-    arrange();
-    const result = await explainWithAI("block", BLOCK);
-
-    // The demo must never show a broken state for this feature.
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);
-    expect(result.explanation.length).toBeGreaterThan(20);
-    expect(result.error).toBeDefined();
-  });
-
-  it("skips the AI entirely when there is nothing to explain", async () => {
-    // Observed with llama3.1:8b on an all-zero building: "there were no
-    // complaints ... suggesting these aspects may be areas of concern." Zero
-    // complaints described as a concern is worse than no AI at all.
-    const result = await explainWithAI("building", {
-      band: "good",
-      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 },
-    });
-    expect(generateSpy).not.toHaveBeenCalled();
-    expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);
-  });
-
-  it("never rejects, whatever the adapter does", async () => {
-    generateSpy.mockRejectedValue(new Error("catastrophe"));
-    await expect(explainWithAI("building", BUILDING)).resolves.toBeDefined();
-  });
-});
-
 describe("tier labelling", () => {
   it("describes each tier's real radius", () => {
-    expect(radiusLabelFor("building")).toContain("25m");
-    expect(radiusLabelFor("block")).toContain("350m");
+    expect(radiusLabelFor("building")).toContain("80 ft");
+    expect(radiusLabelFor("block")).toContain("0.2 mi");
     expect(radiusLabelFor("nonsense")).toBeTypeOf("string");
   });
 

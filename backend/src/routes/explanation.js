@@ -1,26 +1,42 @@
 import { Router } from "express";
-import { validateCoords, validateTier } from "../lib/validate.js";
+import { RATE_LIMIT_AI } from "../config/constants.js";
+import { rateLimit } from "../lib/rateLimit.js";
+import { validateCoords, validateExplanationTier } from "../lib/validate.js";
 import { buildExplanation, isMockMode } from "../services/scoreService.js";
 import { EXPLANATION_SOURCES } from "../config/constants.js";
 
 export const explanationRouter = Router();
 
 /**
- * GET /api/explanation?lat=&lng=&tier=building|block
+ * GET /api/explanation?lat=&lng=&tier=overall
  *
- * THE SLOW PATH. The frontend calls this only when /api/score came back with
- * `explanationSource: "template"`, then swaps the text in place. Synchronous —
- * the client waits on this one call, no polling. That is a deliberate hackathon
- * simplification, and it is what keeps the AI latency off the score request.
+ * THE SLOW PATH, and the ONLY explanation in the app that ever calls the AI —
+ * building/block/transit/parks/bike/walkability each get a deterministic
+ * "Why this score?" attached directly on /api/score instead (see
+ * explainFromTemplate in services/explain.js), so `tier` here accepts no
+ * other value. The frontend calls this only when /api/score's `summary` came
+ * back with `explanationSource: "template"`, then swaps the text in place.
+ * Synchronous — the client waits on this one call, no polling. That is a
+ * deliberate hackathon simplification, and it is what keeps the AI latency
+ * off the score request.
  *
  * Always 200 with a usable explanation. If the AI call fails, the response
  * carries the template text and `explanationSource: "template"` — the frontend
  * simply has nothing to swap, and the user never sees an error.
  */
-explanationRouter.get("/api/explanation", async (req, res, next) => {
+// The tightest tier: this is the only endpoint that spends money, calling a
+// metered AI key. A cached explanation is free to re-serve, so a legitimate
+// caller needs this at most twice per address.
+explanationRouter.get(
+  "/api/explanation",
+  rateLimit({ ...RATE_LIMIT_AI, name: "explanation" }),
+  async (req, res, next) => {
   try {
     const { lat, lng } = validateCoords(req.query);
-    const tier = validateTier(req.query.tier);
+    // Only ever "overall" — see validateExplanationTier. The result is
+    // otherwise unused; validating it is what turns a stale `tier=block`
+    // link (or a typo) into a clear 400 instead of silently ignoring it.
+    validateExplanationTier(req.query.tier);
 
     if (isMockMode()) {
       // Mock mode has no adapter to call, but the frontend's swap-in-place flow
@@ -34,9 +50,10 @@ explanationRouter.get("/api/explanation", async (req, res, next) => {
       });
     }
 
-    const { explanation, explanationSource } = await buildExplanation(lat, lng, tier);
+    const { explanation, explanationSource } = await buildExplanation(lat, lng);
     res.json({ explanation, explanationSource });
   } catch (err) {
     next(err);
   }
-});
+  }
+);

@@ -2,66 +2,127 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth } from "./AuthProvider";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { AddressSearch } from "./AddressSearch";
+import { ScaleIcon } from "./icons";
+import { ThemeToggle } from "./ThemeToggle";
+
+// Reads the current address off the URL, so the header's field opens
+// pre-filled with what the report is actually showing. Split out from Header
+// itself so the useSearchParams-driven client bailout during prerendering is
+// scoped to just this field rather than the whole bar - see the Suspense
+// boundary around it below.
+function HeaderAddressSearch() {
+  const searchParams = useSearchParams();
+  const address = searchParams.get("address") ?? "";
+  return <AddressSearch key={address} size="sm" initialValue={address} />;
+}
 
 export function Header() {
-  const { user, isLoading, logout, openLogin } = useAuth();
+  const pathname = usePathname();
+  // The home hero is a full-bleed photograph and the header sits on top of it,
+  // so on that page only, the bar starts transparent and picks up its surface
+  // once the photo has scrolled past.
+  const overHero = pathname === "/";
+  // The home page already has the search field as its centerpiece, and every
+  // other page (aside from the report, which gets its own field below) has no
+  // use for one in the bar.
+  const onReportPage = pathname === "/report";
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    if (!overHero) return;
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [overHero]);
+
+  const onPhoto = overHero && !scrolled;
 
   return (
     <header
-      className="sticky top-0 z-30 bg-[color:var(--surface-1)]/90 backdrop-blur"
-      style={{ boxShadow: "var(--shadow-sm)" }}
+      className="sticky top-0 z-40 transition-colors duration-300"
+      style={
+        onPhoto
+          ? { background: "transparent" }
+          : {
+              background:
+                "color-mix(in srgb, var(--surface-1) 88%, transparent)",
+              backdropFilter: "blur(12px)",
+              borderBottom: "1px solid var(--border-hairline)",
+            }
+      }
     >
-      <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
         <Link
           href="/"
-          className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-[color:var(--text-primary)]"
+          aria-label={onReportPage ? "Streetwise" : undefined}
+          className="flex shrink-0 items-center gap-2.5 text-xl font-semibold tracking-tight"
+          style={{ color: onPhoto ? "var(--on-photo)" : "var(--text-primary)" }}
         >
+          {/* The asset is 226x281, not square, so the old 34x34 was squashing
+              it. Intrinsic size now matches that ratio, and both dimensions are
+              given in CSS (h-9 + w-auto) - Tailwind's preflight sets
+              `height: auto` on images, and setting only one of the two is what
+              Next warns about. */}
           <Image
             src="/logo-icon.png"
             alt=""
-            width={36}
-            height={36}
-            className="rounded-[10px]"
-            style={{ boxShadow: "var(--shadow-sm)" }}
+            width={280}
+            height={280}
+            className="h-9 w-auto rounded-lg"
             priority
           />
-          Streetwise
+          {/* Hidden below `sm` on the report page: that's the one page where
+              this row also carries the inline address search, and the
+              wordmark's ~90px is exactly what that field is missing on a
+              phone - see the compare button below for the rest of it. */}
+          <span
+            className={`font-display ${onReportPage ? "hidden sm:inline" : ""}`}
+          >
+            Streetwise
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-4 text-sm">
+        {onReportPage && (
+          <div className="min-w-0 ml-auto flex-1 sm:max-w-md">
+            <Suspense fallback={<div className="h-11" />}>
+              <HeaderAddressSearch />
+            </Suspense>
+          </div>
+        )}
+
+        {/* Hidden below `sm` on the report page: below that width, this bar
+            (logo + inline search + this + the theme toggle) has no room left
+            for a fourth control once the search field is present, and
+            ReportToolbar already renders a contextual "Compare with another"
+            button just below - this one is purely redundant on a phone. */}
+        <div
+          className={`ml-1 flex shrink-0 items-center gap-2 sm:gap-3 ${
+            onReportPage ? "hidden sm:flex" : ""
+          }`}
+        >
           <Link
             href="/compare"
-            className="font-medium text-[color:var(--text-secondary)] transition-colors hover:text-[color:var(--brand)]"
+            aria-current={pathname === "/compare" ? "page" : undefined}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-full px-5 text-md font-semibold transition-colors"
+            style={{
+              background: "var(--brand-tint)",
+              color: "var(--brand-ink)",
+            }}
           >
-            Compare
+            <ScaleIcon className="h-4 w-4 sm:hidden" />
+            <span className="hidden sm:inline">Compare</span>
+            {/* Reachable label for the icon-only phone rendering. */}
+            <span className="sr-only sm:hidden">Compare addresses</span>
           </Link>
+        </div>
 
-          {!isLoading && (
-            user ? (
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-[color:var(--text-muted)]">
-                  {user.username}
-                </span>
-                <button
-                  onClick={logout}
-                  className="rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-[color:var(--gridline)]"
-                  style={{ borderColor: "var(--border-hairline)", color: "var(--text-secondary)" }}
-                >
-                  Log out
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={openLogin}
-                className="rounded-full px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-                style={{ background: "var(--brand)" }}
-              >
-                Log in
-              </button>
-            )
-          )}
-        </nav>
+        <div className="ml-auto">
+          <ThemeToggle onPhoto={onPhoto} />
+        </div>
       </div>
     </header>
   );

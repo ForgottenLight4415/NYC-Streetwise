@@ -1,0 +1,88 @@
+# Rebuilds the citywide complaint baseline once a month and opens a PR with it.
+#
+# Production scores against the COMMITTED backend/src/config/baseline.json
+# (and the frontend's generated lib/citywide-baseline.ts), so a refresh has to
+# land as a commit, not as a write from a Vercel function: a Mongo-only
+# baseline would leave the frontend copy silently behind. Merging the PR is
+# the deploy.
+#
+# Runs with no MONGODB_URI, so every sample point is a fresh Socrata call and
+# nothing is written to Mongo. --refresh is redundant without a cache and is
+# passed anyway, so adding a Mongo secret later would still mean fresh counts
+# rather than up-to-24h-old cached ones.
+#
+# Repo setup: Settings → Actions → General → Workflow permissions must allow
+# "GitHub Actions to create and approve pull requests". SOCRATA_APP_TOKEN is an
+# optional repository secret; without it Socrata throttles harder and the run
+# is slower, but it still completes.
+
+name: Monthly baseline
+
+on:
+  schedule:
+    # 07:00 UTC on the 2nd, a day clear of the 1st's amenity refresh cron.
+    - cron: "0 7 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: monthly-baseline
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22+, for the --env-file-if-exists flag the npm scripts use.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Keep the current baseline to diff against
+        run: cp src/config/baseline.json "$RUNNER_TEMP/baseline.before.json"
+
+      # Also regenerates frontend/lib/citywide-baseline.ts (postbaseline hook).
+      - name: Rebuild baseline
+        env:
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+        run: npm run baseline -- --refresh
+
+      # The committed-baseline tests guard against a degenerate rebuild (every
+      # bucket present, real-world counts centred sensibly).
+      - name: Test
+        run: |
+          npm test
+          node ../frontend/scripts/sync-baseline.mjs --check
+
+      - name: Write PR description
+        run: |
+          {
+            echo "Monthly rebuild of the citywide complaint baseline, on the committed sample points."
+            echo "Every score is a percentile against these anchors, so merging this moves scores."
+            echo
+            node scripts/baselineDiff.js "$RUNNER_TEMP/baseline.before.json" src/config/baseline.json
+          } > "$RUNNER_TEMP/pr-body.md"
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/monthly-baseline
+          delete-branch: true
+          add-paths: |
+            backend/src/config/baseline.json
+            frontend/lib/citywide-baseline.ts
+          commit-message: "chore: monthly baseline rebuild"
+          title: "Monthly baseline rebuild"
+          body-path: ${{ runner.temp }}/pr-body.md

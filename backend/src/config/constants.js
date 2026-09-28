@@ -19,9 +19,17 @@ export const LOCATION_FIELD = "location";
 // ---------------------------------------------------------------------------
 
 export const BUILDING_HEALTH_TYPES = {
-  heatHotWater: ["HEAT/HOT WATER", "Heat/Hot Water"],
-  unsanitaryCondition: ["UNSANITARY CONDITION", "Unsanitary Condition"],
-  plumbing: ["PLUMBING", "Plumbing"],
+  // HPD's title-case "Heat/Hot Water" and "Unsanitary Condition" were filed
+  // only Aug-Oct 2023, permanently outside the window, so they are not listed.
+  heatHotWater: ["HEAT/HOT WATER"],
+  unsanitaryCondition: ["UNSANITARY CONDITION"],
+  // "Plumbing" is DOB's type, not an HPD case variant (CLAUDE.md decision 2).
+  // WATER LEAK is folded in: same HPD water-system repair domain.
+  plumbing: ["PLUMBING", "Plumbing", "WATER LEAK"],
+  repairs: ["PAINT/PLASTER", "DOOR/WINDOW", "FLOORING/STAIRS", "OUTSIDE BUILDING"],
+  electricGas: ["ELECTRIC", "APPLIANCE", "GENERAL"],
+  // ELEVATOR is HPD, Elevator is DOB — two agencies, two spellings.
+  buildingSafety: ["SAFETY", "Safety", "ELEVATOR", "Elevator"],
 };
 
 export const BLOCK_QUALITY_TYPES = {
@@ -31,8 +39,36 @@ export const BLOCK_QUALITY_TYPES = {
     "Noise - Vehicle",
     "Noise - Commercial",
   ],
-  parking: ["Illegal Parking", "Blocked Driveway"],
+  parking: [
+    "Illegal Parking",
+    "Blocked Driveway",
+    "Abandoned Vehicle",
+    "Derelict Vehicles",
+  ],
   streetCondition: ["Street Condition", "Sidewalk Condition", "DEP Street Condition"],
+  sanitation: [
+    "Dirty Condition",
+    "Illegal Dumping",
+    "Missed Collection",
+    "Rodent",
+    "Graffiti",
+    "Litter Basket Complaint",
+    "Residential Disposal Complaint",
+  ],
+  infrastructure: [
+    "Street Light Condition",
+    "Traffic Signal Condition",
+    "Water System",
+    "Sewer",
+    "Damaged Tree",
+  ],
+  publicSafety: [
+    "Encampment",
+    "Homeless Person Assistance",
+    "Drug Activity",
+    "Panhandling",
+    "Drinking",
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +86,17 @@ export const RADIUS_TIERS = {
     radiusMeters: 350,
     buckets: BLOCK_QUALITY_TYPES,
   },
+};
+
+/**
+ * Descriptors dropped from a complaint_type that otherwise counts, for types
+ * that mix building conditions with enforcement paperwork. DOB's "Plumbing"
+ * keeps its leak, drainage, gas and sprinkler descriptors but not the
+ * unpermitted-work one (CLAUDE.md decision 2). Applied in every query by
+ * socrata.js's typeInClause(), so scores, lists and baselines agree.
+ */
+export const EXCLUDED_DESCRIPTORS = {
+  Plumbing: ["Plumbing Work - Illegal/No Permit/Standpipe/Sprinkler"],
 };
 
 /** Bucket names in a stable order, per tier. */
@@ -75,6 +122,69 @@ export const TYPE_TO_BUCKET = Object.fromEntries(
 export const ALL_COMPLAINT_TYPES = Object.keys(TYPE_TO_BUCKET);
 
 // ---------------------------------------------------------------------------
+// Status buckets — CONFIRMED against live API
+// ---------------------------------------------------------------------------
+
+/**
+ * Raw `status` string -> one of three user-facing buckets.
+ *
+ * Confirmed against the live dataset 2026-08-17 via $select=status,count(*)
+ * &$group=status. EIGHT distinct values exist, not three:
+ *   Closed 21,705,379 | In Progress 269,249 | Open 95,898 | Pending 63,068
+ *   Assigned 24,412   | Started 5,318       | Unspecified 2,794 | Cancel 1
+ *
+ * The buckets encode two questions at once: is it resolved, and has anyone
+ * acted on it? So Assigned/Started/Pending sit with In Progress — work has
+ * begun — and Cancel sits with Closed as a terminal state.
+ *
+ * "Unspecified" -> open, deliberately NOT in-progress. It carries no evidence
+ * that anyone acted, and for someone deciding on a lease, claiming progress we
+ * cannot evidence is the worse error. Unknown future values default the same
+ * way; see statusBucket().
+ *
+ * Do not re-derive these strings elsewhere — import from here, exactly as with
+ * TYPE_TO_BUCKET above.
+ */
+export const STATUS_TO_BUCKET = {
+  Closed: "closed",
+  Cancel: "closed",
+  "In Progress": "in-progress",
+  Pending: "in-progress",
+  Assigned: "in-progress",
+  Started: "in-progress",
+  Open: "open",
+  Unspecified: "open",
+};
+
+/** The three buckets, in the order the UI offers them. */
+export const STATUS_BUCKET_NAMES = ["open", "in-progress", "closed"];
+
+/**
+ * Total by construction: an unrecognised status must never drop a row from a
+ * filtered list, so it falls back to "open" rather than to undefined.
+ */
+export function statusBucket(raw) {
+  return STATUS_TO_BUCKET[raw] ?? "open";
+}
+
+/** Every raw status we know how to bucket, for building an upstream filter. */
+export const KNOWN_STATUSES = Object.keys(STATUS_TO_BUCKET);
+
+/**
+ * The raw `status` values that fall in one bucket — the inverse of
+ * STATUS_TO_BUCKET, so a query can filter upstream instead of after the fact.
+ *
+ * Note this is NOT sufficient on its own for "open". statusBucket() sends
+ * anything unrecognised there too, so a caller filtering to open must also
+ * match NULL and any value outside KNOWN_STATUSES; see
+ * fetchComplaintsForGroup(). Exported from here rather than inlined at the call
+ * site for the same reason as STATUS_TO_BUCKET itself: one copy of the enum.
+ */
+export function rawStatusesForBucket(bucket) {
+  return KNOWN_STATUSES.filter((raw) => STATUS_TO_BUCKET[raw] === bucket);
+}
+
+// ---------------------------------------------------------------------------
 // Time window
 // ---------------------------------------------------------------------------
 
@@ -92,16 +202,22 @@ export function windowCutoffISO(now = new Date()) {
 // Scoring
 // ---------------------------------------------------------------------------
 
-// Sub-score is the mean of the three bucket percentiles. Equal weights are the
+// Sub-score is the mean of the tier's bucket percentiles. Equal weights are the
 // starting point; if a bucket ever needs its own weight it must be set here
 // explicitly rather than by padding its type list (see CLAUDE.md decision 6).
 export const BUCKET_WEIGHTS = {
   heatHotWater: 1,
   unsanitaryCondition: 1,
   plumbing: 1,
+  repairs: 1,
+  electricGas: 1,
+  buildingSafety: 1,
   noise: 1,
   parking: 1,
   streetCondition: 1,
+  sanitation: 1,
+  infrastructure: 1,
+  publicSafety: 1,
 };
 
 /** Score is 0-100 where 100 = fewest complaints. Bands are inclusive lower bounds. */
@@ -109,6 +225,22 @@ export const BAND_THRESHOLDS = {
   good: 70,
   fair: 40,
   // below `fair` => "poor"
+};
+
+/**
+ * Amenity-tier band thresholds — deliberately lower and differently worded
+ * than BAND_THRESHOLDS above. These scores are a citywide PERCENTILE
+ * (services/scoring.js's bucketScore()), so 50 already means "typical NYC
+ * distance to a subway/bus stop" — which, because the city is transit-dense
+ * to begin with, is a perfectly fine outcome, not a middling one. Reusing
+ * the complaint thresholds (good >= 70) would label a normal NYC walk
+ * "poor" or "fair", which reads as a defect that isn't there. Inclusive
+ * lower bounds, same convention as BAND_THRESHOLDS.
+ */
+export const AMENITY_BAND_THRESHOLDS = {
+  excellent: 65,
+  typical: 35,
+  // below `typical` => "carDependent"
 };
 
 /**
@@ -167,14 +299,30 @@ export const CONFIDENCE_REASONS = {
   noComplaintsFound: "no_complaints_found",
   noBaseline: "no_baseline",
   staleBaseline: "stale_baseline_radius",
+  // Amenity-specific: every bucket in the tier came back past AMENITY_MAX_METERS.
+  // Distinct from noComplaintsFound — "nothing found" for an amenity is a real,
+  // sometimes-correct answer (Staten Island genuinely has no nearby subway),
+  // not primarily a lookup-failure signal the way an all-zero building tier is.
+  noneNearby: "none_within_range",
 };
 
 // ---------------------------------------------------------------------------
 // Socrata client
 // ---------------------------------------------------------------------------
 
-export const SOCRATA_TIMEOUT_MS = 5000;
+/**
+ * 25s, not the 5s this used to be.
+ *
+ * Measured 2026-08-17 across 12 locations: a cold `within_circle` query ranges
+ * 0.4s to 33.1s with no stable correlation to row count, to warmth, or to
+ * location — re-running the same query immediately after was sometimes SLOWER.
+ * At 5s a large share of legitimate queries exhausted the retry budget and 503'd.
+ * Vercel Fluid Compute allows 300s, so 25s x 3 attempts is comfortably inside it.
+ */
+export const SOCRATA_TIMEOUT_MS = 25000;
 export const SOCRATA_MAX_RETRIES = 2;
+
+/** Socrata's own hard ceiling on $limit for a single SODA 2.0 request. */
 export const SOCRATA_ROW_LIMIT = 50000;
 
 /**
@@ -188,12 +336,182 @@ export const COMPLAINTS_DEFAULT_LIMIT = 1000;
 export const COMPLAINTS_MAX_LIMIT = 5000;
 
 // ---------------------------------------------------------------------------
+// Grouped complaint cache (/api/complaints?complete=1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Grouped (day, complaint_type, status) rows stored per address+tier.
+ *
+ * Sized from 12 measured locations (2026-08-17). The densest is Ludlow St at
+ * 2,929 grouped rows over 24 months, so 10,000 is ~3.4x headroom. At ~100B per
+ * grouped row (measured) that is ~1MB, far under Mongo's 16MB document cap and
+ * far under SOCRATA_ROW_LIMIT.
+ *
+ * Grouping is what makes the extreme case tractable at all. 655 E 230 St in the
+ * Bronx carries 190,205 raw rows inside a 350m/24mo window — past Socrata's own
+ * $limit, so NO raw-row cache size could ever have held it — but only 1,848
+ * grouped rows, a 102.9x collapse. Note the maximum is not that address:
+ * volume concentrated in one type/status compresses hardest, so it is type
+ * DIVERSITY that drives the group count, not volume.
+ *
+ * A theoretical ceiling of 730 days x 9 block types x 8 statuses = 52,560 does
+ * exist and would exceed SOCRATA_ROW_LIMIT, but nothing measured came within
+ * 17x of it. Truncation stays possible, and stays reported in a header.
+ */
+export const COMPLAINT_GROUPS_CACHE_LIMIT = 10000;
+
+/** Deep $offset paging is slow upstream; bound it to what we actually store. */
+export const COMPLAINTS_MAX_OFFSET = COMPLAINT_GROUPS_CACHE_LIMIT;
+
+/** Page sizes the complaints browser offers. */
+export const COMPLAINTS_PAGE_SIZES = [25, 50, 100, 200];
+
+/**
+ * The grouped fill gets its own budget, well above SOCRATA_TIMEOUT_MS.
+ *
+ * Measured 2.3-74.3s: server-side aggregation costs MORE than the raw fetch it
+ * replaces, even though it returns ~100x less data at the extreme address. 120s
+ * covers the observed worst case with margin, and retries drop to 1 so the
+ * ceiling (2 x 120s + backoff) stays inside Vercel's 300s limit.
+ */
+export const COMPLAINT_FILL_TIMEOUT_MS = 120000;
+export const COMPLAINT_FILL_RETRIES = 1;
+
+// ---------------------------------------------------------------------------
+// Trend windows (/api/trend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Selectable windows for the trend chart, in months.
+ *
+ * A closed set rather than any integer: each value is a distinct cache key and
+ * a distinct upstream query, so leaving it open would let a caller spray the
+ * cache and Socrata with 24 near-identical variants for no user benefit.
+ * Capped at WINDOW_MONTHS because nothing above it is scored.
+ */
+export const TREND_WINDOW_OPTIONS = [3, 6, 9, 12, 18, 24];
+
+/**
+ * Nine months is the default because the audience is someone deciding on a
+ * lease in the next few weeks: it spans a full heating season (the dominant
+ * Building Health signal) plus a summer (the dominant noise signal) without
+ * dragging in history from two tenants ago. It is also the fastest window
+ * measured — median ~1.0s cold, against ~1.6s for 24 months.
+ */
+export const TREND_DEFAULT_MONTHS = 9;
+
+// ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
 
 export const CACHE_COLLECTION = "complaint_cache";
+
+/**
+ * Trends live in their own collection rather than on the counts document,
+ * because writeCounts() REPLACES that document — a counts refresh would drop
+ * the trends with it, and unlike an explanation a trend is not invalidated by
+ * new counts arriving.
+ */
+export const TREND_CACHE_COLLECTION = "trend_cache";
+
+/**
+ * Grouped complaint rows, same reasoning as the trend cache: writeCounts()
+ * REPLACES the counts document, so anything stored alongside it is dropped on
+ * the next refresh.
+ */
+export const COMPLAINT_GROUPS_COLLECTION = "complaint_groups_cache";
+
+/**
+ * Which address text names which coordinate.
+ *
+ * NOT a cache, and so deliberately WITHOUT a TTL index: the three collections
+ * above hold copies of city data that must expire, while this holds the mapping
+ * needed to name a coordinate at all. Nothing else in the system stores an
+ * address — /api/score is coordinate-only and answers with `address: null` — so
+ * if this expired alongside the counts there would be no way to re-warm an
+ * address, or to label a cached score on the homepage.
+ *
+ * Holds public address text and a lookup counter. No caller identity, no
+ * session, nothing tying a row to a person.
+ */
+export const ADDRESS_LOOKUPS_COLLECTION = "address_lookups";
 export const BASELINE_COLLECTION = "baseline";
 export const BASELINE_ID = "v1";
+
+/** Longest address string accepted by POST /api/lookups. */
+export const ADDRESS_MAX_LENGTH = 200;
+
+/** Cap on GET /api/showcase's `limit`, and its default. */
+export const SHOWCASE_MAX_LIMIT = 12;
+export const SHOWCASE_DEFAULT_LIMIT = 6;
+
+/**
+ * How many directory rows to consider per requested showcase item.
+ *
+ * The directory outlives the 24h counts cache, so a row is only usable if its
+ * counts are still there. Over-fetching means a run of expired rows does not
+ * empty the homepage; 3x was picked to cover a mostly-cold cache without
+ * scoring the whole directory on every request.
+ */
+export const SHOWCASE_CANDIDATE_FACTOR = 3;
+
+/** Showcase read modes. Closed set — each is a different sort, not a filter. */
+export const SHOWCASE_MODES = ["top", "recent", "random"];
+
+// ---------------------------------------------------------------------------
+// Rate limits
+// ---------------------------------------------------------------------------
+//
+// Ceilings per caller per minute, sized against what ONE person browsing the app
+// actually does, then given generous headroom. Opening a report fires /api/score
+// plus two /api/complaints plus a /api/trend plus up to two /api/explanation —
+// roughly six upstream-capable calls per address viewed. The limits below let a
+// person open a new address every few seconds and never notice them; a script
+// looping over coordinates hits them immediately.
+//
+// Tiered by what a call COSTS us, not by how the request looks:
+
+/** Anything that can reach Socrata on a miss: /api/score, /api/trend, drill-ins. */
+export const RATE_LIMIT_UPSTREAM = { limit: 60, windowMs: 60_000 };
+
+/**
+ * The grouped complaint fill (`complete=1`), measured 2.3-74.3s per cold
+ * address. The single most expensive thing an anonymous caller can trigger, so
+ * it is priced separately. Charged only on a cache MISS (rateLimitGuard in
+ * routes/complaints.js): the complaints browser's filter and page clicks on a
+ * cached address are ~10ms reads and pay only RATE_LIMIT_UPSTREAM.
+ */
+export const RATE_LIMIT_FILL = { limit: 10, windowMs: 60_000 };
+
+/**
+ * /api/explanation. Tighter than the Socrata tier because this one spends money
+ * on a metered API key rather than quota on a free public dataset, and because
+ * a cached explanation costs nothing to re-serve — a caller legitimately needs
+ * this at most twice per address.
+ */
+export const RATE_LIMIT_AI = { limit: 30, windowMs: 60_000 };
+
+/**
+ * POST /api/lookups, which is secret-gated and server-to-server only.
+ *
+ * A circuit breaker rather than per-user fairness: every legitimate call arrives
+ * from ONE caller (our frontend server), so a per-IP budget sized for a person
+ * would throttle every visitor of the site at once. Generous enough that real
+ * traffic never sees it, small enough to stop a runaway loop on our own side.
+ */
+export const RATE_LIMIT_INTERNAL = { limit: 600, windowMs: 60_000 };
+
+/** Cache-only reads (/api/showcase). Cheap, but not free to hammer. */
+export const RATE_LIMIT_READ = { limit: 240, windowMs: 60_000 };
+
+/**
+ * Distinct caller keys held in memory before the whole table is dropped.
+ *
+ * The limiter's own bookkeeping must not become the memory exhaustion it exists
+ * to prevent: one entry per caller, uncollected, is unbounded growth driven by
+ * anyone who can vary an address or spoof a forwarding header.
+ */
+export const RATE_LIMIT_MAX_KEYS = 20_000;
 
 // ---------------------------------------------------------------------------
 // Baseline sampling (scripts/buildBaseline.js)
@@ -305,8 +623,16 @@ export const GEMINI_ENDPOINT_BASE =
 /** Consistency over creativity — two lookups of the same block should read alike. */
 export const AI_TEMPERATURE = 0.3;
 
-/** Short output cap. Gemini counts thinking tokens against this, see gemini.js. */
-export const AI_MAX_OUTPUT_TOKENS = 120;
+/**
+ * Output cap. Gemini counts thinking tokens against this, see gemini.js.
+ *
+ * Sized for the ~120-word target in prompt.js's buildOverallSummaryPrompt()
+ * (and comfortably covers the shorter 1-2 sentence per-section prompts too).
+ * English prose runs roughly 1.3-1.5 tokens per word, so 120 words needs
+ * ~155-180 tokens; 180 leaves headroom for the model to slightly overshoot
+ * the word target without truncating mid-sentence.
+ */
+export const AI_MAX_OUTPUT_TOKENS = 180;
 
 /**
  * Per-call timeouts. Ollama on CPU is genuinely slow (8B model, tens of
@@ -328,82 +654,6 @@ export const EXPLANATION_SOURCES = {
 };
 
 // ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-export const USERS_COLLECTION = "users";
-export const SESSIONS_COLLECTION = "auth_sessions";
-
-/**
- * Account roles, chosen at registration. A tenant is looking at somewhere to
- * live; a landlord is looking at somewhere they own.
- *
- * Currently identity only — no endpoint branches on it yet. It is carried in
- * the access token so that when one does, the role is already there and no
- * extra lookup is needed.
- */
-export const USER_ROLES = {
-  tenant: "tenant",
-  landlord: "landlord",
-};
-
-export const USER_ROLE_VALUES = Object.values(USER_ROLES);
-
-/**
- * Access-token lifetime. 7 days is the product requirement, not a security
- * recommendation — it is long for a bearer token, which is exactly why every
- * access token carries a `sid` and is checked against a live session document
- * (see providers/sessions.js). Logout deletes the session, so a stolen or
- * signed-out token stops working immediately instead of six days later.
- */
-export const ACCESS_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-/**
- * Refresh-token lifetime. Longer than the access token, or refreshing would be
- * pointless — the refresh token has to outlive what it refreshes.
- */
-export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
-
-/** Bytes of entropy in a refresh token. 32 = 256 bits, well past guessable. */
-export const REFRESH_TOKEN_BYTES = 32;
-
-export const JWT_ALGORITHM = "HS256";
-export const JWT_ISSUER = "should-i-live-here";
-
-/** Distinguishes our access tokens from anything else signed with the secret. */
-export const ACCESS_TOKEN_TYPE = "access";
-
-/**
- * scrypt parameters for password hashing. N=16384 is the Node default and takes
- * ~50-100ms per hash on typical hardware — slow enough to make offline cracking
- * expensive, fast enough that login does not feel broken.
- */
-export const SCRYPT_PARAMS = {
-  N: 16384,
-  r: 8,
-  p: 1,
-  keyLength: 64,
-  saltBytes: 16,
-};
-
-/**
- * Username rules. Deliberately narrow: usernames are stored lowercased and used
- * as a unique key, so allowing case or unicode lookalikes would let two accounts
- * collide in the user's head while staying distinct in the database.
- */
-export const USERNAME_MIN_LENGTH = 3;
-export const USERNAME_MAX_LENGTH = 32;
-export const USERNAME_PATTERN = /^[a-z0-9_.-]+$/;
-
-/**
- * Password length bounds. The upper bound is not a strength rule — it caps how
- * much data an unauthenticated caller can make us run scrypt over, which is
- * otherwise a free way to burn our CPU.
- */
-export const PASSWORD_MIN_LENGTH = 8;
-export const PASSWORD_MAX_LENGTH = 200;
-
-// ---------------------------------------------------------------------------
 // Input validation
 // ---------------------------------------------------------------------------
 
@@ -412,4 +662,495 @@ export const NYC_BOUNDS = {
   maxLat: 40.95,
   minLng: -74.3,
   maxLng: -73.7,
+};
+
+// ---------------------------------------------------------------------------
+// Amenity data sources — CONFIRMED against live APIs 2026-08-29
+// ---------------------------------------------------------------------------
+//
+// Static-dataset sources for the amenity scores (transit/parks/bike). Unlike
+// SOCRATA_DATASET_ID above, these are NOT all on data.cityofnewyork.us and NOT
+// all Socrata — recorded here, confirmed, so scripts/verifyAmenities.js and
+// scripts/buildAmenities.js share one source of truth instead of re-guessing.
+//
+// Subway entrances and the combined LIRR/Metro-North rail stations both live
+// on data.ny.gov (the STATE catalog), not data.cityofnewyork.us — the initial
+// assumption they'd be on the city catalog was wrong; verified via Socrata's
+// own catalog search API. Bus stops have no Socrata dataset at all: the only
+// source is MTA's per-borough GTFS static feed (5 separate zips, no combined
+// file), confirmed live (all 5 resolve 200, Bronx alone yields 1,884 stops in
+// stops.txt). Citi Bike GBFS and the two Socrata NYC datasets (parks, bike
+// routes) matched the original guess exactly.
+
+export const AMENITY_SOURCES = {
+  // The entrances dataset carries the COMPLEX-level truth directly on every
+  // row — complex_id (the official MTA grouping riders think of as "one
+  // station"), and daytime_routes already scoped to that whole complex (e.g.
+  // every Herald Sq entrance reads "B D F M N Q R W", not just its nearest
+  // platform's lines). scripts/buildAmenities.js used to join this dataset
+  // against a SEPARATE stations dataset by 250m proximity just to get routes;
+  // that join is gone — see CLAUDE.md's complex-clustering note for why
+  // reading daytime_routes straight off each row is both simpler and more
+  // correct (down to a documented complex_id data bug the old join couldn't
+  // have caught either).
+  subway: {
+    kind: "socrata",
+    domain: "data.ny.gov",
+    datasetId: "i9wp-a4ja", // "MTA Subway Entrances and Exits: 2024" — 2,120 rows
+    latField: "entrance_latitude",
+    lngField: "entrance_longitude",
+    nameField: "stop_name",
+    complexIdField: "complex_id",
+    routesField: "daytime_routes", // space-separated, e.g. "B D F M N Q R W"
+  },
+  rail: {
+    kind: "socrata",
+    domain: "data.ny.gov",
+    // "MTA Rail Stations" — LIRR + Metro-North in ONE dataset, 238 rows
+    // (126 LIRR + 112 MNR). Simpler than the two-source guess in the original
+    // plan — no need to fetch LIRR and MNR separately.
+    datasetId: "wxmd-5cpm",
+    latField: "latitude",
+    lngField: "longitude",
+    nameField: "station_name",
+    railroadField: "railroad", // "LIRR" | "MNR"
+  },
+  bus: {
+    kind: "gtfs-zip",
+    // No combined feed — one zip per borough, each redirecting to an S3-hosted
+    // stops.txt. Row counts are summed across all five when building.
+    urls: [
+      "http://web.mta.info/developers/data/nyct/bus/google_transit_bronx.zip",
+      "http://web.mta.info/developers/data/nyct/bus/google_transit_brooklyn.zip",
+      "http://web.mta.info/developers/data/nyct/bus/google_transit_manhattan.zip",
+      "http://web.mta.info/developers/data/nyct/bus/google_transit_queens.zip",
+      "http://web.mta.info/developers/data/nyct/bus/google_transit_staten_island.zip",
+    ],
+  },
+  parks: {
+    kind: "socrata",
+    domain: "data.cityofnewyork.us",
+    datasetId: "enfh-gkve", // "Parks Properties" — 2,064 rows
+    geometryField: "multipolygon", // MultiPolygon, NOT a simple Polygon
+    typeField: "typecategory", // splits into park / playground / garden
+    nameField: "signname",
+  },
+  bikeShare: {
+    kind: "gbfs",
+    url: "https://gbfs.citibikenyc.com/gbfs/en/station_information.json",
+  },
+  bikeLane: {
+    kind: "socrata",
+    domain: "data.cityofnewyork.us",
+    datasetId: "mzxg-pwib", // "New York City Bike Routes" — 29,695 rows
+    geometryField: "the_geom", // MultiLineString, NOT a simple LineString
+    // facilitycl "I" (protected/sidewalk/boardwalk paths) -> protectedLane;
+    // "II"/"III" (conventional/curbside/shared/signed routes) -> bikeLane.
+    // "L" (Link, 475 rows) is excluded — a connector segment, not a route.
+    classField: "facilitycl",
+    protectedClasses: ["I"],
+    laneClasses: ["II", "III"],
+  },
+};
+
+/**
+ * Maps a `typecategory` value from the Parks Properties dataset onto one of
+ * the three park buckets. Not a 1:1 rename — 19 distinct values exist (see
+ * CLAUDE.md), and several map to the same bucket. Anything unmapped falls
+ * into `park` rather than being silently dropped, since every one of these is
+ * still Parks Dept property someone could walk to.
+ */
+export const PARKS_TYPECATEGORY_TO_BUCKET = {
+  Playground: "playground",
+  "Jointly Operated Playground": "playground",
+  Garden: "garden",
+  "Nature Area": "garden",
+};
+
+// ---------------------------------------------------------------------------
+// Amenity tiers — static-dataset scores, distance rather than count
+// ---------------------------------------------------------------------------
+//
+// Deliberately NOT part of RADIUS_TIERS — see the "Amenity Scores" section of
+// CLAUDE.md for why mixing a static tier into that Socrata-coupled structure
+// would be a hazard, not a convenience.
+
+export const AMENITY_TIERS = {
+  transit: {
+    tier: "transit",
+    radiusMeters: 800, // ~10 min walk, the standard transit walkshed
+    dataset: "transit",
+    buckets: ["subway", "bus", "rail"],
+  },
+  parks: {
+    tier: "parks",
+    radiusMeters: 800,
+    dataset: "parks",
+    buckets: ["park", "playground", "garden"],
+  },
+  bike: {
+    tier: "bike",
+    radiusMeters: 800,
+    dataset: "bike",
+    buckets: ["bikeShare", "bikeLane", "protectedLane"],
+  },
+  // No `dataset` field — unlike the three above, walkability has no
+  // committed static dataset behind it. amenityService.js's getAmenityMetrics()
+  // loop keys off `dataset` to find a preloaded spatial index; the absence of
+  // one here makes that loop skip this tier by construction (datasets?.[undefined]
+  // is undefined), rather than needing an explicit exclusion list. It is scored
+  // by a SEPARATE function, getWalkabilityMetrics(), backed by a live Google
+  // Places lookup — see the "Walkability" section of CLAUDE.md.
+  walkability: {
+    tier: "walkability",
+    radiusMeters: 800,
+    buckets: ["grocery", "restaurant", "cafe", "school"],
+  },
+};
+
+/** Bucket names in a stable order, per amenity tier — mirrors BUCKET_NAMES. */
+export const AMENITY_BUCKET_NAMES = Object.fromEntries(
+  Object.entries(AMENITY_TIERS).map(([tier, { buckets }]) => [tier, buckets])
+);
+
+/**
+ * Past this, "the nearest one" stops being a fact about this address and
+ * starts being a fact about the city. Scored as the cap and flagged
+ * low-confidence per bucket rather than reported as a distance nobody would
+ * walk.
+ */
+export const AMENITY_MAX_METERS = 2000;
+
+/**
+ * Grid cell size for the amenity nearest-neighbour index, in degrees.
+ * ~0.005 deg ~= 450m at NYC's latitude — the same rounding-idiom scale the
+ * complaint cache already uses for its coordinate key (CACHE_COORD_PRECISION).
+ */
+export const AMENITY_GRID_DEGREES = 0.005;
+
+/**
+ * Bike-lane LineStrings are resampled to a point every this many metres.
+ *
+ * 25m was the original estimate (~48k densified points, ~1.2MB committed).
+ * MEASURED against the real dataset (29,695 segments, mostly short city
+ * blocks): 25m spacing produced 136,666 points and a 3.3MB file — segments
+ * are shorter and more numerous than estimated. 40m keeps the accuracy cost
+ * (+/-20m, invisible at the resolution anyone acts on) but brings the point
+ * count and file size down substantially — see scripts/buildAmenities.js.
+ */
+export const AMENITY_LANE_SPACING_METERS = 40;
+
+/**
+ * Buckets whose points are a resampled bike-route LINE (one point every
+ * AMENITY_LANE_SPACING_METERS), not discrete real-world instances.
+ *
+ * GET /api/amenities/nearby (the "every instance within radius" browser
+ * behind an amenity row's `>` affordance) excludes these two outright: "all
+ * instances within 800m" for a resampled line would return dozens of
+ * ~40m-spaced points along the SAME lane, not a list of distinct places, and
+ * silently returning that point cloud would read as a data bug rather than
+ * the deliberate exclusion it is.
+ */
+export const NON_DISCRETE_AMENITY_BUCKETS = ["bikeLane", "protectedLane"];
+
+/** ~4.8 km/h — used to render a distance as an estimated walk time. */
+export const AMENITY_WALK_METERS_PER_MIN = 80;
+
+export const AMENITY_BASELINE_COLLECTION = "amenity_baseline";
+export const AMENITIES_COLLECTION = "amenity_datasets";
+export const AMENITY_BASELINE_ID = "v1";
+
+/** Sample size for scripts/buildAmenityBaseline.js. Smaller than the 311
+ * baseline's 250 is fine here — the sampled quantity (distance) is far less
+ * noisy than a complaint count, so it converges with fewer points. */
+export const AMENITY_BASELINE_SAMPLE_SIZE = 150;
+
+/**
+ * Independent from BASELINE_SAMPLE_SEED — this script threads its OWN
+ * seededRandom() instance through scripts/lib/sampleCoords.js, so its draws
+ * never interleave with buildBaseline.js's. Deterministic within itself: a
+ * rerun samples the same coordinates.
+ */
+export const AMENITY_BASELINE_SAMPLE_SEED = 20260829;
+
+/**
+ * buildAmenityBaseline.js measures each sampled point with a LIVE Google
+ * Routes call (see amenityService.js's getAmenityMetrics `routeRetries`
+ * doc) — unlike the request path's fail-fast default of 0 retries, this
+ * script's ~150 sequential calls are worth retrying on a transient 429/5xx
+ * rather than letting that one sample point silently fall back to
+ * straight-line. `AMENITY_BASELINE_ROUTE_PACING_MS` is a fixed delay
+ * between points on top of that, to keep the steady-state request rate
+ * under Google's per-second quota in the first place — retries alone only
+ * react after the quota is already tripped.
+ */
+export const AMENITY_BASELINE_ROUTE_RETRIES = 3;
+
+/**
+ * Weighted mean weights for the amenity buckets. Separate from BUCKET_WEIGHTS
+ * so the existing test/constants.test.js assertion (weights = flattened
+ * BUCKET_NAMES) keeps passing untouched. Subway weighted 2x because for most
+ * New Yorkers it is the deciding transit factor — an explicit, editable
+ * judgement here rather than one smuggled in by padding a bucket list (see
+ * CLAUDE.md decision 6 on BUCKET_WEIGHTS).
+ */
+export const AMENITY_WEIGHTS = {
+  subway: 2,
+  bus: 1,
+  rail: 1,
+  park: 1,
+  playground: 1,
+  garden: 1,
+  bikeShare: 1,
+  bikeLane: 1,
+  protectedLane: 1,
+  // Grocery weighted 2x for the same reason subway is: Walk Score's own
+  // methodology treats food access as the single most decisive walkability
+  // factor, and a block with three cafes but no grocery store is not
+  // "average" walkable, it is missing the errand that matters most.
+  grocery: 2,
+  restaurant: 1,
+  cafe: 1,
+  school: 1,
+};
+
+/**
+ * How many straight-line-nearest candidates per bucket get sent to Google's
+ * Routes API for real walking distance. Not 1: the straight-line-nearest
+ * point is not always the walking-nearest one (a park across a highway with
+ * no crossing scores as adjacent by air, farther by foot) — sending the top 3
+ * and keeping whichever comes back with the shortest real distance catches
+ * that without needing point-to-segment street-network math of our own.
+ */
+export const AMENITY_ROUTE_CANDIDATES = 3;
+
+/**
+ * Google's published ceiling for computeRouteMatrix: 3,000 ELEMENTS per
+ * minute, where elements = origins x destinations.
+ *
+ * The unit is the whole point. Pacing used to be a flat 250ms between points,
+ * chosen against requests per second — but the quota is not denominated in
+ * requests, and one of our requests carries up to
+ * AMENITY_ROUTE_CANDIDATES x (dataset-backed buckets) = 27 elements. 250ms
+ * between STARTS would be 240 calls/min = 6,480 elements/min, over twice the
+ * ceiling; it only ever stayed under because each iteration also blocked on
+ * ~1-2s of response latency, which padded the real interval by accident. That
+ * accident is what the 429s in buildAmenityBaseline.js's header were.
+ */
+export const GOOGLE_ROUTES_ELEMENTS_PER_MINUTE = 3000;
+
+/**
+ * Worst-case billed elements in one /api/score route-matrix call: every
+ * dataset-backed amenity bucket contributing AMENITY_ROUTE_CANDIDATES
+ * destinations against a single origin. Walkability is excluded by the same
+ * `dataset` test amenityService.js's loop uses — it has no static index and is
+ * never routed.
+ */
+export const AMENITY_ROUTE_ELEMENTS_PER_CALL =
+  Object.values(AMENITY_TIERS).filter((tier) => tier.dataset).flatMap((tier) => tier.buckets)
+    .length * AMENITY_ROUTE_CANDIDATES;
+
+/**
+ * How much of the element quota the baseline script is allowed to use.
+ *
+ * Not 1.0: pacing controls when a call STARTS, not when Google counts it, so
+ * network jitter, a retry, and any other caller sharing the key all land on
+ * top of our nominal rate. Running at exactly the ceiling guarantees the first
+ * such wobble is a 429 — and a 429 here does not just slow the run down, it
+ * silently degrades that sample point to straight-line and biases the baseline
+ * (see this file's AMENITY_BASELINE_ROUTE_RETRIES note). 80% buys the margin
+ * that makes the retry budget a backstop instead of the mechanism.
+ */
+export const GOOGLE_ROUTES_QUOTA_UTILISATION = 0.8;
+
+/**
+ * Milliseconds between successive route-matrix call STARTS in the baseline
+ * script, DERIVED from the quota above rather than guessed — so it stays
+ * correct if the candidate count or the bucket list ever changes.
+ *
+ * Paired with a scheduler that starts a call every interval instead of
+ * sleeping between completed calls: the steady-state element rate is
+ * unchanged, but ~150 points stop costing (interval + latency) each and the
+ * run takes roughly interval x n overall.
+ */
+export const AMENITY_BASELINE_ROUTE_PACING_MS = Math.ceil(
+  60_000 /
+    ((GOOGLE_ROUTES_ELEMENTS_PER_MINUTE * GOOGLE_ROUTES_QUOTA_UTILISATION) /
+      AMENITY_ROUTE_ELEMENTS_PER_CALL)
+);
+
+/**
+ * computeRouteMatrix is one HTTP call for the whole batch (all buckets, all
+ * candidates), not one per candidate — that batching is what keeps this
+ * feature's cost and latency bounded to ONE extra request per score, same
+ * order of magnitude as the Socrata call already on this path.
+ */
+export const GOOGLE_ROUTES_MATRIX_URL =
+  "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
+
+/**
+ * Tight because, unlike the AI explanation call, this one IS on the score
+ * request's critical path (run inside the same Promise.all as the complaint
+ * counts). A slow or hanging Routes API must not make /api/score itself
+ * hang — it degrades to the straight-line distance already in hand instead.
+ */
+export const GOOGLE_ROUTES_TIMEOUT_MS = 4000;
+
+/**
+ * Real walking distances are cached per rounded coordinate — unlike the
+ * straight-line grid lookup this replaces, a Google Routes call costs money
+ * and network time, so repeat views of the same address (a refresh, the
+ * explanation fetch, a compare page) must not re-bill it.
+ *
+ * ITS OWN COLLECTION, not a pseudo-tier inside CACHE_COLLECTION, for exactly
+ * the reason WALKABILITY_CACHE_COLLECTION has its own: Mongo ties
+ * expireAfterSeconds to the COLLECTION's index, not to the document. Sharing
+ * complaint_cache meant silently inheriting its 24h TTL — so a walking
+ * distance that is stable for YEARS (subway entrances and park boundaries do
+ * not move) was being thrown away nightly and re-bought from Google the next
+ * morning.
+ *
+ * That is not a small bill. computeRouteMatrix is priced per ELEMENT
+ * (origins x destinations), not per request — the single batched call in
+ * providers/googleRoutes.js bounds LATENCY to one round trip but costs
+ * 9 buckets x AMENITY_ROUTE_CANDIDATES = 27 billed elements. Every cache miss
+ * avoided is worth 27 elements, not 1.
+ *
+ * Note the coordinate key stays at CACHE_COORD_PRECISION (4dp, ~11m) rather
+ * than borrowing walkability's coarser 3dp. Walkability can afford 3dp because
+ * its buckets are shallow; these are not. The amenity curve's sensitivity near
+ * the origin is 50/median score points per metre, so at the citywide median a
+ * bus stop (155m) moves 0.32 points per metre — 3dp rounding (up to ~70m of
+ * origin displacement) would swing the bike tier by up to ~14 points and flip
+ * AMENITY_BAND_THRESHOLDS bands. The TTL fix below is free; coarsening the key
+ * is not, and is deliberately left alone.
+ */
+export const AMENITY_DISTANCE_CACHE_COLLECTION = "amenity_distance_cache";
+
+/**
+ * 180 days. The underlying geometry (subway entrances, park centroids, rail
+ * stations, bike-lane alignments) is rebuilt by scripts/buildAmenities.js on a
+ * scale of years; only the bike-share bucket moves monthly, and that has its
+ * own refresh path (GET /api/refresh-amenities). Six months bounds how long a
+ * genuinely relocated dock can report a stale walk, while still making the
+ * common case "bill this coordinate once" instead of "once a day".
+ */
+export const AMENITY_DISTANCE_CACHE_TTL_SECONDS = 180 * 24 * 60 * 60;
+
+/**
+ * Bus stops within this distance of each other are treated as one physical
+ * pole — e.g. the M1/M2/M3/M4 each get their own GTFS stop record even when
+ * they all board from the same corner — and merged into one point with a
+ * unioned, sorted route list at build time (scripts/buildAmenities.js's
+ * buildBusBucket). Small on purpose: this is "same curb," not "same
+ * intersection" — two stops on opposite corners of a wide avenue are still
+ * genuinely different places to stand.
+ */
+export const BUS_STOP_CLUSTER_RADIUS_METERS = 10;
+
+/**
+ * How many distinct subway complexes / bus stops GET /api/amenities/nearby
+ * returns for these two buckets, closest first, AFTER the same-line dedup in
+ * amenityService.js's getNearbyAmenityInstances — not a raw entrance/point
+ * cap. A dense transfer hub can have 50+ raw subway entrances or a dozen
+ * overlapping bus routes within 800m; once entrances are grouped into
+ * complexes and bus stops into poles (see BUS_STOP_CLUSTER_RADIUS_METERS
+ * above), the count that matters to a renter is "how many distinct places
+ * could I catch a train/bus," which stays small even at the densest hubs.
+ * Every other amenity bucket (rail, parks, bike, walkability) has no such
+ * density problem and is unaffected by either constant.
+ */
+export const AMENITY_SUBWAY_COMPLEX_CAP = 5;
+export const AMENITY_BUS_STOP_CAP = 5;
+
+// ---------------------------------------------------------------------------
+// Walkability — live Google Places lookup, NOT a static dataset
+// ---------------------------------------------------------------------------
+//
+// Unlike transit/parks/bike, there is no free, slow-changing public dataset
+// for "grocery stores, restaurants, cafes, and schools in NYC" — that only
+// exists behind a billed API. Rather than a one-time citywide sweep (a large
+// upfront Places bill before this ships at all), this tier calls Places
+// Nearby Search live, per report, and caches the raw result per coordinate
+// so a repeat view of the same area never re-bills it. See CLAUDE.md.
+
+/**
+ * Google's `includedTypes` values for Nearby Search (Places API, New),
+ * mapped onto our four buckets. Several Google types collapse onto one
+ * bucket (three school levels -> one "school" bucket) — a place's `types`
+ * array is checked against this map in order, first match wins.
+ */
+export const WALKABILITY_TYPE_TO_BUCKET = {
+  grocery_store: "grocery",
+  supermarket: "grocery",
+  restaurant: "restaurant",
+  cafe: "cafe",
+  school: "school",
+  primary_school: "school",
+  secondary_school: "school",
+};
+
+/**
+ * ONE Nearby Search call requests every type at once and Google returns them
+ * interleaved, ranked by distance — bucketing happens after the fact by
+ * inspecting each result's own `types`. This is what keeps the feature to
+ * one billed call per (new) coordinate rather than one per bucket (4x cost).
+ *
+ * The tradeoff: with `maxResultCount` capped at 20, a location with many
+ * restaurants nearby could theoretically crowd out a farther-but-still-
+ * in-range grocery store from the top 20 closest-of-any-type results. Judged
+ * acceptable for NYC's density (20 results within an 800m circle rarely miss
+ * a real category entirely) rather than paying for a second call to rule it
+ * out.
+ */
+export const WALKABILITY_MAX_RESULTS = 20;
+
+export const GOOGLE_PLACES_NEARBY_URL =
+  "https://places.googleapis.com/v1/places:searchNearby";
+
+/**
+ * On the request's critical path exactly like GOOGLE_ROUTES_TIMEOUT_MS, and
+ * for the same reason: a slow or hanging Places call must not make
+ * /api/score itself hang. Degrades to "walkability section omitted" — see
+ * getWalkabilityMetrics().
+ */
+export const GOOGLE_PLACES_TIMEOUT_MS = 4000;
+
+/**
+ * Coordinates are rounded to this many decimals for the walkability cache
+ * key — coarser than CACHE_COORD_PRECISION's 4dp (~11m). This cache exists
+ * specifically to avoid re-billing a Places call, so it deliberately trades
+ * precision for a much higher hit rate: 3dp is ~111m at NYC's latitude, wide
+ * enough that most addresses on the same block share a cache entry.
+ */
+export const WALKABILITY_CACHE_PRECISION = 3;
+
+export const WALKABILITY_CACHE_COLLECTION = "walkability_cache";
+
+/**
+ * 30 days, not the 24h every other cache here uses. Grocery stores,
+ * restaurants and schools change on a timescale of months, not days —
+ * 311 complaint volume does not. A dedicated collection (rather than
+ * CACHE_COLLECTION) exists only so this can have its own TTL index; Mongo
+ * ties expireAfterSeconds to the collection's index, not to the document.
+ */
+export const WALKABILITY_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * Reasoned estimates, NOT sampled from real NYC data. Building a real
+ * baseline the way scripts/buildAmenityBaseline.js does for the other three
+ * tiers would mean running AMENITY_BASELINE_SAMPLE_SIZE (150) live, billed
+ * Places lookups up front — exactly the up-front cost this tier's
+ * live-and-cached design was chosen to avoid. These medians/p90s are
+ * order-of-magnitude judgements for a dense NYC block (a grocery store
+ * within ~200m is unremarkable; one within ~600-1000m is genuinely sparse),
+ * good enough to make "closer scores better" behave sensibly while this
+ * ships. Replace with a sampled baseline (see AMENITY_BASELINE_SAMPLE_SIZE)
+ * once the cost of doing so is acceptable — flagged, not hidden.
+ */
+export const WALKABILITY_BASELINE_PER_BUCKET = {
+  grocery: { median: 200, p90: 600 },
+  restaurant: { median: 120, p90: 400 },
+  cafe: { median: 150, p90: 450 },
+  school: { median: 350, p90: 800 },
 };

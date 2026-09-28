@@ -3,9 +3,12 @@ import {
   TYPE_TO_BUCKET,
   CACHE_COORD_PRECISION,
   WINDOW_MONTHS,
+  AMENITY_TIERS,
+  AMENITY_BUCKET_NAMES,
+  AMENITY_MAX_METERS,
 } from "../config/constants.js";
 import { buildReport } from "./scoring.js";
-import { explainFromTemplate } from "./explain.js";
+import { explainFromTemplate, explainOverallFromTemplate } from "./explain.js";
 
 // Mock data. Started as the P0 stand-in that unblocked the frontend; after M5
 // it is opt-in via USE_MOCK_DATA=1 and exists for offline frontend work — no
@@ -81,22 +84,111 @@ const MOCK_BASELINE = {
   perBucket: {
     heatHotWater: { median: 2, p90: 20 },
     unsanitaryCondition: { median: 1, p90: 8 },
-    plumbing: { median: 1, p90: 6 },
+    plumbing: { median: 2, p90: 12 },
+    repairs: { median: 2, p90: 15 },
+    electricGas: { median: 1, p90: 10 },
+    buildingSafety: { median: 0, p90: 3 },
     noise: { median: 400, p90: 2500 },
-    parking: { median: 350, p90: 1600 },
+    parking: { median: 450, p90: 2000 },
     streetCondition: { median: 60, p90: 260 },
+    sanitation: { median: 120, p90: 500 },
+    infrastructure: { median: 100, p90: 350 },
+    publicSafety: { median: 40, p90: 400 },
   },
 };
 
+/**
+ * A plausible stand-in amenity baseline, same spirit as MOCK_BASELINE above —
+ * not the real scripts/buildAmenityBaseline.js output, just the right order
+ * of magnitude (metres, not counts) so mocked amenity scores land across all
+ * three bands.
+ */
+const MOCK_AMENITY_BASELINE = {
+  _id: "mock",
+  source: "mock",
+  perBucket: Object.fromEntries(
+    Object.values(AMENITY_BUCKET_NAMES)
+      .flat()
+      .map((bucket) => [bucket, { median: 300, p90: 1200, zeroShare: 0 }])
+  ),
+};
+
+/**
+ * Deterministic amenity metrics for one tier. Distances skew low (the SAME
+ * direction as mockCounts' skew toward few complaints) — for a distance
+ * metric, low is the "good" end too, so this keeps the mock's band spread
+ * consistent with the complaint tiers' rather than accidentally inverted.
+ *
+ * `name` is an obviously-synthetic placeholder, never a real-looking station
+ * or park name — this is mock data, and CLAUDE.md's rule against showing
+ * fabricated content as if it were real applies here as much as it does to
+ * the showcase carousel.
+ */
+function mockAmenityMetrics(lat, lng, tierName) {
+  const { buckets, radiusMeters } = AMENITY_TIERS[tierName];
+  const metrics = {};
+  for (const bucket of buckets) {
+    const rand = seededRandom(seedFor(lat, lng, `amenity:${bucket}`));
+    const meters = Math.round(rand() ** 2.5 * AMENITY_MAX_METERS);
+    const withinRand = seededRandom(seedFor(lat, lng, `amenity-within:${bucket}`));
+    metrics[bucket] = {
+      meters,
+      within: meters <= radiusMeters ? 1 + Math.floor(withinRand() * 4) : 0,
+      name: meters < AMENITY_MAX_METERS ? `Mock ${bucket}` : null,
+    };
+  }
+  return metrics;
+}
+
+/**
+ * Deterministic status breakdown for one tier's mock bucket counts — the mock
+ * analogue of fetchCountsForTier's `bucketStatusCounts`, so the mock path
+ * exercises the same status-segmented bar the live path does.
+ *
+ * Each bucket's total is split into open/in-progress/closed by drawing two
+ * random cut points and never independently, which is what guarantees the
+ * three parts sum EXACTLY back to that bucket's count — if they didn't, the
+ * frontend's bar segments would not add up to the total already shown for the
+ * category.
+ */
+function mockBucketStatusCounts(lat, lng, tierName, counts) {
+  const result = {};
+  for (const bucket of BUCKET_NAMES[tierName]) {
+    const total = counts[bucket] ?? 0;
+    if (total <= 0) {
+      result[bucket] = { open: 0, "in-progress": 0, closed: 0 };
+      continue;
+    }
+    const rand = seededRandom(seedFor(lat, lng, `status:${tierName}:${bucket}`));
+    const a = Math.floor(rand() * (total + 1));
+    const b = Math.floor(rand() * (total + 1));
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    result[bucket] = { open: lo, "in-progress": hi - lo, closed: total - hi };
+  }
+  return result;
+}
+
 /** Mocked POST /api/score payload. `address` is always null — we do not geocode. */
 export function mockScoreReport(lat, lng) {
+  const amenities = Object.fromEntries(
+    Object.keys(AMENITY_TIERS).map((tier) => [tier, mockAmenityMetrics(lat, lng, tier)])
+  );
+
+  const buildingCounts = mockCounts(lat, lng, "building", 12);
+  const blockCounts = mockCounts(lat, lng, "block", 2600);
+  const statusCounts = {
+    building: mockBucketStatusCounts(lat, lng, "building", buildingCounts),
+    block: mockBucketStatusCounts(lat, lng, "block", blockCounts),
+  };
+
   const report = buildReport(
-    {
-      building: mockCounts(lat, lng, "building", 12),
-      block: mockCounts(lat, lng, "block", 2600),
-    },
+    { building: buildingCounts, block: blockCounts },
     MOCK_BASELINE,
-    { mock: true, windowMonths: WINDOW_MONTHS }
+    { mock: true, windowMonths: WINDOW_MONTHS },
+    amenities,
+    MOCK_AMENITY_BASELINE,
+    statusCounts
   );
 
   // Template explanations, exactly as the live path serves on a cache miss —
@@ -110,6 +202,24 @@ export function mockScoreReport(lat, lng) {
     ...report.blockQuality,
     ...explainFromTemplate("block", report.blockQuality),
   };
+  report.transitAccess = {
+    ...report.transitAccess,
+    ...explainFromTemplate("transit", report.transitAccess),
+  };
+  report.parksAccess = {
+    ...report.parksAccess,
+    ...explainFromTemplate("parks", report.parksAccess),
+  };
+  report.bikeAccess = {
+    ...report.bikeAccess,
+    ...explainFromTemplate("bike", report.bikeAccess),
+  };
+  report.walkabilityAccess = {
+    ...report.walkabilityAccess,
+    ...explainFromTemplate("walkability", report.walkabilityAccess),
+  };
+
+  report.summary = explainOverallFromTemplate(report);
 
   return report;
 }
@@ -149,4 +259,36 @@ export function mockComplaints(lat, lng, radiusMeters) {
       status: STATUSES[Math.floor(rand() * STATUSES.length)],
     };
   });
+}
+
+/**
+ * Deterministic monthly counts for one tier, mirroring what
+ * providers/socrata.js `fetchMonthlyTrend` returns: only months that actually
+ * have complaints, "YYYY-MM" keys, oldest first. The caller zero-fills.
+ *
+ * Seeded per coordinate + tier + window so a given address always charts the
+ * same shape, and shaped with a mild seasonal swell so the demo chart reads
+ * like complaint data rather than noise.
+ */
+export function mockMonthlyTrend(lat, lng, radiusMeters, { tier, months, now } = {}) {
+  const rand = seededRandom(seedFor(lat, lng, `trend:${tier}:${radiusMeters}`));
+  const reference = new Date(now ?? Date.now());
+  // Block-tier radii cover far more ground, so they carry far more complaints.
+  const scale = radiusMeters >= 200 ? 40 : 2;
+
+  const points = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(reference.getFullYear(), reference.getMonth() - i, 1);
+    // Winter peak: heat complaints spike Dec-Mar, and the block tier's noise
+    // runs the other way, so this is a gentle swell rather than a hard curve.
+    const seasonal = 1 + 0.45 * Math.cos((d.getMonth() / 12) * 2 * Math.PI);
+    const count = Math.round(rand() * scale * seasonal);
+    if (count > 0) {
+      points.push({
+        month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        count,
+      });
+    }
+  }
+  return points;
 }

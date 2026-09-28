@@ -16,16 +16,28 @@ import {
   readEntries,
   writeCounts,
   writeExplanation,
-  resetCacheIndexMemo,
+  readAmenityDistances,
+  writeAmenityDistances,
+  readComplaintGroups,
+  writeComplaintGroups,
+  ensureComplaintGroupsIndexes,
+  ensureAmenityDistanceCacheIndexes,
+  readTrend,
+  writeTrend,
+  typeSignature,
 } from "../src/providers/cache.js";
 import { getDb, isMongoConfigured, closeMongo } from "../src/providers/mongo.js";
 import {
   CACHE_COLLECTION,
   CACHE_TTL_SECONDS,
+  COMPLAINT_GROUPS_COLLECTION,
+  TREND_CACHE_COLLECTION,
+  AMENITY_DISTANCE_CACHE_COLLECTION,
+  AMENITY_DISTANCE_CACHE_TTL_SECONDS,
 } from "../src/config/constants.js";
 
-const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0 };
-const BLOCK = { noise: 1653, parking: 402, streetCondition: 88 };
+const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const BLOCK = { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 };
 
 let mongo;
 
@@ -40,6 +52,10 @@ afterAll(async () => {
 beforeEach(async () => {
   const db = await getDb();
   await db.collection(CACHE_COLLECTION).deleteMany({});
+  // Amenity walking distances moved out of CACHE_COLLECTION into their own
+  // collection (so they can carry their own, much longer TTL), so clearing
+  // complaint_cache alone no longer isolates these tests from each other.
+  await db.collection(AMENITY_DISTANCE_CACHE_COLLECTION).deleteMany({});
 });
 
 describe("key derivation (pure)", () => {
@@ -86,17 +102,6 @@ describe("indexes", () => {
     }
   });
 
-  it("is idempotent and only round-trips once per process", async () => {
-    resetCacheIndexMemo();
-    const db = await getDb();
-    const spy = vi.spyOn(db.collection(CACHE_COLLECTION), "createIndexes");
-    await Promise.all([ensureCacheIndexes(), ensureCacheIndexes()]);
-    await ensureCacheIndexes();
-    // The memo means repeated calls do not re-issue createIndexes; the spy is on
-    // a fresh collection handle, so this asserts the memo, not the driver.
-    expect(spy.mock.calls.length).toBeLessThanOrEqual(1);
-    spy.mockRestore();
-  });
 });
 
 describe("read / write round trip", () => {
@@ -152,7 +157,7 @@ describe("read / write round trip", () => {
   it("preserves zero counts rather than treating them as absent", async () => {
     // A genuine all-zero building result is meaningful (M4 flags it as
     // low-confidence); it must not be indistinguishable from a cache miss.
-    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 };
+    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
     await writeCounts(40.7484, -73.9857, "building", zeros);
     expect((await readCounts(40.7484, -73.9857, ["building"])).building).toEqual(
       zeros
@@ -227,7 +232,7 @@ describe("corrupt documents", () => {
       lat: 40.7484,
       lng: -73.9857,
       radiusTier: "block",
-      counts: { noise: "1653", parking: 402, streetCondition: 88 },
+      counts: { noise: "1653", parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 },
       createdAt: new Date(),
     });
     expect((await readCounts(40.7484, -73.9857, ["block"])).block).toBeNull();
@@ -282,7 +287,7 @@ describe("degradation", () => {
 describe("explanation caching", () => {
   const LAT = 40.7484;
   const LNG = -73.9857;
-  const COUNTS = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1 };
+  const COUNTS = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 };
 
   beforeEach(async () => {
     await writeCounts(LAT, LNG, "building", COUNTS);
@@ -357,5 +362,195 @@ describe("explanation caching", () => {
     await closeMongo();
     process.env.MONGODB_URI = uri;
     delete process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS;
+  });
+});
+
+describe("amenity distance caching", () => {
+  const LAT = 40.7215;
+  const LNG = -73.9878;
+  const DISTANCES = { transit: { subway: { meters: 174, name: "2 Av" } } };
+
+  it("round-trips through Mongo", async () => {
+    const written = await writeAmenityDistances(LAT, LNG, DISTANCES);
+    expect(written).toBe(true);
+
+    const read = await readAmenityDistances(LAT, LNG);
+    expect(read).toEqual(DISTANCES);
+  });
+
+  it("reports a miss (null) when nothing has been written yet", async () => {
+    expect(await readAmenityDistances(LAT, LNG)).toBeNull();
+  });
+
+  it("does not collide with a complaint-count document for the same coordinate", async () => {
+    // These now live in SEPARATE collections, so this is no longer about a
+    // radiusTier discriminator — it guards that the split kept both readable
+    // for the same coordinate rather than one shadowing the other.
+    await writeCounts(LAT, LNG, "building", { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 });
+    await writeAmenityDistances(LAT, LNG, DISTANCES);
+
+    const counts = await readCounts(LAT, LNG, ["building"]);
+    expect(counts.building).toEqual({ heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 });
+    expect(await readAmenityDistances(LAT, LNG)).toEqual(DISTANCES);
+  });
+
+  it("expires on its OWN long TTL, not complaint_cache's 24h one", async () => {
+    // The whole point of the dedicated collection. Mongo ties
+    // expireAfterSeconds to the collection's index, so while these documents
+    // sat in CACHE_COLLECTION they inherited its 24h expiry — and a walking
+    // distance that is stable for years was re-bought from Google (at ~27
+    // billed route-matrix elements a time) every single morning.
+    await ensureAmenityDistanceCacheIndexes();
+    const db = await getDb();
+    const indexes = await db.collection(AMENITY_DISTANCE_CACHE_COLLECTION).indexes();
+    const byName = Object.fromEntries(indexes.map((i) => [i.name, i]));
+
+    expect(byName.coord.key).toEqual({ lat: 1, lng: 1 });
+    expect(byName.coord.unique).toBe(true);
+    expect(byName.createdAt_ttl.expireAfterSeconds).toBe(AMENITY_DISTANCE_CACHE_TTL_SECONDS);
+    expect(AMENITY_DISTANCE_CACHE_TTL_SECONDS).toBeGreaterThan(CACHE_TTL_SECONDS);
+  });
+
+  it("returns null / false rather than throwing when Mongo is unreachable", async () => {
+    const uri = process.env.MONGODB_URI;
+    await closeMongo();
+    process.env.MONGODB_URI = "mongodb://127.0.0.1:1/nope";
+    process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS = "150";
+
+    await expect(writeAmenityDistances(LAT, LNG, DISTANCES)).resolves.toBe(false);
+    await expect(readAmenityDistances(LAT, LNG)).resolves.toBeNull();
+
+    await closeMongo();
+    process.env.MONGODB_URI = uri;
+    delete process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS;
+  });
+});
+
+describe("grouped complaint cache", () => {
+  const GROUPS = [
+    { day: "2026-08-14", type: "Noise - Residential", statusBucket: "closed", count: 7 },
+    { day: "2024-11-02", type: "Street Condition", statusBucket: "open", count: 5 },
+  ];
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
+  });
+
+  it("round-trips groups and the truncation flag", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    expect(await readComplaintGroups(40.7484, -73.9857, "block")).toEqual({
+      groups: GROUPS,
+      truncated: false,
+    });
+  });
+
+  it("preserves truncated:true, which the UI relies on to stay honest", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, true);
+    const hit = await readComplaintGroups(40.7484, -73.9857, "block");
+    expect(hit.truncated).toBe(true);
+  });
+
+  it("misses on an unseen coordinate", async () => {
+    expect(await readComplaintGroups(40.6944, -73.9213, "block")).toBeNull();
+  });
+
+  it("separates the two tiers at the same point", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    expect(await readComplaintGroups(40.7484, -73.9857, "building")).toBeNull();
+  });
+
+  // No months in the key, unlike the trend cache: rows are stored newest-day
+  // first, so every window is a prefix of the one entry.
+  it("answers any window from a single entry", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    const hit = await readComplaintGroups(40.74839, -73.98572, "block");
+    expect(hit.groups).toHaveLength(2);
+  });
+
+  it("overwrites rather than duplicating on a refill", async () => {
+    await writeComplaintGroups(40.7484, -73.9857, "block", GROUPS, false);
+    await writeComplaintGroups(40.7484, -73.9857, "block", [GROUPS[0]], false);
+    const db = await getDb();
+    expect(await db.collection(COMPLAINT_GROUPS_COLLECTION).countDocuments()).toBe(1);
+    const hit = await readComplaintGroups(40.7484, -73.9857, "block");
+    expect(hit.groups).toHaveLength(1);
+  });
+
+  it("creates the lookup and TTL indexes", async () => {
+    await ensureComplaintGroupsIndexes();
+    const db = await getDb();
+    const indexes = await db.collection(COMPLAINT_GROUPS_COLLECTION).indexes();
+    const byName = Object.fromEntries(indexes.map((i) => [i.name, i]));
+    expect(byName.coord_tier.unique).toBe(true);
+    expect(byName.createdAt_ttl.expireAfterSeconds).toBe(CACHE_TTL_SECONDS);
+  });
+
+  it("treats a document with no groups array as a miss, not a crash", async () => {
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).insertOne({
+      ...cacheKey(40.7484, -73.9857, "block"),
+      createdAt: new Date(),
+    });
+    expect(await readComplaintGroups(40.7484, -73.9857, "block")).toBeNull();
+  });
+});
+
+describe("complaint-type signature", () => {
+  // Documents built under an older complaint-type definition (a folded type,
+  // a new excluded descriptor) keep every bucket name, so the completeness
+  // checks alone cannot tell them apart. The signature can.
+  const LAT = 40.7484;
+  const LNG = -73.9857;
+
+  /** Rewrites one stored document as if an earlier definition had written it. */
+  async function ageSignature(collection, filter) {
+    const db = await getDb();
+    const result = await db
+      .collection(collection)
+      .updateOne(filter, { $set: { typeSignature: "0000000000000000" } });
+    expect(result.matchedCount).toBe(1);
+  }
+
+  it("is stable per tier, differs between tiers, and covers both when tier-less", () => {
+    expect(typeSignature("building")).toBe(typeSignature("building"));
+    expect(typeSignature("building")).not.toBe(typeSignature("block"));
+    expect(typeSignature(undefined)).not.toBe(typeSignature("block"));
+  });
+
+  it("treats counts from another definition as a miss", async () => {
+    await writeCounts(LAT, LNG, "block", BLOCK);
+    expect((await readCounts(LAT, LNG, ["block"])).block).toEqual(BLOCK);
+    await ageSignature(CACHE_COLLECTION, cacheKey(LAT, LNG, "block"));
+    expect((await readCounts(LAT, LNG, ["block"])).block).toBeNull();
+  });
+
+  it("treats counts with no signature at all (pre-signature documents) as a miss", async () => {
+    const db = await getDb();
+    await db.collection(CACHE_COLLECTION).insertOne({
+      ...cacheKey(LAT, LNG, "block"),
+      counts: BLOCK,
+      createdAt: new Date(),
+    });
+    expect((await readCounts(LAT, LNG, ["block"])).block).toBeNull();
+  });
+
+  it("treats grouped rows from another definition as a miss", async () => {
+    const db = await getDb();
+    await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
+    await writeComplaintGroups(LAT, LNG, "block", [], false);
+    expect(await readComplaintGroups(LAT, LNG, "block")).not.toBeNull();
+    await ageSignature(COMPLAINT_GROUPS_COLLECTION, cacheKey(LAT, LNG, "block"));
+    expect(await readComplaintGroups(LAT, LNG, "block")).toBeNull();
+  });
+
+  it("treats a trend series from another definition as a miss", async () => {
+    const db = await getDb();
+    await db.collection(TREND_CACHE_COLLECTION).deleteMany({});
+    const points = [{ month: "2026-08", count: 4 }];
+    await writeTrend(LAT, LNG, "block", 1, points);
+    expect(await readTrend(LAT, LNG, "block", 1)).toEqual(points);
+    await ageSignature(TREND_CACHE_COLLECTION, { lat: LAT, lng: LNG, radiusTier: "block", months: 1 });
+    expect(await readTrend(LAT, LNG, "block", 1)).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import {
   AI_TIMEOUT_MS,
   GEMINI_THINKING_BUDGET,
 } from "../../config/constants.js";
-import { buildPrompt } from "./prompt.js";
+import { buildOverallSummaryPrompt } from "./prompt.js";
 import { AIError, cleanExplanation } from "./shared.js";
 
 // Deployed (Vercel) adapter. Hosted HTTP API, so it works identically in any
@@ -17,7 +17,7 @@ import { AIError, cleanExplanation } from "./shared.js";
 // constants.js (AI_MODELS.gemini) and is env-overridable via GEMINI_MODEL.
 
 /**
- * @param {{label: string, band: string, counts: object, radiusLabel: string}} input
+ * @param {{sections: Array<{label: string, band: string, counts?: object, metrics?: object}>}} input
  * @returns {Promise<string>}
  */
 export async function generateExplanation(input) {
@@ -29,7 +29,7 @@ export async function generateExplanation(input) {
   const url = `${GEMINI_ENDPOINT_BASE}/${AI_MODELS.gemini}:generateContent`;
 
   const requestBody = (withThinkingConfig) => ({
-    contents: [{ parts: [{ text: buildPrompt(input) }] }],
+    contents: [{ parts: [{ text: buildOverallSummaryPrompt(input) }] }],
     generationConfig: {
       temperature: AI_TEMPERATURE,
       maxOutputTokens: AI_MAX_OUTPUT_TOKENS,

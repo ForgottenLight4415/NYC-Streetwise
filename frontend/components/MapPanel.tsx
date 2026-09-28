@@ -1,175 +1,97 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { MapPinIcon } from "./icons";
+import { formatDistance } from "../lib/amenities";
+import { MapCanvas, dedupeRings, type MapRing } from "./MapCanvas";
 
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
+export type { MapRing } from "./MapCanvas";
 
+/**
+ * The report page's (and each compare column's) map card: a coordinate
+ * header, the map itself, and a legend naming every radius ring under it.
+ *
+ * The map machinery lives in `MapCanvas` - this is the chrome around it, and
+ * the only consumer of `dedupeRings`' merged labels, which exist for the
+ * legend rather than for the drawing.
+ *
+ * Note what is NOT here any more: secondary amenity pins. This card used to
+ * take `extraMarkers` and repaint itself with every instance of whichever
+ * amenity bucket the reader had opened - but that browser is a modal, so the
+ * repaint happened on a map sitting behind the overlay, out of sight. Those
+ * pins now render on `AmenityBrowserModal`'s own `MapCanvas`, next to the
+ * list they belong to, and this card holds its address-plus-rings view
+ * steady the whole time.
+ */
 export function MapPanel({
   centerLat,
   centerLng,
-  buildingRadiusMeters,
-  blockRadiusMeters,
+  rings,
 }: {
   centerLat: number;
   centerLng: number;
-  buildingRadiusMeters: number;
-  blockRadiusMeters: number;
+  rings: MapRing[];
 }) {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
+  const resolvedRings = dedupeRings(rings);
   const [isLoading, setIsLoading] = useState(true);
-  const [mapInitError, setMapInitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
-    let cancelled = false;
-
-    async function initMap() {
-      try {
-        if (!window.google) {
-          throw new Error(
-            "Google Maps API not loaded. Set GOOGLE_MAPS_API_KEY in front/.env.local."
-          );
-        }
-
-        const { Map } = await window.google.maps.importLibrary("maps");
-        const { AdvancedMarkerElement, PinElement } = await window.google.maps.importLibrary("marker");
-
-        if (cancelled || !mapContainerRef.current) return;
-
-        const map = new Map(mapContainerRef.current, {
-          center: { lat: centerLat, lng: centerLng },
-          zoom: 16,
-          mapId: "movecheck-nyc-map",
-          disableDefaultUI: false,
-          styles: [
-            { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
-            { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
-            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-            { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-          ],
-        });
-        mapRef.current = map;
-
-        // Dragging the yellow Pegman onto the map opens Street View linked
-        // to this map. Some panoramas (particularly third-party 360 photos
-        // like "Threshold 360" real-estate listings) render as a blank
-        // black canvas until the WebGL viewport is forced to recompute
-        // after the panel becomes visible — retriggering a resize (twice,
-        // since the container can still be mid-layout on the first pass)
-        // reliably kicks the texture into painting.
-        const panorama = map.getStreetView();
-        const kickPanoramaResize = () => window.google.maps.event.trigger(panorama, "resize");
-        window.google.maps.event.addListener(panorama, "visible_changed", () => {
-          if (!panorama.getVisible()) return;
-          kickPanoramaResize();
-          setTimeout(kickPanoramaResize, 300);
-        });
-        window.google.maps.event.addListener(panorama, "pano_changed", () => {
-          if (panorama.getVisible()) setTimeout(kickPanoramaResize, 300);
-        });
-
-        const pin = new PinElement({
-          background: "#FF4136",
-          borderColor: "#B0221A",
-          glyphColor: "#FFFFFF",
-          scale: 1.1,
-        });
-
-        new AdvancedMarkerElement({
-          map,
-          position: { lat: centerLat, lng: centerLng },
-          content: pin.element,
-          title: "Searched address",
-        });
-
-        new window.google.maps.Circle({
-          map,
-          center: { lat: centerLat, lng: centerLng },
-          radius: buildingRadiusMeters,
-          strokeColor: "#3B82F6",
-          strokeOpacity: 0.7,
-          strokeWeight: 2,
-          fillOpacity: 0,
-        });
-
-        new window.google.maps.Circle({
-          map,
-          center: { lat: centerLat, lng: centerLng },
-          radius: blockRadiusMeters,
-          strokeColor: "#8B5CF6",
-          strokeOpacity: 0.4,
-          strokeWeight: 2,
-          fillOpacity: 0,
-        });
-
-        setIsLoading(false);
-      } catch (error) {
-        console.error("Error initializing map:", error);
-        if (!cancelled) {
-          setMapInitError(error instanceof Error ? error.message : "Failed to load Google Maps");
-          setIsLoading(false);
-        }
-      }
-    }
-
-    initMap();
-    return () => {
-      cancelled = true;
-    };
-  }, [centerLat, centerLng, buildingRadiusMeters, blockRadiusMeters]);
 
   return (
     <div
-      className="overflow-hidden rounded-[var(--radius-lg)]"
-      style={{ boxShadow: "var(--shadow-md)", border: "1px solid var(--border-hairline)", background: "var(--surface-1)" }}
+      className="overflow-hidden rounded-lg"
+      style={{
+        boxShadow: "var(--shadow-md)",
+        border: "1px solid var(--border-hairline)",
+        background: "var(--surface-1)",
+      }}
     >
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5" style={{ borderColor: "var(--border-hairline)" }}>
-        <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]">
+      <div
+        className="flex items-center justify-between gap-2 border-b px-4 py-2.5"
+        style={{ borderColor: "var(--border-hairline)" }}
+      >
+        <div className="flex min-w-0 items-center gap-2 text-xs text-(--text-muted)">
           <MapPinIcon className="h-3.5 w-3.5" />
-          {centerLat.toFixed(4)}, {centerLng.toFixed(4)} · {isLoading ? "Loading map…" : "Google Maps"}
+          <span className="font-data truncate">
+            {centerLat.toFixed(4)}, {centerLng.toFixed(4)}
+          </span>
+          <span className="shrink-0">
+            · {isLoading ? "Loading map…" : "Google Maps"}
+          </span>
         </div>
       </div>
 
-      <div ref={mapContainerRef} className="w-full" style={{ height: "380px" }}>
-        {mapInitError && (
-          <div className="flex h-full items-center justify-center p-4 text-center">
-            <div>
-              <p className="text-sm font-medium" style={{ color: "var(--status-critical)" }}>
-                {mapInitError}
-              </p>
-              <p className="mt-2 text-xs text-[color:var(--text-muted)]">
-                Add a <code className="rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">front/.env.local</code>{" "}
-                with:
-                <br />
-                <code className="mt-2 inline-block rounded bg-[color:var(--surface-2)] px-1.5 py-0.5">
-                  GOOGLE_MAPS_API_KEY=your_api_key
-                </code>
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Shorter on a phone so the map does not eat the whole screen and hide
+          the legend that explains the two rings. */}
+      <MapCanvas
+        centerLat={centerLat}
+        centerLng={centerLng}
+        rings={rings}
+        className="h-70 w-full sm:h-95"
+        onLoadingChange={setIsLoading}
+      />
 
-      <div className="flex items-center gap-4 border-t px-4 py-2.5 text-xs text-[color:var(--text-secondary)]" style={{ borderColor: "var(--border-hairline)" }}>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ background: "var(--series-building)" }} />
-          Building radius ({buildingRadiusMeters}m)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ background: "var(--series-block)" }} />
-          Block radius ({blockRadiusMeters}m)
-        </span>
+      {/* flex-wrap: legend entries run past 320px once there are more than two. */}
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t px-4 py-2.5 text-xs text-(--text-secondary)"
+        style={{ borderColor: "var(--border-hairline)" }}
+      >
+        {/* The label is one flex item, not three: as loose text plus a nested
+            span, the parent's gap-1.5 was applied inside the parentheses and
+            rendered as "( 25m )". */}
+        {resolvedRings.map((ring) => (
+          <span key={ring.label} className="flex items-center gap-1.5">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: `var(${ring.colorVar})` }}
+            />
+            <span>
+              {ring.label} (
+              <span className="font-data">
+                {formatDistance(ring.radiusMeters)}
+              </span>
+              )
+            </span>
+          </span>
+        ))}
       </div>
     </div>
   );

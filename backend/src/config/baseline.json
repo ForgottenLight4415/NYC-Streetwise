@@ -2,52 +2,100 @@
   "_id": "v1",
   "perBucket": {
     "heatHotWater": {
-      "median": 30,
-      "p90": 245,
-      "mean": 107.59,
-      "max": 2494,
-      "zeroShare": 0.064,
-      "n": 251
+      "median": 32,
+      "p90": 169,
+      "mean": 92.2,
+      "max": 6397,
+      "zeroShare": 0.044,
+      "n": 250
     },
     "unsanitaryCondition": {
-      "median": 12,
-      "p90": 54,
-      "mean": 24.18,
-      "max": 238,
-      "zeroShare": 0.064,
-      "n": 251
+      "median": 10,
+      "p90": 48,
+      "mean": 20.52,
+      "max": 195,
+      "zeroShare": 0.112,
+      "n": 250
     },
     "plumbing": {
+      "median": 9,
+      "p90": 56,
+      "mean": 22.28,
+      "max": 237,
+      "zeroShare": 0.12,
+      "n": 250
+    },
+    "repairs": {
+      "median": 10,
+      "p90": 67,
+      "mean": 24.77,
+      "max": 305,
+      "zeroShare": 0.136,
+      "n": 250
+    },
+    "electricGas": {
       "median": 7,
-      "p90": 34,
-      "mean": 14.44,
-      "max": 149,
-      "zeroShare": 0.139,
-      "n": 251
+      "p90": 45,
+      "mean": 15.78,
+      "max": 216,
+      "zeroShare": 0.168,
+      "n": 250
+    },
+    "buildingSafety": {
+      "median": 1,
+      "p90": 15,
+      "mean": 6.16,
+      "max": 159,
+      "zeroShare": 0.364,
+      "n": 250
     },
     "noise": {
-      "median": 1121,
-      "p90": 3289,
-      "mean": 1512.08,
-      "max": 17068,
+      "median": 1002,
+      "p90": 3862,
+      "mean": 2275.26,
+      "max": 171722,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
     },
     "parking": {
-      "median": 1120,
-      "p90": 2639,
-      "mean": 1578.89,
-      "max": 18600,
+      "median": 1339,
+      "p90": 2792,
+      "mean": 1684.52,
+      "max": 19471,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
     },
     "streetCondition": {
-      "median": 121,
-      "p90": 273,
-      "mean": 147.8,
-      "max": 637,
+      "median": 105,
+      "p90": 220,
+      "mean": 126.25,
+      "max": 578,
       "zeroShare": 0,
-      "n": 251
+      "n": 250
+    },
+    "sanitation": {
+      "median": 308,
+      "p90": 721,
+      "mean": 375.77,
+      "max": 1848,
+      "zeroShare": 0,
+      "n": 250
+    },
+    "infrastructure": {
+      "median": 313,
+      "p90": 641,
+      "mean": 350.96,
+      "max": 1204,
+      "zeroShare": 0,
+      "n": 250
+    },
+    "publicSafety": {
+      "median": 62,
+      "p90": 482,
+      "mean": 182.53,
+      "max": 2429,
+      "zeroShare": 0.036,
+      "n": 250
     }
   },
   "radiusMeters": {
@@ -55,15 +103,15 @@
     "block": 350
   },
   "windowMonths": 24,
-  "sampleSize": 251,
+  "sampleSize": 250,
   "sampleRequested": 250,
   "perTierSamples": {
-    "building": 251,
-    "block": 251
+    "building": 250,
+    "block": 250
   },
   "sampleSources": {
     "building": "HPD building-interior complaints",
     "block": "all complaint types"
   },
-  "computedAt": "2026-08-15T19:11:53.317Z"
+  "computedAt": "2026-09-28T01:29:20.174Z"
 }

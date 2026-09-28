@@ -1,174 +1,245 @@
 # Frontend — Components (`frontend/components/`)
 
-Grouped by what they're for, not alphabetically. All are `"use client"` where
-they hold state/effects; a few (e.g. `StatusBadge`, `ScoreMeter`) are plain
-presentational components with no directive needed since they're always
-rendered inside an already-client tree.
+Grouped by feature area, not alphabetically. All are `"use client"` where
+they hold state/effects/hooks; purely presentational components (icons,
+badges) have no directive since they always render inside an already-client
+tree. Trivial one-purpose components are mentioned in passing rather than
+given their own section — read the source directly for those.
 
-## Layout
+## Shared chrome
 
-- **`Header.tsx`** — sticky top nav: logo/home link, "Compare" link, and a
-  static "Preview · sample data" badge.
+- **`Header.tsx`** — sticky top nav: logo/home link, an address search field
+  pre-filled from the current `?address=` (split into its own
+  `HeaderAddressSearch` component so the `useSearchParams()` client bailout
+  during prerendering is scoped to just that field, not the whole bar), a
+  "Compare" link, and `ThemeToggle`. Rendered once by `app/layout.tsx`.
+- **`ThemeToggle.tsx`** — light/system/dark segmented control. Reads/writes
+  `data-theme` on `<html>` (the single source of truth `lib/theme.ts`
+  defines) via `useSyncExternalStore`.
+- **`Footer.tsx`** — site-wide footer, rendered once by `app/layout.tsx`
+  (previously inline in `app/page.tsx` only, so `/report`/`/compare` had no
+  footer at all). Logo, data-source line, Unsplash credit, the copyright
+  line, links to `/privacy`/`/terms`/`/cookies`, and a "Cookie Preferences"
+  control that calls `lib/consent.ts#reopenConsentBanner()`.
+- **`CookieConsent.tsx`** — the localStorage-consent banner (not a modal —
+  no focus trap, page stays usable). Shown when `lib/consent.ts#getConsent()`
+  is undecided, or when reopened from the footer. Accept/Decline only, no
+  bare dismiss. See [`frontend-lib.md`](./frontend-lib.md#consentts).
+- **`icons.tsx`** — every icon in the app as a small typed wrapper around
+  Font Awesome SVG icons (`CheckCircleIcon`, `SpinnerIcon`, `BuildingIcon`,
+  `TransitIcon`, `ChevronRightIcon`, ...). **`categoryIcons.tsx`** maps each
+  of the six report categories to one of these as a `Record<CategoryKey, …>`
+  — deliberately a *total* record, so a category added to `lib/categories.ts`
+  without a matching icon is a build error, not a blank icon at runtime.
 
 ## Search
 
-- **`AddressSearch.tsx`** — the address input + autocomplete dropdown used on
-  the landing page, report page, and both compare columns. Debounces
-  (`150ms`) calls to `lib/api.ts#fetchSuggestions()`, tracks up to 5 recent
-  searches in `localStorage`, and supports full keyboard navigation
-  (arrow keys, Enter, Escape). Selecting a suggestion or pressing Enter calls
-  either a supplied `onSelect` callback or navigates to `/report?address=...`.
+- **`AddressSearch.tsx`** — the address input + autocomplete dropdown used
+  on the landing page, the header, the report page (via the toolbar's
+  compare link), and both compare columns. Debounces calls to
+  `lib/hooks.ts#useSuggestions()` (backed by `lib/api.ts#fetchSuggestions()`),
+  tracks up to 5 recent searches via `lib/recentSearches.ts` (broadcast
+  across instances via a custom DOM event so the header and homepage stay in
+  sync; writes are gated on `lib/consent.ts#getConsent() === "accepted"` —
+  off by default until the cookie banner is accepted), and supports full
+  keyboard navigation. Selecting a suggestion passes its Places `placeId`
+  through to `/report?address=...&placeId=...` so the report's geocode can
+  skip straight to the Place Details lookup and (via the geocode route) get
+  recorded on the showcase directory.
 
-## Report page (`components/ReportView.tsx` and its children)
+## Report page shell
 
-- **`ReportView.tsx`** — the orchestrator. Reads `?address` from the URL,
-  geocodes it, fetches the report, and renders the loading skeleton / error
-  state / full report accordingly. See
-  [`frontend-architecture.md`](./frontend-architecture.md#data-flow-for-a-single-report).
-- **`VerdictBanner.tsx`** — the big Good/Fair/Poor headline + badge at the
-  top of a report. Computes the overall band as the *worse* of Building
-  Health and Block Quality (`lib/score.ts#overallBand`), and renders a
-  one-line explanation of *why* underneath.
+- **`ReportView.tsx`** — the report page's orchestrator. Reads `?address`/
+  `?placeId` from the URL and wires up the independent SWR hooks
+  (`useCoords`, `useReport`, `usePrefetchTrends`, `useReportPanels`) described
+  in [`frontend-architecture.md`](./frontend-architecture.md#data-flow-for-a-single-report),
+  then hands everything to `ReportBody` with `layout="page"`.
+- **`ReportBody.tsx`** — the shared body rendered by both the report page
+  (`layout="page"`) and each compare column (`layout="column"`, via
+  `CompareColumnContent`/`CompareAlignedBody`). Assembles: `ReportToolbar`
+  (page layout only — address bar, sticky from `sm` up),
+  a `VerdictBanner` + `OverviewHeader`/`ScoreRadar` split, the two complaint
+  `ScorePanelCard`s plus Transit's `AmenityPanelCard` in one grid, the
+  remaining amenity cards in a second grid sized by how many sections a
+  report actually has (`AMENITY_COLS`, a static Tailwind-safe lookup — a
+  template-string class name wouldn't survive Tailwind's build-time scan),
+  and — page layout only — a sticky right rail holding `ActivitySpine` above
+  `MapPanelLazy`. Column layout keeps the map inline and renders no activity
+  feed at all, since the compare view fetches no complaint feeds to fill one
+  with. Local UI state (which amenity bucket's browser modal is open) lives in
+  the paired hook, **`useReportPanelState.ts`**, so
+  `ReportBody` and `CompareAlignedBody` don't duplicate it.
+- **`ReportToolbar.tsx`** — the page layout's title bar: address heading and
+  the "Compare with another" link. Sticky from `sm` up only; on a phone it
+  scrolls away with the page.
+- **`VerdictBanner.tsx`** — the headline: two bands side by side (Liveability
+  from the two complaint tiers via `overallBand`, Access from however many
+  amenity tiers are present via `overallAmenityBand`), each with its own
+  one-line "why" (`lib/score.ts#explainVerdict`/`explainAccess`), plus the
+  AI-generated whole-report `summary` underneath. The summary starts as
+  deterministic template text and swaps to real AI text via
+  `useExplanation(coords, "overall", report.summary)` — the **only** place in
+  the report that ever calls `GET /api/explanation`, since every per-tier
+  explanation is deterministic (see
+  [`frontend-lib.md`](./frontend-lib.md#hooksts)).
+- **`OverviewHeader.tsx`** — page layout only: four KPI tiles (Liveability,
+  Access, a block-complaint volume tile, Nearest Transit) via **`KpiTile.tsx`**
+  (which also exposes a `VolumeTile` variant that fetches its own year-
+  over-year trend delta), computed from `lib/reportMetrics.ts#computeOverviewMetrics()`.
+- **`ScoreRadar.tsx`** — hand-rolled SVG radar chart over the report's active
+  categories (2 complaint + however many amenity sections exist), with a
+  dashed ring at the 50-percentile mark since every score is literally
+  anchored on the citywide median there. Renders only when at least 3 axes
+  are present.
+- **`ActivitySpine.tsx`** — page layout only, a chronological feed of recent
+  individual complaints across both complaint tiers (**not** a per-case
+  status timeline — that feature was removed entirely; see
+  [`frontend-lib.md`](./frontend-lib.md#typests)). Clicking an entry opens
+  `ComplaintDetailModal`; a "browse all" link opens `ComplaintsBrowserModal`
+  — both lazy-loaded via `next/dynamic`. Always covers the report's full
+  scoring window (`meta.windowMonths`), not a trend window, so each browse
+  link's count is exactly the count on that tier's score card.
 
-  That explanation area has **three states**, driven by the optional
-  `aiExplanation?: { loading, tiers }` prop:
+## Score panels (complaint tiers)
 
-  | State | Shows |
-  |---|---|
-  | `loading: true` | `"Reasoning..."` (with `animate-pulse`) |
-  | `tiers` non-empty | one labeled line per tier — **Building Health** and **Block Quality** — each with its own text |
-  | `tiers` empty, or prop omitted | `lib/score.ts#explainVerdict()` — the deterministic client-side copy |
+- **`ScorePanelCard.tsx`** — one Building Health or Block Quality panel:
+  `PanelShell` (shared chrome) plus `ComplaintBreakdownBars` and
+  `TrendSection`. Its count line states the scoring window ("… in the last
+  24 months", from `meta.windowMonths`), and it owns its own trend window: the
+  window changes only this card's chart, and the tiers suit different ones
+  (sparse building history at 18–24 months, dense block history at 3–6).
+  Starting windows are per tier (`DEFAULT_WINDOW`): Building Health opens at
+  24 months, Block Quality at the shared 9-month default.
+- **`PanelShell.tsx`** — the chrome shared by both complaint and amenity
+  panel cards: card frame, header, `ScoreMeter`, `StatusBadge`, a low-
+  confidence callout (`CONFIDENCE_MESSAGE`). A `compact` prop swaps the 96px
+  circular `ScoreMeter` for a smaller score chip and tightens padding — used
+  throughout the dashboard layout so more cards fit per row.
+- **`ScoreMeter.tsx`** — the circular 0–100 score gauge (animated SVG ring).
+- **`StatusBadge.tsx`** — small pill showing a `ScoreBand` (either complaint
+  or amenity vocabulary) with its icon and themed color.
+- **`ComplaintBreakdownBars.tsx`** — the per-category count list plus a "Why
+  this score?" disclosure (**`WhyThisScore.tsx`**, a shared expandable-text
+  widget also used by `AmenityPanelCard`) naming the category driving the
+  score, using the same tie-margin rule as the backend's
+  `templateExplanation.js` so the two never disagree.
+- **`TrendSection.tsx`** / **`TrendSparkline.tsx`** — the monthly trend bar
+  chart plus its `WindowPills` control, whose state the card owns.
+  `TrendSparkline` renders gridlines, a caption, and a
+  hover tooltip with the exact month + count from `GET /api/trend`'s
+  zero-filled series.
+- **`WindowPills.tsx`** — the trend-window radiogroup (3/6/9/12/18/24
+  months), rendered by `TrendSection` in each complaint card.
 
-  The prop is optional so `CompareColumn` — which never requests an AI
-  explanation — keeps the `explainVerdict` copy with no change. The fallback
-  is what guarantees this area is never empty and never shows an error.
+## Amenity panels (transit / parks / bike / walkability)
 
-  **Both tiers always render, including template ones.** An earlier version
-  merged the tiers into one paragraph and dropped any that weren't AI-backed,
-  which in practice meant the Building Health line almost never appeared — see
-  the note on zero-complaint buildings below.
+- **`AmenityPanelCard.tsx`** — the amenity sibling to `ScorePanelCard`, same
+  `PanelShell` chrome plus `AmenityMetricRows` and its own "Why this score?"
+  text — computed **client-side** (`lib/amenities.ts#explainAmenity()`),
+  since no amenity tier ever gets a backend- or AI-computed explanation.
+- **`AmenityMetricRows.tsx`** — one row per bucket that found something:
+  name, walk time, distance, and (for subway/bus) route badges
+  (**`TransitLineBadge.tsx`**, MTA's own official trunk-line colors, hardcoded
+  hex values rather than theme tokens since they must stay identical in
+  light/dark mode). A `>` affordance opens `AmenityBrowserModal` for any
+  bucket except `bikeLane`/`protectedLane` — those are a resampled route
+  line, not discrete places, so the backend refuses to list "every instance."
+- **`AmenityBrowserModal.tsx`** — every real instance of one amenity bucket
+  within its radius (`GET /api/amenities/nearby`, via
+  `lib/hooks.ts#useNearbyAmenities()`), lazy-loaded via `next/dynamic`. Feeds
+  both its own list and `MapPanel`'s extra markers, driven by the shared
+  `useReportPanelState` hook so the same fetched data backs both.
 
-### The AI explanation flow
+## Complaints browser & detail
 
-`/api/score` is the fast path and **always** returns deterministic template
-text so it can stay fast; a tier only reports `explanationSource: "ai"` once
-`GET /api/explanation` has been called for it and the result cached
-server-side. `ReportView` drives the swap:
-
-1. After the report renders, an effect checks both tiers. If **every** tier is
-   already `"ai"` (served from the backend's cache) it fires nothing — the
-   text is used directly, with no `"Reasoning..."` flash.
-2. Otherwise it calls `lib/api.ts#fetchExplanation()` for each `"template"`
-   tier in parallel, reusing any already-`"ai"` text rather than re-paying the
-   model latency for it.
-3. Results are kept **per tier**, not merged. Each tier renders its AI text if
-   it got one, and otherwise its own template text from `/api/score`. Only if
-   *no* tier has any text at all does the banner fall back to `explainVerdict`.
-
-> **Expect the Building Health tier to be template most of the time.** The
-> building radius is 25m, and `explain.js` deliberately refuses to ask the
-> model about a tier with zero complaints (llama3.1 described *zero*
-> complaints as "areas of concern"). Sampling 10 spread NYC coordinates, 9 had
-> zero building complaints — so `"template"` there is the normal case, not a
-> failure. This is why each tier falls back to its own template text rather
-> than being dropped from the list.
-
-Two implementation details worth preserving:
-
-- Only the *fetched* result is held in state, keyed by address so a slow
-  response cannot land on the next report; the loading/cached cases are
-  derived during render with `useMemo`. Setting state synchronously in the
-  effect body trips the `react-hooks/set-state-in-effect` lint rule.
-- Expect roughly 7s per tier against local Ollama, so this must stay
-  non-blocking with the template visible meanwhile.
-- **`ScorePanelCard.tsx`** — one full score panel (used twice per report:
-  Building Health and Block Quality). Composes `ScoreMeter`, `StatusBadge`,
-  `ComplaintBreakdownBars`, `TrendSparkline`, and `RecentComplaintsList`.
-  - **Important:** the trend chart and Recent Complaints section are both
-    gated on `panel.recentComplaints !== undefined`. The real backend's
-    `/api/score` response never includes that field — see
-    [`frontend-lib.md`](./frontend-lib.md#whats-real-vs-mocked) for what that
-    means in practice.
-- **`ScoreMeter.tsx`** — the circular 0–100 score gauge (SVG ring, animated
-  `stroke-dashoffset`).
-- **`StatusBadge.tsx`** — small pill showing a `ScoreBand` with its icon and
-  themed color.
-- **`ComplaintBreakdownBars.tsx`** — the "By category" list (name + count per
-  bucket, no bar visualization — removed by design so only the numbers show).
-  For the Block Quality panel specifically, also renders a hover tooltip
-  ("Why this score?") explaining which category is driving the score at the
-  current score level.
-- **`TrendSparkline.tsx`** — the "12-month trend" **bar chart**. Renders
-  gridlines with rounded reference numbers, a "Complaints per month" caption,
-  and a hover tooltip with the exact month + count. Takes `TrendPoint[]`
-  (`{month, count}`) — see `lib/score.ts#buildMonthlyTrend()` for how that's
-  derived from `recentComplaints` (bucketed by month, last 12 months only).
-- **`RecentComplaintsList.tsx`** — the clickable list of individual
-  complaints. Clicking one opens `ComplaintDetailModal`.
-- **`MapPanel.tsx`** — the real Google Maps embed (not a static image).
-  Loads `maps` + `marker` libraries via `window.google.maps.importLibrary`,
-  places a red `AdvancedMarkerElement` at the address, and draws two
-  `google.maps.Circle` overlays for the building/block radii. Includes a
-  fix for a known Street View bug: dragging the Pegman onto the map can
-  render a **blank black canvas** for certain panoramas (especially
-  third-party 360 photos); the component listens for the panorama's
-  `visible_changed`/`pano_changed` events and force-triggers a `resize` event
-  (twice, since the container can still be mid-layout on the first pass) to
-  kick the WebGL viewport into actually painting.
-- **`ReportSkeleton.tsx`** — the loading placeholder (pulsing gray blocks)
-  shown while the report is being fetched.
-
-## Complaint detail modal
-
-- **`ComplaintDetailModal.tsx`** — opens when a complaint in
-  `RecentComplaintsList` is clicked. Shows the complaint's current status and
-  a visual timeline (connected dots, one per status change) with dates and
-  notes, plus the comment thread below it. Closes on Escape or backdrop
-  click.
-  - **The timeline data is a labeled stub**, not real — 311 doesn't expose
-    per-complaint status-change history at all. `lib/mock-data.ts#buildComplaintTimeline()`
-    deterministically synthesizes a plausible Open → In Progress → Closed
-    sequence from the complaint's submission date and current status. See
-    [`frontend-lib.md`](./frontend-lib.md).
-- **`ComplaintComments.tsx`** — the comment/reply thread for one complaint.
-  - One level of threading (top-level comments, each with a flat `replies[]`
-    array — not arbitrarily deep).
-  - Admin comments/replies render with a blue-tinted background, border, and
-    a "Building Admin" badge, visually distinct from resident comments.
-  - **Auth stub:** a checkbox, "Posting as registered building admin," is the
-    entire permission model right now (`isBuildingAdmin` local state) — there
-    is no real authentication. It exists to demonstrate the intended
-    UI/permission structure (only an "admin" can post as one) ahead of real
-    auth being wired up.
-  - Seeded from `lib/mock-data.ts#buildSeedComments()` (deterministic per
-    complaint: one resident comment, plus an admin reply once the complaint
-    is past "open"); new comments/replies added during a session live only in
-    component state — nothing persists, and there is no backend endpoint for
-    comments at all.
+- **`ComplaintDetailModal.tsx`** — opens when a complaint in `ActivitySpine`
+  or the browser is clicked. Shows only what 311 actually publishes: type,
+  filing date, current status. No progress timeline — see
+  [`frontend-lib.md`](./frontend-lib.md#typests) for why that was removed
+  rather than kept as a stub.
+- **`ComplaintsBrowserModal.tsx`** — the full grouped complaint history
+  (`(day, type)` rows with a status breakdown, `GET /api/complaints?complete=1`),
+  paginated (`Pager.tsx`) and filterable by month window/bucket/status
+  (`FilterChips.tsx`, a shared roving-tabindex radiogroup). The first load per address can take seconds (the
+  backend's grouped-fill cache measured 2.3–74.3s cold), so it shows
+  `FactRotator` rather than a spinner. Drilling into one group fetches its
+  individual complaints (`fetchGroupDetail`), also paginated. Two failure
+  paths, kept apart: a **429** (`RateLimitedError` from `lib/api.ts`) keeps
+  the filters, says so, and retries by itself after `Retry-After`; any other
+  failure switches to a reduced list of recent complaints
+  (`fetchNearbyComplaints`) with the filters hidden and a "Try again" link.
+  The chips wrap on narrow screens, since the category filter has seven
+  options.
+- **`FactRotator.tsx`** — rotating trivia used by both `ComplaintsBrowserModal`'s
+  first open and the report's own loading view (`ReportLoading.tsx`) — any
+  wait long enough that a spinner reads as a hang. Content is hardcoded
+  (`lib/nyc-facts.ts` / `lib/renting-facts.ts`), deliberately, so a screen
+  whose entire job is covering for latency doesn't introduce a second thing
+  that can be slow.
+- **`Pager.tsx`** / **`FilterChips.tsx`** — small shared controls, extracted
+  because the complaints browser needs several and a hand-rolled copy per
+  site would drift.
 
 ## Compare page
 
-- **`CompareView.tsx`** — renders two `CompareColumn`s and keeps their
-  addresses in sync with the `?a=` / `?b=` query params.
-- **`CompareColumn.tsx`** — a self-contained mini `ReportView`: its own
-  `AddressSearch`, its own geocode → fetch flow, and renders
-  `VerdictBanner` + two `ScorePanelCard`s + `MapPanel` once loaded.
+- **`CompareView.tsx`** — top-level orchestrator; see
+  [`frontend-architecture.md`](./frontend-architecture.md#data-flow-for-the-compare-page).
+- **`CompareAddressField.tsx`** — the label + `AddressSearch` pair at the top
+  of one column, shared between the "not yet loaded" and "aligned" render
+  paths.
+- **`CompareColumnContent.tsx`** — one column's body (placeholder/spinner/
+  error/`ReportBody`) while at least one side hasn't loaded yet.
+- **`CompareAlignedBody.tsx`** — once both addresses are loaded, a
+  row-aligned two-column layout so matching sections (verdict, each score/
+  amenity panel, radar, map) sit side by side rather than each column just
+  stacking independently.
+
+## Map
+
+- **`MapPanel.tsx`** — the real Google Maps embed. Loads `maps`/`marker`
+  libraries via `window.google.maps.importLibrary`, places an
+  `AdvancedMarkerElement`, draws one `google.maps.Circle` per active category
+  radius (color-matched to that category's token), and can show extra
+  markers for an open `AmenityBrowserModal`. Tracks the resolved theme
+  (`lib/theme.ts`) to swap the map's vector style. Includes a fix for a known
+  Google Maps Street View bug (a blank black canvas after dragging Pegman
+  onto certain panoramas) by force-triggering a `resize` event.
+- **`MapPanelLazy.tsx`** — wraps `MapPanel` in `next/dynamic` (`ssr: false`)
+  plus an `IntersectionObserver`, so the map's JS chunk and its WebGL/vector-
+  tile bootstrap are deferred until the panel is nearly on screen.
 
 ## Landing page
 
+- **`HeroSampleCard.tsx`** — the hero's live report card. Renders the
+  server-fetched showcase item directly when there is one; otherwise fetches
+  a live score for the backend's randomly-chosen fallback address
+  client-side, without blocking the rest of the page.
 - **`FeaturedCard.tsx`** — one address card in the homepage carousel: verdict
-  color strip, band label, top complaint category per panel, complaint
-  totals, links to the full report.
+  color strip, band labels for both Liveability and Access, top category per
+  panel, links to the full report.
 - **`FeaturedCarousel.tsx`** — auto-scrolling horizontal carousel of
-  `FeaturedCard`s. Hand-rolled with `requestAnimationFrame` (not a CSS
+  `FeaturedCard`s, hand-rolled with `requestAnimationFrame` (not a CSS
   animation) so it can pause on hover/touch/wheel and resume smoothly,
-  including subpixel scroll accumulation (tracked separately from
-  `scrollLeft`, which browsers round to integers on read) and a seamless
-  loop by duplicating the report list and snapping back at the midpoint.
+  tracking fractional scroll position separately from `scrollLeft` (which
+  browsers round to integers on read).
+- **`CitywideBaselinePanel.tsx`** — real, static citywide-baseline numbers
+  (`lib/citywide-baseline.ts`), shown in the carousel's slot on the homepage
+  whenever fewer than 3 real cached addresses are available. Server
+  component, no fetch — this is what keeps the homepage honest instead of
+  showing a near-empty or duplicated carousel.
 
-## Icons
+## Legal pages
 
-- **`icons.tsx`** — every icon in the app as a small inline SVG React
-  component (`CheckCircleIcon`, `SpinnerIcon`, `AlertTriangleIcon`,
-  `XCircleIcon`, `SearchIcon`, `MapPinIcon`, `BuildingIcon`, `BlockIcon`,
-  `ChevronRightIcon`, `CloseIcon`, `ClockIcon`). No icon library dependency.
+- **`LegalPageLayout.tsx`** — shared shell for `/privacy`, `/terms`,
+  `/cookies`: title, "last updated" date, back-to-home link, and an
+  `<article>` styled via descendant selectors (no typography plugin is
+  installed) so the section content can stay plain `h2`/`p`/`ul`/`a` tags.
+  Plain server component, no client state.
+
+## Misc
+
+- **`Portal.tsx`** — renders children into `document.body`, used by every
+  full-screen dialog (`ComplaintDetailModal`, `ComplaintsBrowserModal`,
+  `AmenityBrowserModal`) so a dialog opened from inside the report page's
+  sticky right rail (itself a stacking context) can still out-rank the
+  page's other sticky elements by z-index.
