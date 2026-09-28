@@ -87,12 +87,28 @@ describe("query construction", () => {
     // into two and this comparison would fail.
     await fetchCountsForTier(40.7484, -73.9857, "block");
     const where = calls()[0].searchParams.get("$where");
-    const list = where.match(/complaint_type in \((.*?)\) AND created_date/)[1];
+    const list = where.match(/complaint_type in \((.*?)\)\) AND created_date/)[1];
     const parsed = list.split(",").map((literal) => {
       expect(literal).toMatch(/^'.*'$/);
       return literal.slice(1, -1).replace(/''/g, "'");
     });
     expect(parsed).toEqual(Object.values(RADIUS_TIERS.block.buckets).flat());
+  });
+
+  it("drops DOB Plumbing's permit descriptor without dropping NULL descriptors", async () => {
+    await fetchCountsForTier(40.7484, -73.9857, "building");
+    const where = calls()[0].searchParams.get("$where");
+    // The NULL-safe form: NOT (type AND descriptor in ...) would be NULL, and so
+    // drop the row, whenever descriptor is NULL.
+    expect(where).toContain(
+      "(complaint_type != 'Plumbing' OR descriptor IS NULL OR " +
+        "descriptor not in ('Plumbing Work - Illegal/No Permit/Standpipe/Sprinkler'))"
+    );
+  });
+
+  it("adds no descriptor clause to a tier with no excluded descriptors", async () => {
+    await fetchCountsForTier(40.7484, -73.9857, "block");
+    expect(calls()[0].searchParams.get("$where")).not.toContain("descriptor");
   });
 
   it("bounds the query to the trailing window", async () => {
@@ -128,7 +144,7 @@ describe("query construction", () => {
 
 describe("bucket summing", () => {
   it("sums every string variant of a bucket into ONE number", async () => {
-    // The critical rule in CLAUDE.md: noise has 4 variants, plumbing has 2.
+    // The critical rule in CLAUDE.md: noise has 4 variants, plumbing has 3.
     // Percentiling per string and averaging would underweight noise.
     fetchMock.mockResolvedValue(
       jsonResponse([
@@ -140,15 +156,32 @@ describe("bucket summing", () => {
         { complaint_type: "Blocked Driveway", status: "Closed", count: "3" },
         { complaint_type: "Street Condition", status: "Closed", count: "11" },
         { complaint_type: "Sidewalk Condition", status: "Closed", count: "4" },
+        { complaint_type: "Abandoned Vehicle", status: "Closed", count: "6" },
+        { complaint_type: "Rodent", status: "Closed", count: "2" },
       ])
     );
 
     const { counts } = await fetchCountsForTier(40.7, -73.9, "block");
     expect(counts).toEqual({
       noise: 175,
-      parking: 10,
+      parking: 16,
       streetCondition: 15,
+      sanitation: 2,
+      infrastructure: 0,
+      publicSafety: 0,
     });
+  });
+
+  it("sums WATER LEAK into plumbing alongside PLUMBING", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { complaint_type: "PLUMBING", status: "Closed", count: "4" },
+        { complaint_type: "WATER LEAK", status: "Open", count: "3" },
+      ])
+    );
+    const { counts, bucketStatusCounts } = await fetchCountsForTier(40.7, -73.9, "building");
+    expect(counts.plumbing).toBe(7);
+    expect(bucketStatusCounts.plumbing).toEqual({ open: 3, "in-progress": 0, closed: 4 });
   });
 
   it("zero-fills buckets Socrata omits entirely", async () => {
@@ -163,6 +196,9 @@ describe("bucket summing", () => {
       heatHotWater: 42,
       unsanitaryCondition: 0,
       plumbing: 0,
+      repairs: 0,
+      electricGas: 0,
+      buildingSafety: 0,
     });
     for (const value of Object.values(counts)) {
       expect(Number.isNaN(value)).toBe(false);
@@ -176,6 +212,9 @@ describe("bucket summing", () => {
       heatHotWater: 0,
       unsanitaryCondition: 0,
       plumbing: 0,
+      repairs: 0,
+      electricGas: 0,
+      buildingSafety: 0,
     });
   });
 
@@ -183,7 +222,7 @@ describe("bucket summing", () => {
     fetchMock.mockResolvedValue(
       jsonResponse([
         { complaint_type: "HEAT/HOT WATER", status: "Open", count: "5" },
-        { complaint_type: "Rodent", status: "Open", count: "999" },
+        { complaint_type: "Non-Residential Heat", status: "Open", count: "999" },
       ])
     );
     const { counts } = await fetchCountsForTier(40.7, -73.9, "building");
@@ -200,6 +239,9 @@ describe("bucket summing", () => {
       heatHotWater: 0,
       unsanitaryCondition: 0,
       plumbing: 0,
+      repairs: 0,
+      electricGas: 0,
+      buildingSafety: 0,
     });
   });
 });
@@ -210,19 +252,22 @@ describe("bucketStatusCounts", () => {
       jsonResponse([
         { complaint_type: "HEAT/HOT WATER", status: "Open", count: "3" },
         { complaint_type: "HEAT/HOT WATER", status: "Assigned", count: "2" },
-        { complaint_type: "Heat/Hot Water", status: "Closed", count: "10" },
+        { complaint_type: "HEAT/HOT WATER", status: "Closed", count: "10" },
         { complaint_type: "PLUMBING", status: "Unspecified", count: "1" },
       ])
     );
 
     const { counts, bucketStatusCounts } = await fetchCountsForTier(40.7, -73.9, "building");
-    expect(counts).toEqual({ heatHotWater: 15, unsanitaryCondition: 0, plumbing: 1 });
+    expect(counts).toEqual({ heatHotWater: 15, unsanitaryCondition: 0, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 });
     expect(bucketStatusCounts).toEqual({
       // "Assigned" sits with in-progress; "Unspecified" sits with open — see
       // STATUS_TO_BUCKET in constants.js.
       heatHotWater: { open: 3, "in-progress": 2, closed: 10 },
       unsanitaryCondition: { open: 0, "in-progress": 0, closed: 0 },
       plumbing: { open: 1, "in-progress": 0, closed: 0 },
+      repairs: { open: 0, "in-progress": 0, closed: 0 },
+      electricGas: { open: 0, "in-progress": 0, closed: 0 },
+      buildingSafety: { open: 0, "in-progress": 0, closed: 0 },
     });
   });
 
@@ -233,6 +278,9 @@ describe("bucketStatusCounts", () => {
       noise: { open: 0, "in-progress": 0, closed: 0 },
       parking: { open: 0, "in-progress": 0, closed: 0 },
       streetCondition: { open: 0, "in-progress": 0, closed: 0 },
+      sanitation: { open: 0, "in-progress": 0, closed: 0 },
+      infrastructure: { open: 0, "in-progress": 0, closed: 0 },
+      publicSafety: { open: 0, "in-progress": 0, closed: 0 },
     });
   });
 
@@ -275,7 +323,7 @@ describe("fetchAllCounts", () => {
       "in-progress": 0,
       closed: 3,
     });
-    expect(block.counts).toEqual({ noise: 0, parking: 0, streetCondition: 0 });
+    expect(block.counts).toEqual({ noise: 0, parking: 0, streetCondition: 0, sanitation: 0, infrastructure: 0, publicSafety: 0 });
   });
 
   it("issues the two calls in parallel, not in sequence", async () => {
@@ -469,9 +517,17 @@ describe("fetchComplaintsForGroup", () => {
 
   it("bounds the query to the one day and type the group describes", async () => {
     const where = await whereFor({});
-    expect(where).toContain("complaint_type = 'Noise - Residential'");
+    expect(where).toContain("(complaint_type in ('Noise - Residential'))");
     expect(where).toContain("created_date >= '2026-08-14T00:00:00'");
     expect(where).toContain("created_date < '2026-08-14T23:59:59.999'");
+  });
+
+  it("applies the same descriptor exclusion the grouped counts did", async () => {
+    // Otherwise a day's drill-down would list permit complaints its group count
+    // left out.
+    expect(await whereFor({ type: "Plumbing" })).toContain("descriptor not in (");
+    fetchMock.mockClear();
+    expect(await whereFor({ type: "PLUMBING" })).not.toContain("descriptor");
   });
 
   it("adds no status predicate when the caller did not filter", async () => {

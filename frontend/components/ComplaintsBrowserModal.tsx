@@ -27,8 +27,8 @@ import { Portal } from "./Portal";
 
 /** The buckets each tier actually has, so the type filter never offers an empty one. */
 const TIER_BUCKETS = {
-  building: ["heatHotWater", "unsanitaryCondition", "plumbing"],
-  block: ["noise", "parking", "streetCondition"],
+  building: ["heatHotWater", "unsanitaryCondition", "plumbing", "repairs", "electricGas", "buildingSafety"],
+  block: ["noise", "parking", "streetCondition", "sanitation", "infrastructure", "publicSafety"],
 } as const;
 
 function formatDay(iso: string) {

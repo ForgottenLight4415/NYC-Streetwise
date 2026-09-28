@@ -27,22 +27,35 @@ import {
 // the silent-reweighting failure mode CLAUDE.md decision 6 warns about.
 
 describe("bucket definitions", () => {
-  it("keeps exactly three buckets per sub-score", () => {
+  it("keeps the documented buckets per sub-score, in order", () => {
     expect(BUCKET_NAMES.building).toEqual([
       "heatHotWater",
       "unsanitaryCondition",
       "plumbing",
+      "repairs",
+      "electricGas",
+      "buildingSafety",
     ]);
-    expect(BUCKET_NAMES.block).toEqual(["noise", "parking", "streetCondition"]);
+    expect(BUCKET_NAMES.block).toEqual([
+      "noise",
+      "parking",
+      "streetCondition",
+      "sanitation",
+      "infrastructure",
+      "publicSafety",
+    ]);
   });
 
   it("excludes the types CLAUDE.md explicitly rejected", () => {
     // Each of these was excluded for a documented reason; re-adding one silently
     // changes what the score means.
     const excluded = [
-      "Dirty Condition",
       "Dirty Conditions",
       "General Construction/Plumbing",
+      "Illegal Fireworks",
+      "Urinating in Public",
+      "Indoor Air Quality",
+      "Lead",
       "Non-Residential Heat",
       "Noise",
       "Noise - Helicopter",
@@ -57,6 +70,19 @@ describe("bucket definitions", () => {
   it("folds Blocked Driveway into parking and Sidewalk Condition into streetCondition", () => {
     expect(TYPE_TO_BUCKET["Blocked Driveway"]).toBe("parking");
     expect(TYPE_TO_BUCKET["Sidewalk Condition"]).toBe("streetCondition");
+  });
+
+  it("folds Water Leak into plumbing and abandoned vehicles into parking", () => {
+    expect(TYPE_TO_BUCKET["WATER LEAK"]).toBe("plumbing");
+    expect(TYPE_TO_BUCKET["Abandoned Vehicle"]).toBe("parking");
+    expect(TYPE_TO_BUCKET["Derelict Vehicles"]).toBe("parking");
+  });
+
+  it("counts Dirty Condition on the block, never against a building", () => {
+    // DSNY street sanitation: a block condition, not an HPD building-interior
+    // one (CLAUDE.md decision 1).
+    expect(TYPE_TO_BUCKET["Dirty Condition"]).toBe("sanitation");
+    expect(BUILDING_HEALTH_TYPES.unsanitaryCondition).not.toContain("Dirty Condition");
   });
 });
 

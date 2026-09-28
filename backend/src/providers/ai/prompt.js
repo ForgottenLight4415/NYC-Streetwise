@@ -5,14 +5,24 @@
 
 import { formatDistanceImperial } from "../../lib/geo.js";
 
-/** Human-readable bucket names. The model should never see our camelCase keys. */
+/**
+ * Human-readable bucket names. The model should never see our camelCase keys.
+ * Short noun phrases with NO commas: formatCounts() joins them with ", ", so a
+ * comma inside a label would read as several separate categories.
+ */
 const BUCKET_LABELS = {
   heatHotWater: "heat and hot water",
   unsanitaryCondition: "unsanitary conditions",
-  plumbing: "plumbing",
+  plumbing: "plumbing and leaks",
+  repairs: "repairs",
+  electricGas: "electrical and gas problems",
+  buildingSafety: "building safety",
   noise: "noise",
-  parking: "illegal parking and blocked driveways",
+  parking: "parking and abandoned vehicles",
   streetCondition: "street and sidewalk condition",
+  sanitation: "sanitation and rodents",
+  infrastructure: "street infrastructure",
+  publicSafety: "public safety",
 };
 
 export function bucketLabel(bucket) {

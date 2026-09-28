@@ -59,8 +59,8 @@ const {
 } = await import("../src/services/scoreService.js");
 
 const COUNTS = {
-  building: { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1 },
-  block: { noise: 1653, parking: 402, streetCondition: 88 },
+  building: { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 },
+  block: { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 },
 };
 
 // Mirrors the real fetchCountsForTier's bucketStatusCounts shape — each
@@ -190,7 +190,7 @@ describe("warm call", () => {
   it("re-fetches and overwrites when forceRefresh is set", async () => {
     await getCounts(40.7484, -73.9857);
     fetchSpy.mockClear();
-    const updated = { heatHotWater: 99, unsanitaryCondition: 0, plumbing: 0 };
+    const updated = { heatHotWater: 99, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
       counts: tier === "building" ? updated : COUNTS[tier],
     }));
@@ -245,7 +245,7 @@ describe("count integrity", () => {
   });
 
   it("round-trips zero counts through the cache as a hit", async () => {
-    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 };
+    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
       counts: tier === "building" ? zeros : COUNTS.block,
     }));
@@ -350,7 +350,7 @@ describe("buildScoreReport", () => {
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
       counts:
         tier === "block"
-          ? { noise: 40, parking: 60, streetCondition: 5 }
+          ? { noise: 40, parking: 60, streetCondition: 5, sanitation: 0, infrastructure: 0, publicSafety: 0 }
           : COUNTS.building,
     }));
     const quiet = await buildScoreReport(40.5795, -74.1502);
@@ -358,7 +358,7 @@ describe("buildScoreReport", () => {
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
       counts:
         tier === "block"
-          ? { noise: 9000, parking: 7000, streetCondition: 500 }
+          ? { noise: 9000, parking: 7000, streetCondition: 500, sanitation: 0, infrastructure: 0, publicSafety: 0 }
           : COUNTS.building,
     }));
     const loud = await buildScoreReport(40.6944, -73.9213);

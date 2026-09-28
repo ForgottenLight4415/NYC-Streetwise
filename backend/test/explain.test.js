@@ -21,14 +21,14 @@ const { explainFromTemplate, explanationInputFor, radiusLabelFor } =
 
 const BUILDING = {
   band: "good",
-  counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1 },
-  bucketScores: { heatHotWater: 88, unsanitaryCondition: 100, plumbing: 86 },
+  counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 },
+  bucketScores: { heatHotWater: 88, unsanitaryCondition: 100, plumbing: 86, repairs: 100, electricGas: 100, buildingSafety: 100 },
 };
 
 const BLOCK = {
   band: "poor",
-  counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-  bucketScores: { noise: 18, parking: 46, streetCondition: 44 },
+  counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
+  bucketScores: { noise: 18, parking: 46, streetCondition: 44, sanitation: 100, infrastructure: 100, publicSafety: 100 },
 };
 
 beforeEach(() => {
@@ -77,7 +77,7 @@ describe("templateExplanation", () => {
     const text = templateExplanation({
       label: "Building Health",
       band: "good",
-      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 },
+      counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
     });
     expect(text).toMatch(/no 311 complaints were filed/i);
     expect(text).not.toMatch(/excellent|great|perfect|well maintained/i);
@@ -99,7 +99,7 @@ describe("templateExplanation", () => {
     const one = templateExplanation({
       label: "Building Health",
       band: "good",
-      counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 },
+      counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
     });
     // Word boundary matters: the opener contains "311 complaints", which a
     // naive /1 complaints/ would match.
@@ -114,8 +114,8 @@ describe("dominantBucket", () => {
     // complaints can matter more than 2876 noise ones, because the citywide
     // norms differ by an order of magnitude.
     const bucket = dominantBucket({
-      counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-      bucketScores: { noise: 80, parking: 90, streetCondition: 5 },
+      counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
+      bucketScores: { noise: 80, parking: 90, streetCondition: 5, sanitation: 100, infrastructure: 100, publicSafety: 100 },
     });
     expect(bucket).toBe("streetCondition");
   });

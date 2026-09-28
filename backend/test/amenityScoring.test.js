@@ -197,7 +197,7 @@ describe("scoreAmenityTier", () => {
 });
 
 describe("buildReport amenity integration", () => {
-  const COUNTS = { building: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 }, block: {} };
+  const COUNTS = { building: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 }, block: {} };
   const COMPLAINT_BASELINE = null; // irrelevant to these assertions
 
   it("omits all three amenity keys when amenities is null", () => {

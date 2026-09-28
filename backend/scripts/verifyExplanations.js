@@ -39,12 +39,12 @@ const FIXTURES = [
       {
         label: "Building Health",
         band: "good",
-        counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1 },
+        counts: { heatHotWater: 5, unsanitaryCondition: 0, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 },
       },
       {
         label: "Block Quality",
         band: "poor",
-        counts: { noise: 2876, parking: 1253, streetCondition: 144 },
+        counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
       },
     ],
   },
@@ -54,12 +54,12 @@ const FIXTURES = [
       {
         label: "Building Health",
         band: "fair",
-        counts: { heatHotWater: 12, unsanitaryCondition: 2, plumbing: 4 },
+        counts: { heatHotWater: 12, unsanitaryCondition: 2, plumbing: 4, repairs: 0, electricGas: 0, buildingSafety: 0 },
       },
       {
         label: "Block Quality",
         band: "fair",
-        counts: { noise: 834, parking: 1116, streetCondition: 302 },
+        counts: { noise: 834, parking: 1116, streetCondition: 302, sanitation: 0, infrastructure: 0, publicSafety: 0 },
       },
       {
         label: "Transit Access",
@@ -74,12 +74,12 @@ const FIXTURES = [
       {
         label: "Building Health",
         band: "poor",
-        counts: { heatHotWater: 412, unsanitaryCondition: 88, plumbing: 51 },
+        counts: { heatHotWater: 412, unsanitaryCondition: 88, plumbing: 51, repairs: 0, electricGas: 0, buildingSafety: 0 },
       },
       {
         label: "Block Quality",
         band: "good",
-        counts: { noise: 40, parking: 12, streetCondition: 3 },
+        counts: { noise: 40, parking: 12, streetCondition: 3, sanitation: 0, infrastructure: 0, publicSafety: 0 },
       },
       {
         label: "Transit Access",

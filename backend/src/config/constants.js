@@ -19,9 +19,17 @@ export const LOCATION_FIELD = "location";
 // ---------------------------------------------------------------------------
 
 export const BUILDING_HEALTH_TYPES = {
-  heatHotWater: ["HEAT/HOT WATER", "Heat/Hot Water"],
-  unsanitaryCondition: ["UNSANITARY CONDITION", "Unsanitary Condition"],
-  plumbing: ["PLUMBING", "Plumbing"],
+  // HPD's title-case "Heat/Hot Water" and "Unsanitary Condition" were filed
+  // only Aug-Oct 2023, permanently outside the window, so they are not listed.
+  heatHotWater: ["HEAT/HOT WATER"],
+  unsanitaryCondition: ["UNSANITARY CONDITION"],
+  // "Plumbing" is DOB's type, not an HPD case variant (CLAUDE.md decision 2).
+  // WATER LEAK is folded in: same HPD water-system repair domain.
+  plumbing: ["PLUMBING", "Plumbing", "WATER LEAK"],
+  repairs: ["PAINT/PLASTER", "DOOR/WINDOW", "FLOORING/STAIRS", "OUTSIDE BUILDING"],
+  electricGas: ["ELECTRIC", "APPLIANCE", "GENERAL"],
+  // ELEVATOR is HPD, Elevator is DOB — two agencies, two spellings.
+  buildingSafety: ["SAFETY", "Safety", "ELEVATOR", "Elevator"],
 };
 
 export const BLOCK_QUALITY_TYPES = {
@@ -31,8 +39,36 @@ export const BLOCK_QUALITY_TYPES = {
     "Noise - Vehicle",
     "Noise - Commercial",
   ],
-  parking: ["Illegal Parking", "Blocked Driveway"],
+  parking: [
+    "Illegal Parking",
+    "Blocked Driveway",
+    "Abandoned Vehicle",
+    "Derelict Vehicles",
+  ],
   streetCondition: ["Street Condition", "Sidewalk Condition", "DEP Street Condition"],
+  sanitation: [
+    "Dirty Condition",
+    "Illegal Dumping",
+    "Missed Collection",
+    "Rodent",
+    "Graffiti",
+    "Litter Basket Complaint",
+    "Residential Disposal Complaint",
+  ],
+  infrastructure: [
+    "Street Light Condition",
+    "Traffic Signal Condition",
+    "Water System",
+    "Sewer",
+    "Damaged Tree",
+  ],
+  publicSafety: [
+    "Encampment",
+    "Homeless Person Assistance",
+    "Drug Activity",
+    "Panhandling",
+    "Drinking",
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +86,17 @@ export const RADIUS_TIERS = {
     radiusMeters: 350,
     buckets: BLOCK_QUALITY_TYPES,
   },
+};
+
+/**
+ * Descriptors dropped from a complaint_type that otherwise counts, for types
+ * that mix building conditions with enforcement paperwork. DOB's "Plumbing"
+ * keeps its leak, drainage, gas and sprinkler descriptors but not the
+ * unpermitted-work one (CLAUDE.md decision 2). Applied in every query by
+ * socrata.js's typeInClause(), so scores, lists and baselines agree.
+ */
+export const EXCLUDED_DESCRIPTORS = {
+  Plumbing: ["Plumbing Work - Illegal/No Permit/Standpipe/Sprinkler"],
 };
 
 /** Bucket names in a stable order, per tier. */
@@ -155,16 +202,22 @@ export function windowCutoffISO(now = new Date()) {
 // Scoring
 // ---------------------------------------------------------------------------
 
-// Sub-score is the mean of the three bucket percentiles. Equal weights are the
+// Sub-score is the mean of the tier's bucket percentiles. Equal weights are the
 // starting point; if a bucket ever needs its own weight it must be set here
 // explicitly rather than by padding its type list (see CLAUDE.md decision 6).
 export const BUCKET_WEIGHTS = {
   heatHotWater: 1,
   unsanitaryCondition: 1,
   plumbing: 1,
+  repairs: 1,
+  electricGas: 1,
+  buildingSafety: 1,
   noise: 1,
   parking: 1,
   streetCondition: 1,
+  sanitation: 1,
+  infrastructure: 1,
+  publicSafety: 1,
 };
 
 /** Score is 0-100 where 100 = fewest complaints. Bands are inclusive lower bounds. */

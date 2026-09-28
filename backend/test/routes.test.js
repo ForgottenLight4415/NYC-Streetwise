@@ -67,8 +67,8 @@ vi.mock("../src/providers/amenities/index.js", async (importOriginal) => {
 const { SocrataError } = await import("../src/providers/socrata.js");
 
 const COUNTS = {
-  building: { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1 },
-  block: { noise: 1653, parking: 402, streetCondition: 88 },
+  building: { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 },
+  block: { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 },
 };
 
 function complaintRow(index) {
@@ -204,7 +204,7 @@ describe("POST /api/score", () => {
     countsSpy.mockImplementation(async (lat, lng, tier) => ({
       counts:
         tier === "building"
-          ? { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 }
+          ? { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 }
           : COUNTS.block,
     }));
 

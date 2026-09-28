@@ -3,6 +3,7 @@ import {
   LOCATION_FIELD,
   RADIUS_TIERS,
   BUCKET_NAMES,
+  EXCLUDED_DESCRIPTORS,
   TYPE_TO_BUCKET,
   SOCRATA_TIMEOUT_MS,
   SOCRATA_MAX_RETRIES,
@@ -33,8 +34,26 @@ function soqlString(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function typeInClause(types) {
-  return `complaint_type in (${types.map(soqlString).join(",")})`;
+/**
+ * The complaint-type filter every query uses, including EXCLUDED_DESCRIPTORS.
+ * Exported so scripts/ sample and verify against exactly the rows scoring
+ * counts.
+ *
+ * The exclusion is written as `!= type OR descriptor IS NULL OR not in (...)`,
+ * not `NOT (type AND descriptor in (...))`: SoQL follows SQL null logic, so the
+ * NOT form would evaluate to NULL for a row with no descriptor and silently
+ * drop it.
+ */
+export function typeInClause(types) {
+  const clauses = [`complaint_type in (${types.map(soqlString).join(",")})`];
+  for (const [type, descriptors] of Object.entries(EXCLUDED_DESCRIPTORS)) {
+    if (!types.includes(type)) continue;
+    clauses.push(
+      `(complaint_type != ${soqlString(type)} OR descriptor IS NULL OR ` +
+        `descriptor not in (${descriptors.map(soqlString).join(",")}))`
+    );
+  }
+  return `(${clauses.join(" AND ")})`;
 }
 
 /**
@@ -144,7 +163,7 @@ function zeroStatusCounts() {
  *
  * Summing into buckets here (rather than scoring per string) is required —
  * buckets hold different numbers of string variants, so per-string averaging
- * would silently underweight noise (4 strings) against plumbing (2).
+ * would silently underweight noise (4 strings) against plumbing (3).
  *
  * @returns {Promise<{
  *   counts: Record<string, number>,
@@ -313,7 +332,9 @@ export async function fetchComplaintsForGroup(
 ) {
   const where = [
     `within_circle(${LOCATION_FIELD}, ${lat}, ${lng}, ${radiusMeters})`,
-    `complaint_type = ${soqlString(type)}`,
+    // The shared clause, not a bare `complaint_type =`: a group's rows must be
+    // exactly the ones fetchComplaintGroups() counted for it.
+    typeInClause([type]),
     `created_date >= ${soqlString(`${day}T00:00:00`)}`,
     `created_date < ${soqlString(`${day}T23:59:59.999`)}`,
   ];

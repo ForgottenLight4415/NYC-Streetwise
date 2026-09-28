@@ -31,13 +31,13 @@ for the full field-by-field contract and every additive change made to it):
   "summary": { "explanation": string, "explanationSource": "ai" | "template" },
   "buildingHealth": {
     "score": 0-100, "band": "good"|"fair"|"poor",
-    "counts": { "heatHotWater", "unsanitaryCondition", "plumbing" },
+    "counts": { "heatHotWater", "unsanitaryCondition", "plumbing", "repairs", "electricGas", "buildingSafety" },
     "radiusMeters": 25, "confidence", "confidenceReason",
     "bucketScores": {...}, "bucketConfidence": {...},
     "explanation": string, "explanationSource": "template",  // always template here
     "bucketStatusCounts"?: { <bucket>: { open, "in-progress", closed } }
   },
-  "blockQuality": { /* same shape, buckets: noise, parking, streetCondition, radiusMeters: 350 */ },
+  "blockQuality": { /* same shape, buckets: noise, parking, streetCondition, sanitation, infrastructure, publicSafety, radiusMeters: 350 */ },
 
   // Present only when its own dataset/lookup succeeded — a failure omits the
   // key rather than scoring the tier as if nothing were nearby.

@@ -30,11 +30,13 @@ app geocodes it, pulls every relevant 311 complaint filed near that location
 over the last two years, and turns the raw counts — plus a handful of public
 amenity datasets — into six things a person can actually act on:
 
-- A **Building Health Score** (0–100) — heat/hot water outages, unsanitary
-  conditions, and plumbing failures, scoped to a tight ~25m radius so it
+- A **Building Health Score** (0–100) — heat/hot water outages, pests and
+  mold, plumbing and leaks, disrepair, electrical and gas problems, and
+  building safety (detectors, fire escapes, elevators), scoped to a tight ~25m radius so it
   reflects *this building*, not the whole block.
-- A **Block Quality Score** (0–100) — noise, illegal parking, and street
-  condition complaints at a ~350m radius, describing what living on this
+- A **Block Quality Score** (0–100) — noise, parking and abandoned
+  vehicles, street condition, sanitation, street infrastructure, and public
+  safety complaints at a ~350m radius, describing what living on this
   block is actually like day to day.
 - **Transit, Parks, and Bike Access Scores** (0–100) — distance to the
   nearest subway/bus/rail, park/playground/garden, and Citi Bike dock/bike

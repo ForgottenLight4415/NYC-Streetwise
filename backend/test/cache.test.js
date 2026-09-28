@@ -33,8 +33,8 @@ import {
   AMENITY_DISTANCE_CACHE_TTL_SECONDS,
 } from "../src/config/constants.js";
 
-const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0 };
-const BLOCK = { noise: 1653, parking: 402, streetCondition: 88 };
+const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const BLOCK = { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 };
 
 let mongo;
 
@@ -165,7 +165,7 @@ describe("read / write round trip", () => {
   it("preserves zero counts rather than treating them as absent", async () => {
     // A genuine all-zero building result is meaningful (M4 flags it as
     // low-confidence); it must not be indistinguishable from a cache miss.
-    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 };
+    const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
     await writeCounts(40.7484, -73.9857, "building", zeros);
     expect((await readCounts(40.7484, -73.9857, ["building"])).building).toEqual(
       zeros
@@ -240,7 +240,7 @@ describe("corrupt documents", () => {
       lat: 40.7484,
       lng: -73.9857,
       radiusTier: "block",
-      counts: { noise: "1653", parking: 402, streetCondition: 88 },
+      counts: { noise: "1653", parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 },
       createdAt: new Date(),
     });
     expect((await readCounts(40.7484, -73.9857, ["block"])).block).toBeNull();
@@ -295,7 +295,7 @@ describe("degradation", () => {
 describe("explanation caching", () => {
   const LAT = 40.7484;
   const LNG = -73.9857;
-  const COUNTS = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1 };
+  const COUNTS = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 };
 
   beforeEach(async () => {
     await writeCounts(LAT, LNG, "building", COUNTS);
@@ -394,11 +394,11 @@ describe("amenity distance caching", () => {
     // These now live in SEPARATE collections, so this is no longer about a
     // radiusTier discriminator — it guards that the split kept both readable
     // for the same coordinate rather than one shadowing the other.
-    await writeCounts(LAT, LNG, "building", { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
+    await writeCounts(LAT, LNG, "building", { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 });
     await writeAmenityDistances(LAT, LNG, DISTANCES);
 
     const counts = await readCounts(LAT, LNG, ["building"]);
-    expect(counts.building).toEqual({ heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 });
+    expect(counts.building).toEqual({ heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 });
     expect(await readAmenityDistances(LAT, LNG)).toEqual(DISTANCES);
   });
 

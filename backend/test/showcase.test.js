@@ -31,8 +31,8 @@ const { buildCachedScoreReport } = await import("../src/services/scoreService.js
 const PARK = { address: "456 Park Ave, New York, NY 10022", borough: "Manhattan", lat: 40.7614, lng: -73.9707 };
 const LUDLOW = { address: "123 Ludlow St, New York, NY 10002", borough: "Manhattan", lat: 40.7202, lng: -73.9877 };
 
-const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1 };
-const BLOCK = { noise: 1653, parking: 402, streetCondition: 88 };
+const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 1, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const BLOCK = { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 };
 
 /** A directory row plus both tiers of counts — one fully renderable address. */
 async function seedCached(entry, { now } = {}) {

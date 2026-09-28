@@ -21,13 +21,13 @@ const { explainOverallWithAI, explainOverallFromTemplate, overallSections } =
 const REPORT = {
   buildingHealth: {
     band: "good",
-    counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 },
-    bucketScores: { heatHotWater: 90, unsanitaryCondition: 100, plumbing: 100 },
+    counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
+    bucketScores: { heatHotWater: 90, unsanitaryCondition: 100, plumbing: 100, repairs: 100, electricGas: 100, buildingSafety: 100 },
   },
   blockQuality: {
     band: "poor",
-    counts: { noise: 2876, parking: 1253, streetCondition: 144 },
-    bucketScores: { noise: 18, parking: 46, streetCondition: 44 },
+    counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 },
+    bucketScores: { noise: 18, parking: 46, streetCondition: 44, sanitation: 100, infrastructure: 100, publicSafety: 100 },
   },
   transitAccess: {
     band: "good",
@@ -44,11 +44,11 @@ const REPORT = {
 const ALL_ZERO_REPORT = {
   buildingHealth: {
     band: "good",
-    counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 },
+    counts: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 },
   },
   blockQuality: {
     band: "good",
-    counts: { noise: 0, parking: 0, streetCondition: 0 },
+    counts: { noise: 0, parking: 0, streetCondition: 0, sanitation: 0, infrastructure: 0, publicSafety: 0 },
   },
 };
 

@@ -31,11 +31,20 @@ One HTTP call, grouped by `complaint_type` **and** `status`:
 ```
 $select = complaint_type, status, count(*) AS count
 $where  = within_circle(location, lat, lng, radiusMeters)
-            AND complaint_type in (...)
+            AND (complaint_type in (...)
+                 AND (complaint_type != 'Plumbing' OR descriptor IS NULL
+                      OR descriptor not in (<EXCLUDED_DESCRIPTORS>)))
             AND created_date > '<24-month cutoff>'
 $group  = complaint_type, status
 $limit  = 50000
 ```
+
+The type filter comes from `typeInClause()`, shared by every query here (and
+exported for the baseline sampler and `verifyDataset.js`), so the
+`EXCLUDED_DESCRIPTORS` carve-out applies identically to counts, complaint
+lists, grouped days, the per-day drill-down and the monthly trend. The
+descriptor clause is written NULL-safely: `NOT (type AND descriptor in ...)`
+would evaluate to NULL, and drop the row, for a complaint with no descriptor.
 
 Zero-fills every bucket *before* summing rows in — a bucket with zero
 complaints returns no row at all from Socrata, and a missing key would

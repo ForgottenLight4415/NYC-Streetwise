@@ -28,10 +28,16 @@ const BASELINE = {
     heatHotWater: { median: 2, p90: 100, zeroShare: 0.4 },
     unsanitaryCondition: { median: 1, p90: 25, zeroShare: 0.45 },
     plumbing: { median: 0, p90: 20, zeroShare: 0.5 },
+    repairs: { median: 1, p90: 30, zeroShare: 0.45 },
+    electricGas: { median: 0, p90: 15, zeroShare: 0.55 },
+    buildingSafety: { median: 0, p90: 5, zeroShare: 0.7 },
     // block — never zero at 350m in NYC
     noise: { median: 1000, p90: 4000, zeroShare: 0 },
     parking: { median: 1000, p90: 2000, zeroShare: 0 },
     streetCondition: { median: 100, p90: 260, zeroShare: 0 },
+    sanitation: { median: 100, p90: 400, zeroShare: 0 },
+    infrastructure: { median: 50, p90: 200, zeroShare: 0 },
+    publicSafety: { median: 20, p90: 300, zeroShare: 0 },
   },
   radiusMeters: {
     building: RADIUS_TIERS.building.radiusMeters,
@@ -39,8 +45,8 @@ const BASELINE = {
   },
 };
 
-const ZERO_BUILDING = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 };
-const TYPICAL_BLOCK = { noise: 1000, parking: 1000, streetCondition: 100 };
+const ZERO_BUILDING = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const TYPICAL_BLOCK = { noise: 1000, parking: 1000, streetCondition: 100, sanitation: 100, infrastructure: 50, publicSafety: 20 };
 
 describe("bandFor", () => {
   it("treats thresholds as inclusive lower bounds", () => {
@@ -162,19 +168,22 @@ describe("bucketScore", () => {
 });
 
 describe("scoreTier", () => {
-  it("averages the three bucket scores", () => {
-    // parking at median (50), noise at p90 (10), streetCondition at 0 (100).
+  it("averages the tier's bucket scores", () => {
+    // Each bucket pinned to a known anchor: p90 (10), median (50) or 0 (100).
     const tier = scoreTier(
       "block",
-      { noise: 4000, parking: 1000, streetCondition: 0 },
+      { noise: 4000, parking: 1000, streetCondition: 0, sanitation: 0, infrastructure: 50, publicSafety: 300 },
       BASELINE
     );
     expect(tier.bucketScores).toEqual({
       noise: 10,
       parking: 50,
       streetCondition: 100,
+      sanitation: 100,
+      infrastructure: 50,
+      publicSafety: 10,
     });
-    expect(tier.score).toBe(Math.round((10 + 50 + 100) / 3));
+    expect(tier.score).toBe(Math.round((10 + 50 + 100 + 100 + 50 + 10) / 6));
   });
 
   it("returns the frozen sub-score shape", () => {
@@ -204,12 +213,12 @@ describe("scoreTier", () => {
   it("ranks a quiet block above a loud one", () => {
     const quiet = scoreTier(
       "block",
-      { noise: 100, parking: 200, streetCondition: 10 },
+      { noise: 100, parking: 200, streetCondition: 10, sanitation: 10, infrastructure: 5, publicSafety: 0 },
       BASELINE
     );
     const loud = scoreTier(
       "block",
-      { noise: 6000, parking: 5000, streetCondition: 400 },
+      { noise: 6000, parking: 5000, streetCondition: 400, sanitation: 900, infrastructure: 500, publicSafety: 800 },
       BASELINE
     );
     expect(quiet.score).toBeGreaterThan(loud.score);
@@ -274,7 +283,7 @@ describe("scoreTier", () => {
     // would render as "NaN" in the UI and nobody would know why.
     const tier = scoreTier("block", { noise: 1000 }, BASELINE);
     expect(Number.isInteger(tier.score)).toBe(true);
-    expect(tier.counts).toEqual({ noise: 1000, parking: 0, streetCondition: 0 });
+    expect(tier.counts).toEqual({ noise: 1000, parking: 0, streetCondition: 0, sanitation: 0, infrastructure: 0, publicSafety: 0 });
   });
 
   // bucketStatusCounts — pure pass-through, no scoring logic reads it.

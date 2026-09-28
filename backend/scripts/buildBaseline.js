@@ -3,6 +3,7 @@
  *
  *   npm run baseline               # default sample size
  *   npm run baseline -- --samples=80 --dry-run
+ *   npm run baseline -- --refresh  # bypass the complaint cache
  *
  * WHY THIS EXISTS: without it we would be showing raw complaint counts, and "47
  * noise complaints" is meaningless to a renter. The baseline turns a count into
@@ -12,6 +13,10 @@
  *   1. Draws sample coordinates from REAL 311 records, spread across the five
  *      boroughs and thinned so no single dense block dominates.
  *   2. Calls getCounts() on each (cache-first, so a rerun is nearly free).
+ *      Pass --refresh after narrowing a type list or excluding a descriptor:
+ *      cached counts still hold the old rows, and because every bucket is
+ *      present they look complete, so a cache-first run would reuse them.
+ *      (Adding a bucket needs no flag; that makes every cached doc a miss.)
  *   3. Takes median + p90 per bucket per tier.
  *   4. Writes src/config/baseline.json (COMMIT IT) and, if Mongo is configured,
  *      the `baseline` document.
@@ -81,6 +86,8 @@ const DRY_RUN = args["dry-run"] === "true";
 // Redraw the sample coordinates instead of reusing the committed ones. See
 // scripts/lib/samplePoints.js for why they are committed at all.
 const RESAMPLE = args.resample === "true";
+// Re-fetch every point instead of reading the complaint cache. See step 2 above.
+const REFRESH = args.refresh === "true";
 // Oversample before thinning: dense boroughs lose a lot of points to the grid.
 const OVERSAMPLE = 6;
 const CHUNKS_PER_BOROUGH = 5;
@@ -106,8 +113,11 @@ const SAMPLE_POINTS_PATH = path.resolve(
 
 /**
  * Where each tier's sample coordinates come from. See the header: building
- * points must be actual buildings, so they are drawn from HPD's
- * building-interior complaints only. Block points are drawn from everything.
+ * points must be actual buildings, so they are drawn from the building-tier
+ * types only: HPD's building-interior types plus DOB's `Plumbing` and
+ * `Elevator`, which are also filed against a specific building. Block points
+ * are drawn from every configured type (ALL_COMPLAINT_TYPES), so widening the
+ * block buckets widens the pool a --resample draws from.
  */
 const SAMPLE_SOURCES = {
   building: {
@@ -155,7 +165,7 @@ async function mapWithConcurrency(items, limit, worker) {
 async function collectCounts(sample, tier) {
   console.log(
     `\n=== Counting ${tier} complaints at ${sample.length} points ` +
-      `(${BASELINE_SAMPLE_CONCURRENCY} at a time, cache-first) ===`
+      `(${BASELINE_SAMPLE_CONCURRENCY} at a time, ${REFRESH ? "refreshing" : "cache-first"}) ===`
   );
 
   let done = 0;
@@ -169,7 +179,10 @@ async function collectCounts(sample, tier) {
       try {
         // One tier per point, not both: each tier has its own sample, so
         // fetching the other one here would be a wasted HTTP call.
-        const { counts } = await getCounts(point.lat, point.lng, { tiers: [tier] });
+        const { counts } = await getCounts(point.lat, point.lng, {
+          tiers: [tier],
+          forceRefresh: REFRESH,
+        });
         return counts[tier];
       } catch (err) {
         failed++;

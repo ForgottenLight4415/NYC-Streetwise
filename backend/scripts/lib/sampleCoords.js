@@ -15,7 +15,7 @@
  * interfere with each other's determinism.
  */
 
-import { query } from "../../src/providers/socrata.js";
+import { query, typeInClause } from "../../src/providers/socrata.js";
 import {
   BASELINE_MIN_BOROUGH_SHARE,
   BASELINE_THINNING_GRID_DEGREES,
@@ -46,7 +46,6 @@ export function shuffle(items, rand) {
 }
 
 const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-const typeInClause = (types) => `complaint_type in (${types.map(quote).join(",")})`;
 
 /**
  * Quotas proportional to each borough's share of 311 records overall, with a

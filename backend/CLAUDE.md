@@ -32,35 +32,79 @@ Routes never call Socrata/Mongo/Google directly. `services/scoring.js` is a
 **pure function** — no network, no clock — tested against fixtures. Never
 geocodes: the frontend sends `{lat, lng}` from Google Places Autocomplete.
 
-## Data source & the six complaint buckets
+## Data source & the twelve complaint buckets
 
 Dataset: NYC 311 Service Requests, Socrata UID `erm2-nwe9`. Two radius tiers,
-three buckets each — **Building Health** (~25m: heat/hot water, unsanitary
-condition, plumbing) and **Block Quality** (~350m: noise, parking, street
-condition). Full string lists live in `src/config/constants.js`
-(`TYPE_TO_BUCKET`) — **never re-derive them elsewhere.**
+six buckets each — **Building Health** (~25m: heat/hot water, unsanitary
+condition, plumbing & leaks, repairs, electric & gas, building safety) and
+**Block Quality** (~350m: noise, parking & vehicles, street condition,
+sanitation, infrastructure, public safety). Full string lists live in
+`src/config/constants.js` (`TYPE_TO_BUCKET`) — **never re-derive them
+elsewhere.**
 
 Non-obvious inclusion/exclusion decisions (do not silently change without
 updating this file):
 
-1. **Dirty Condition excluded from Unsanitary Condition** — that's DSNY
-   street/curb sanitation, distinct from HPD's building-interior complaint.
-2. **General Construction/Plumbing excluded from Plumbing** — an ambiguous
-   DOB combined category.
+1. **Dirty Condition is a block type, never a building one** — it is DSNY
+   street/curb sanitation, distinct from HPD's building-interior Unsanitary
+   Condition. It counts in block `sanitation`, and must not be added to
+   `unsanitaryCondition`.
+2. **General Construction/Plumbing excluded** — an ambiguous DOB combined
+   category, mostly construction-site and permit work, not the unit's
+   condition. Title-case `Plumbing` is **DOB's** type, not an HPD case
+   variant, and it counts in `plumbing` **by descriptor**:
+   `EXCLUDED_DESCRIPTORS` drops "Plumbing Work - Illegal/No Permit/
+   Standpipe/Sprinkler" (about 25% of it: unpermitted work, not a condition)
+   and keeps defective/leaking plumbing, improper drainage (LL103/89), gas
+   hook-up/piping, and inadequate sprinklers. Drainage is kept deliberately:
+   it is a real condition of the property, even if often outside the unit.
+   Sprinklers stay in `plumbing` rather than moving to `buildingSafety`
+   (about 300 complaints in 24 months, and they are plumbing-code systems;
+   moving them would need a synthetic complaint type in every list query).
+   The exclusion lives in `socrata.js#typeInClause()`, which every query and
+   the baseline sampler share, so scores, complaint lists and baselines agree.
 3. **Non-Residential Heat excluded** — commercial, not relevant to a
    residential livability score.
-4. **Noise scoped to 4 of 9 raw types** (Residential, Street/Sidewalk,
-   Vehicle, Commercial) — Helicopter/Park/House of Worship/generic "Noise"
-   excluded as unrepresentative of daily block-level noise.
-5. **Blocked Driveway folded into `parking`** alongside Illegal Parking — at
-   1M+ records it materially changes the bucket if omitted.
-6. **Sidewalk Condition folded into `streetCondition`**, not a 4th bucket,
-   to keep 3 even buckets per score.
+4. **Noise scoped to 4 of 9 raw NYPD types** (Residential, Street/Sidewalk,
+   Vehicle, Commercial) — Helicopter/Park/House of Worship are excluded as
+   unrepresentative of daily block-level noise. DEP's generic `Noise` is also
+   excluded: ~60% of it is construction (checked 2026-09), a different agency
+   with a different reporting population, and folding it in would inflate
+   `noise` near job sites. It could be revisited with a score-impact check.
+5. **`parking` holds Illegal Parking, Blocked Driveway, Abandoned Vehicle and
+   Derelict Vehicles** — all the same curb-space problem. Blocked Driveway
+   alone is 1M+ records, so it materially changes the bucket if omitted.
+6. **Buckets are weighted equally, never by padding a type list.** Related
+   types fold into one bucket (Sidewalk Condition into `streetCondition`,
+   WATER LEAK into `plumbing`, since it is the same HPD water-system repair
+   domain) rather than becoming a thin bucket of their own. If a bucket ever
+   needs a different weight, set it in `BUCKET_WEIGHTS`.
+7. **Building buckets beyond the original three** use the rest of HPD's
+   housing-code types: `repairs` (PAINT/PLASTER, DOOR/WINDOW,
+   FLOORING/STAIRS, OUTSIDE BUILDING), `electricGas` (ELECTRIC, APPLIANCE,
+   GENERAL — GENERAL's top descriptor is cooking gas), `buildingSafety`
+   (SAFETY — smoke/CO detectors, fire escapes, window guards — plus HPD
+   `ELEVATOR` and DOB `Elevator`). Pests and mold are already counted: they
+   are descriptors under UNSANITARY CONDITION.
+8. **`publicSafety` is a deliberate, contestable inclusion** — Encampment,
+   Homeless Person Assistance, Drug Activity, Panhandling, Drinking. These
+   counts reflect where unhoused people are and how heavily an area is
+   policed and reported, not only physical conditions. They were included on
+   purpose as something a prospective renter asks about. They stay in their
+   own bucket so they can be reweighted or removed without touching the
+   others. Illegal Fireworks (seasonal), Urinating in Public and
+   Non-Emergency Police Matter (too vague) are excluded.
+9. **Other excluded types.** DOHMH indoor types (Indoor Air Quality, Mold,
+   Asbestos, Indoor Sewage) are tiny and overlap HPD's MOLD/SEWAGE
+   descriptors, so at 25m they would almost always be zero. DEP `Lead` is
+   100% "Lead Kit" (requests for a water-test kit, not hazard reports).
+   Overgrown/Dead tree, Curb Condition, Street Sweeping, Standing Water and Air
+   Quality are small or ambiguous and remain candidates.
 
 **Critical weighting rule:** `getCounts` sums all string variants within a
 bucket into ONE number before scoring. Never percentile a bucket's raw
 strings individually and average — buckets have different variant counts
-(noise has 4, plumbing has 2), and per-string averaging silently underweights
+(noise has 4, plumbing has 3), and per-string averaging silently underweights
 noise vs. plumbing.
 
 **Status buckets** (eight raw 311 `status` values → three UI buckets) are
@@ -79,13 +123,29 @@ zero-tie ceiling and an extrapolated tail; average the tier's bucket
 percentiles into one sub-score; map to a band. Full algorithm in
 [`backend-services.md`](../documentation/backend-services.md).
 
-The baseline is computed **once** by `scripts/buildBaseline.js` (a
-deterministic, spatially-thinned, borough-balanced sample of ~250 coordinates
-per tier) and committed to `src/config/baseline.json`, with a live copy in
-Mongo that wins when present (refresh without redeploy). This baseline —
+The baseline is computed by `scripts/buildBaseline.js` (a deterministic,
+spatially-thinned, borough-balanced sample of ~250 coordinates per tier) and
+committed to `src/config/baseline.json`, with a live copy in Mongo that wins
+when present. Production has never had a Mongo copy: it scores against the
+committed file. It is refreshed monthly by
+`.github/workflows/monthly-baseline.yml`, which rebuilds on the committed
+sample points and opens a PR with the new file, the regenerated frontend copy,
+and a median/p90 diff table (`scripts/baselineDiff.js`); merging it is the
+deploy. This baseline —
 not a raw count — is what makes the score defensible. Do not skip rebuilding
-it after changing `RADIUS_TIERS` or `WINDOW_MONTHS`; the scorer catches a
-radius change (`stale_baseline_radius`) but not a window change.
+it after changing `RADIUS_TIERS`, `WINDOW_MONTHS` or any bucket's type list;
+the scorer catches a radius change (`stale_baseline_radius`) but not a window
+or type-list change. Adding a bucket is self-protecting: a baseline (Mongo or
+committed) missing any bucket is rejected whole, so an old Mongo copy is
+ignored in favour of the committed file until the rebuilt one reaches Mongo.
+After a type-list or descriptor change, run `npm run verify:dataset` (every
+string and every excluded descriptor must have rows in the window) and
+`npm run baseline` (which also regenerates the frontend's
+`citywide-baseline.ts`). Pass `-- --refresh` whenever the change removes rows
+without adding a bucket: the baseline reads counts cache-first, and a cached
+document with every bucket present looks complete even though it holds the
+old rows. Production's complaint cache self-heals the same way within its
+24h TTL.
 
 ## API contract
 

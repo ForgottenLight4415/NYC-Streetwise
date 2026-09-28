@@ -6,7 +6,7 @@ Every tunable value in the backend lives here. Complaint-type strings,
 status strings, and amenity bucket definitions must **never** be re-derived
 elsewhere — always import from this file.
 
-### Dataset & the six complaint buckets
+### Dataset & the twelve complaint buckets
 
 | Constant | Value | Notes |
 |---|---|---|
@@ -15,18 +15,40 @@ elsewhere — always import from this file.
 
 | Tier | Bucket | 311 `complaint_type` values |
 |---|---|---|
-| **building** (25m) | `heatHotWater` | `HEAT/HOT WATER`, `Heat/Hot Water` |
-| | `unsanitaryCondition` | `UNSANITARY CONDITION`, `Unsanitary Condition` |
-| | `plumbing` | `PLUMBING`, `Plumbing` |
+| **building** (25m) | `heatHotWater` | `HEAT/HOT WATER` |
+| | `unsanitaryCondition` | `UNSANITARY CONDITION` |
+| | `plumbing` | `PLUMBING` (HPD), `Plumbing` (DOB, minus its permit descriptor — see below), `WATER LEAK` |
+| | `repairs` | `PAINT/PLASTER`, `DOOR/WINDOW`, `FLOORING/STAIRS`, `OUTSIDE BUILDING` |
+| | `electricGas` | `ELECTRIC`, `APPLIANCE`, `GENERAL` |
+| | `buildingSafety` | `SAFETY`, `Safety`, `ELEVATOR` (HPD), `Elevator` (DOB) |
 | **block** (350m) | `noise` | `Noise - Residential`, `Noise - Street/Sidewalk`, `Noise - Vehicle`, `Noise - Commercial` |
-| | `parking` | `Illegal Parking`, `Blocked Driveway` |
+| | `parking` | `Illegal Parking`, `Blocked Driveway`, `Abandoned Vehicle`, `Derelict Vehicles` |
 | | `streetCondition` | `Street Condition`, `Sidewalk Condition`, `DEP Street Condition` |
+| | `sanitation` | `Dirty Condition`, `Illegal Dumping`, `Missed Collection`, `Rodent`, `Graffiti`, `Litter Basket Complaint`, `Residential Disposal Complaint` |
+| | `infrastructure` | `Street Light Condition`, `Traffic Signal Condition`, `Water System`, `Sewer`, `Damaged Tree` |
+| | `publicSafety` | `Encampment`, `Homeless Person Assistance`, `Drug Activity`, `Panhandling`, `Drinking` |
+
+`EXCLUDED_DESCRIPTORS` drops individual descriptors from a type that otherwise
+counts: today only DOB `Plumbing`'s "Plumbing Work - Illegal/No Permit/
+Standpipe/Sprinkler" (about 1,700 of its 6,800 rows in 24 months; unpermitted
+work rather than a condition). `socrata.js#typeInClause()` applies it
+NULL-safely in every query, and the baseline sampler and `verifyDataset.js`
+import the same function, so scores, complaint lists and baselines all see the
+same rows.
 
 `TYPE_TO_BUCKET` is the flat reverse lookup `socrata.js` uses to sum every
 string variant into one number per bucket. Deliberately excluded (see
-`backend/CLAUDE.md` for the full reasoning): Dirty Condition (DSNY street
-sanitation, not a landlord issue), General Construction/Plumbing (ambiguous),
-Non-Residential Heat, and Noise - Helicopter/Park/House of Worship.
+`backend/CLAUDE.md` for the full reasoning): General Construction/Plumbing
+(construction/permit work), Non-Residential Heat, Noise -
+Helicopter/Park/House of Worship, DEP's generic Noise (mostly construction),
+DOHMH indoor types (tiny, overlap HPD), and DEP Lead (test-kit requests).
+Dirty Condition counts on the block (`sanitation`), never against a building.
+
+Null-geocode rates for the types added 2026-09 (last quarter) are all well
+below `streetCondition`'s: every building type is under 0.02%, and the worst
+block types are Derelict Vehicles 9.9% (about 2% of `parking` overall) and
+Traffic Signal/Street Light about 7% (`infrastructure` 3.7% overall). None
+is flagged in `LOW_CONFIDENCE_BUCKETS`.
 
 ### Status buckets
 
@@ -184,10 +206,11 @@ Run with `npm run <script>` (each loads `.env` via Node's built-in
 
 | Script | `npm run` | What it does |
 |---|---|---|
-| `buildBaseline.js` | `baseline` | Computes the citywide complaint baseline `scoring.js` compares every count against — a borough-balanced, spatially-thinned sample of ~250 coordinates per tier, reused from the committed `src/config/baselineSamplePoints.json` unless `--resample` is passed (building-tier samples come only from HPD building-interior types; block-tier from all types, since mixing them once dragged the building median to ~1). Writes to Mongo **and** the committed `src/config/baseline.json`. |
+| `buildBaseline.js` | `baseline` | Computes the citywide complaint baseline `scoring.js` compares every count against — a borough-balanced, spatially-thinned sample of ~250 coordinates per tier, reused from the committed `src/config/baselineSamplePoints.json` unless `--resample` is passed. Counts are read cache-first; pass `--refresh` after any change that removes rows without adding a bucket (a narrowed type list, a new excluded descriptor), or stale cached counts that still look complete get reused. The frontend sync runs as the `postbaseline` npm hook rather than an `&&` chain, so `npm run baseline -- --dry-run` flags reach this script (a chain passed them to the sync script instead, and `--dry-run` was silently ignored) (building-tier samples come only from the building-tier types, which are HPD building-interior types plus DOB `Plumbing`/`Elevator`; block-tier samples come from every configured type, `ALL_COMPLAINT_TYPES`, since mixing them once dragged the building median to ~1). Widening the buckets therefore widens the pool a `--resample` draws from, for this script and `baseline:amenities` alike. A plain rerun reuses the committed points and is unaffected. Writes to Mongo **and** the committed `src/config/baseline.json`. |
 | `buildAmenities.js` | `build:amenities` | Fetches and distills all six amenity buckets (subway, rail, bus, parks, bike share, bike lanes) from their real sources — see `backend/CLAUDE.md`'s "Amenity Scores" section for each source and its quirks (bus has no Socrata dataset; subway/rail are on `data.ny.gov`, not the city catalog). Writes committed JSON under `src/config/amenities/`. |
-| `buildAmenityBaseline.js` | `baseline:amenities` | The amenity-tier equivalent of `buildBaseline.js` — samples ~150 coordinates (`AMENITY_BASELINE_SAMPLE_SIZE`) and computes median/p90 distance per bucket. Measures each point with the same live Google Routes walking-distance correction `/api/score` uses (with `GOOGLE_MAPS_API_KEY` set) — the baseline has to reflect the same distance definition scoring compares against it. Sample coordinates come from the committed `src/config/amenityBaselineSamplePoints.json` unless `--resample` is passed. Calls are *started* `AMENITY_BASELINE_ROUTE_PACING_MS` apart (derived from Google's 3,000-elements/minute ceiling and `AMENITY_ROUTE_ELEMENTS_PER_CALL`, not guessed) rather than sleeping between completed ones, so response latency overlaps and ~150 points take ~100s instead of 4-8 minutes at an identical element rate. `AMENITY_BASELINE_ROUTE_RETRIES` absorbs transient 429/5xx, and the run **refuses to write** if any point still degraded to straight-line — those distances are systematically short and would bias the baseline. Walkability is excluded (no free dataset to sample against; see its reasoned-constants note above). |
-| `verifyDataset.js` | `verify:dataset` | One-off checks against the live 311 Socrata dataset: identity/title, geo column name, null-geocoding rate per bucket. Rerun any time NYC changes the dataset shape. |
+| `buildAmenityBaseline.js` | `baseline:amenities` | The amenity-tier equivalent of `buildBaseline.js` — samples ~150 coordinates (`AMENITY_BASELINE_SAMPLE_SIZE`) and computes median/p90 distance per bucket. Measures each point with the same live Google Routes walking-distance correction `/api/score` uses (with `GOOGLE_MAPS_API_KEY` set) — the baseline has to reflect the same distance definition scoring compares against it. Sample coordinates come from the committed `src/config/amenityBaselineSamplePoints.json` unless `--resample` is passed (a resample draws from `ALL_COMPLAINT_TYPES`). Points already in `amenity_distance_cache` (180-day TTL) issue no Routes call, so a rerun within that window is free. Calls are *started* `AMENITY_BASELINE_ROUTE_PACING_MS` apart (derived from Google's 3,000-elements/minute ceiling and `AMENITY_ROUTE_ELEMENTS_PER_CALL`, not guessed) rather than sleeping between completed ones, so response latency overlaps and ~150 points take ~100s instead of 4-8 minutes at an identical element rate. `AMENITY_BASELINE_ROUTE_RETRIES` absorbs transient 429/5xx, and the run **refuses to write** if any point still degraded to straight-line — those distances are systematically short and would bias the baseline. Walkability is excluded (no free dataset to sample against; see its reasoned-constants note above). |
+| `baselineDiff.js` | — | `node scripts/baselineDiff.js <old.json> <new.json>`: a markdown table of each bucket's median/p90 change between two baselines, flagging any move over 25% (more often an upstream data problem than a real change). Writes the description of the monthly baseline PR (`.github/workflows/monthly-baseline.yml`: 07:00 UTC on the 2nd, rebuilds with `--refresh` and no Mongo, runs the tests, then opens or updates the `automation/monthly-baseline` PR). |
+| `verifyDataset.js` | `verify:dataset` | One-off checks against the live 311 Socrata dataset: identity/title, geo column name, null-geocoding rate per type and per bucket, any configured type with zero rows in the window, and how many rows each `EXCLUDED_DESCRIPTORS` entry removes (flagging one that matches nothing, e.g. after DOB renames it). Rerun any time NYC changes the dataset shape, and after editing a bucket's type list. |
 | `verifyAmenities.js` | `verify:amenities` | The amenity-dataset equivalent — re-fetches each source and compares row counts/shape against what's committed, to catch a source moving or thinning out silently. |
 | `verifyCache.js` | `verify:cache` | Exercises the Mongo cache read/write path against a real (or in-memory) Mongo instance, outside the test suite. |
 | `verifyScoring.js` | `verify:scoring` | Sanity-checks the scoring curve's behavior (monotonicity, percentile placement, band spread) against real or synthetic distributions. |

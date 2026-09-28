@@ -118,10 +118,16 @@ export const STATUS_VAR: Record<ComplaintStatus, string> = {
 export const CATEGORY_LABEL: Record<string, string> = {
   heatHotWater: "Heat / Hot Water",
   unsanitaryCondition: "Unsanitary Condition",
-  plumbing: "Plumbing",
+  plumbing: "Plumbing & Leaks",
+  repairs: "Repairs",
+  electricGas: "Electric & Gas",
+  buildingSafety: "Building Safety",
   noise: "Noise",
-  parking: "Illegal Parking",
+  parking: "Parking & Vehicles",
   streetCondition: "Street Condition",
+  sanitation: "Sanitation",
+  infrastructure: "Infrastructure",
+  publicSafety: "Public Safety",
 };
 
 export interface BaselineComparisonRow {
