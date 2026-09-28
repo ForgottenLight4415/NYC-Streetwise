@@ -1,7 +1,7 @@
 /**
  * Pre-warms the curated showcase set against the LIVE Socrata API.
  *
- *   npm run warm:showcase
+ *   yarn warm:showcase
  *
  * The homepage shows only cached scores — no fabricated ones, and nothing fetched
  * on the render path. So on a cold cache it has real but sparse content until

@@ -25,7 +25,7 @@ const COMPLAINTS_HEADERS = [
 // Comma-separated list of origins allowed to read responses from a browser.
 // Read at request time (not module load) so it can be set after the module
 // graph is built, same reasoning as MONGODB_URI in providers/mongo.js.
-// Defaults to the frontend's local dev origin so `npm run dev` on both sides
+// Defaults to the frontend's local dev origin so `yarn dev` on both sides
 // works with zero config; the deployed frontend's Vercel URL must be set here
 // explicitly via ALLOWED_ORIGIN, or its browser calls will be blocked from
 // reading the response (the request still completes — this is a read-only

@@ -228,7 +228,7 @@ label is a build error, not a wrapped label at runtime.
 ## `citywide-baseline.ts` — the homepage's offline-safe baseline
 
 A **copy** of `backend/src/config/baseline.json` (the committed output of
-`npm run baseline`), not a fetch. Backs `CitywideBaselinePanel` and
+`yarn baseline`), not a fetch. Backs `CitywideBaselinePanel` and
 `lib/score.ts#compareToBaseline`. Copied deliberately: this is what the
 homepage falls back to when the score cache is cold, so it cannot itself
 depend on the backend being reachable — but it's real measured data either

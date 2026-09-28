@@ -37,7 +37,7 @@ if (!isMongoConfigured()) {
   // run on Vercel at all — api/index.js only builds the app, and each request is
   // its own short-lived invocation with no startup phase. Doing it here as well
   // just moves the one round trip off the first request of a long-running
-  // process (docker, `npm run dev`). Deleting this block would cost latency, not
+  // process (docker, `yarn dev`). Deleting this block would cost latency, not
   // correctness; deleting the calls in the providers would cost correctness.
   Promise.all([
     ensureCacheIndexes(),
@@ -62,7 +62,7 @@ if (isMockMode()) {
         baseline
           ? `[baseline] loaded ${baseline._id} from ${baseline.source} ` +
               `(${baseline.sampleSize ?? "?"} sample points)`
-          : "[baseline] MISSING — scores will be low-confidence. Run `npm run baseline`."
+          : "[baseline] MISSING — scores will be low-confidence. Run `yarn baseline`."
       )
     )
     .catch((err) => console.warn("[baseline] load failed:", err.message));

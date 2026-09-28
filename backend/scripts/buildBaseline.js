@@ -1,9 +1,9 @@
 /**
  * Computes the citywide baseline the scorer compares every address against.
  *
- *   npm run baseline               # default sample size
- *   npm run baseline -- --samples=80 --dry-run
- *   npm run baseline -- --refresh  # bypass the complaint cache
+ *   yarn baseline               # default sample size
+ *   yarn baseline --samples=80 --dry-run
+ *   yarn baseline --refresh  # bypass the complaint cache
  *
  * WHY THIS EXISTS: without it we would be showing raw complaint counts, and "47
  * noise complaints" is meaningless to a renter. The baseline turns a count into

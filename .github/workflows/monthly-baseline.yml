@@ -44,12 +44,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 22+, for the --env-file-if-exists flag the npm scripts use.
+          # 22+, for the --env-file-if-exists flag the yarn scripts use.
           node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache: yarn
+          cache-dependency-path: backend/yarn.lock
 
-      - run: npm ci
+      - run: yarn install --frozen-lockfile
 
       - name: Keep the current baseline to diff against
         run: cp src/config/baseline.json "$RUNNER_TEMP/baseline.before.json"
@@ -58,13 +58,13 @@ jobs:
       - name: Rebuild baseline
         env:
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
-        run: npm run baseline -- --refresh
+        run: yarn baseline --refresh
 
       # The committed-baseline tests guard against a degenerate rebuild (every
       # bucket present, real-world counts centred sensibly).
       - name: Test
         run: |
-          npm test
+          yarn test
           node ../frontend/scripts/sync-baseline.mjs --check
 
       - name: Write PR description

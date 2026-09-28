@@ -18,7 +18,7 @@
  * backend's own score for it said. Generating the file removes the step that
  * was being forgotten, rather than asking harder.
  *
- * --check is the guard: run it in CI, or after `npm run baseline`, and a stale
+ * --check is the guard: run it in CI, or after `yarn baseline`, and a stale
  * copy fails loudly instead of silently mis-describing the city.
  */
 
@@ -103,8 +103,8 @@ ${rows}
  *
  * GENERATED FILE - DO NOT EDIT BY HAND.
  * Source: backend/src/config/baseline.json (the committed output of
- * \`npm run baseline\`). Regenerate with \`npm run sync:baseline\` from
- * frontend/, which \`npm run baseline\` also does for you; \`npm run
+ * \`yarn baseline\`). Regenerate with \`yarn sync:baseline\` from
+ * frontend/, which \`yarn baseline\` also does for you; \`yarn
  * verify:baseline\` fails if this file has fallen behind.
  *
  * Committed rather than fetched deliberately: CitywideBaselinePanel is what the
@@ -147,9 +147,9 @@ ${tiers}
 
 const check = process.argv.includes("--check");
 
-// `npm run baseline` in the backend runs this as its `postbaseline` hook, so a
+// `yarn baseline` in the backend runs this as its `postbaseline` hook, so a
 // rebuild can never leave the frontend behind. (A hook, not an `&&` chain:
-// npm appends `-- --flags` to the END of a script, so a chain handed them to
+// yarn appends `--flags` to the END of a script, so a chain handed them to
 // this file instead of buildBaseline.js.) It must not break the baseline
 // build in a checkout where the other half isn't present — backend/Dockerfile
 // copies only src and scripts, so ../frontend genuinely does not exist there.
@@ -179,7 +179,7 @@ if (check) {
   console.error(
     `citywide-baseline.ts is OUT OF DATE with backend/src/config/baseline.json.\n` +
       `The frontend is describing a different city than the scores are computed against.\n` +
-      `Run: cd frontend && npm run sync:baseline`
+      `Run: cd frontend && yarn sync:baseline`
   );
   process.exit(1);
 }

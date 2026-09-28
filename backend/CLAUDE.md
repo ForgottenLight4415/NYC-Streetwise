@@ -138,9 +138,9 @@ the scorer catches a radius change (`stale_baseline_radius`) but not a window
 or type-list change. Adding a bucket is self-protecting: a baseline (Mongo or
 committed) missing any bucket is rejected whole, so an old Mongo copy is
 ignored in favour of the committed file until the rebuilt one reaches Mongo.
-After a type-list or descriptor change, run `npm run verify:dataset` (every
+After a type-list or descriptor change, run `yarn verify:dataset` (every
 string and every excluded descriptor must have rows in the window) and
-`npm run baseline` (which also regenerates the frontend's
+`yarn baseline` (which also regenerates the frontend's
 `citywide-baseline.ts`). Cached counts, grouped rows and trend series are
 stamped with `typeSignature()` (providers/cache.js), a hash of the tier's
 bucket-to-type map and excluded descriptors, and any mismatch reads as a miss.
@@ -245,7 +245,7 @@ inside that collection's own provider functions (`ensure*Indexes()`) —
 entrypoint (`api/index.js`) does not — each request is its own short-lived
 invocation, so code that only runs at `src/index.js` boot never executes in
 production. `src/index.js` still calls them too, purely as a latency
-optimization for the long-running paths (Docker, `npm run dev`).
+optimization for the long-running paths (Docker, `yarn dev`).
 
 ## AI explanation layer
 

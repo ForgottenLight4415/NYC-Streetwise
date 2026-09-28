@@ -49,7 +49,7 @@ services:
       - mongo_data:/data/db
     ports:
       # Loopback only — published so the API can also run natively on the host
-      # (npm run dev) against this same container, and so Compass can attach.
+      # (yarn dev) against this same container, and so Compass can attach.
       # Never bind 0.0.0.0: this mongod has no authentication.
       # Collides with a Homebrew mongod on 27017? Use "127.0.0.1:27018:27017"
       # and set MONGODB_URI=mongodb://127.0.0.1:27018 in .env.

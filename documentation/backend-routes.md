@@ -213,7 +213,7 @@ Socrata and caches it, so the homepage has real addresses on a cold cache.
 **The only authenticated route**, and the only one that needs to be — one
 call is sixteen live Socrata queries, ~62s. Fails closed: `CRON_SECRET` unset
 means `503 warm_not_configured` for everyone, cron included. Hit by a daily
-Vercel cron (`vercel.json`) and by `npm run warm:showcase` locally (bypasses
+Vercel cron (`vercel.json`) and by `yarn warm:showcase` locally (bypasses
 HTTP entirely).
 
 ---

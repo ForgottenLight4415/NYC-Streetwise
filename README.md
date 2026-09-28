@@ -81,7 +81,7 @@ view.
 
 ## Quick start
 
-**Prerequisites:** Node ≥ 20.6, npm.
+**Prerequisites:** Node ≥ 20.6, Yarn.
 
 The app is two independent servers — the Express backend (`:3001`) and the
 Next.js frontend (`:3000`). Run both.
@@ -98,8 +98,8 @@ curl localhost:3001/health
 
 # Option B — native Node
 cd backend
-npm install
-npm run dev                # → http://localhost:3001
+yarn install
+yarn dev                # → http://localhost:3001
 ```
 
 A fresh clone runs with **zero `.env`** — every piece of backend
@@ -129,8 +129,8 @@ not this section, if something here doesn't cover your case.**
 
 ```bash
 cd frontend
-npm install
-npm run dev                # → http://localhost:3000
+yarn install
+yarn dev                # → http://localhost:3000
 ```
 
 Create `frontend/.env.local` yourself — it's gitignored, so it won't exist on
@@ -255,10 +255,10 @@ documentation/    module-by-module reference docs for this whole repo — see be
 ## Testing
 
 ```bash
-cd backend && npm test        # vitest, 700+ tests, no network needed
-cd backend && npm run lint    # ESLint
-cd frontend && npm run lint   # ESLint
-cd frontend && npm run build  # type-checks + builds; no dedicated test suite yet
+cd backend && yarn test        # vitest, 700+ tests, no network needed
+cd backend && yarn lint    # ESLint
+cd frontend && yarn lint   # ESLint
+cd frontend && yarn build  # type-checks + builds; no dedicated test suite yet
 ```
 
 **Pre-commit hook.** `.githooks/pre-commit` runs the backend's ESLint and tests

@@ -111,7 +111,7 @@ export async function buildShowcase({ limit, mode }) {
  * on a cold cache.
  *
  * This is the ONE place in the showcase code that talks to Socrata, and it is
- * never on a user's path — it runs from `npm run warm:showcase` or the daily
+ * never on a user's path — it runs from `yarn warm:showcase` or the daily
  * cron. Every entry is also written into the directory as `curated`, without
  * touching its lookup counter, so genuine traffic always outranks the seeds.
  *
