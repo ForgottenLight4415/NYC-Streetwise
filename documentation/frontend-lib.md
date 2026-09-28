@@ -207,8 +207,8 @@ label is a build error, not a wrapped label at runtime.
 
 ## `reportMetrics.ts` — derived report-level numbers
 
-- **`sliceWindow` / `windowTotal`** — slice a 24-month trend series down to
-  a shorter window and sum it.
+- **`sliceWindow`** — slice a 24-month trend series down to a shorter
+  window.
 - **`yoyDelta(points)`** — year-over-year change (last 12 months vs. the 12
   before), `null` unless the full 24-month series is available. Polarity is
   inverted from the usual convention: these are complaint counts, so a

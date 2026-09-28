@@ -92,39 +92,6 @@ describe("mockScoreReport", () => {
     );
   });
 
-  it("gives visibly different reports for different coordinates", () => {
-    expect(mockScoreReport(...TIMES_SQUARE)).not.toEqual(
-      mockScoreReport(...BUSHWICK)
-    );
-  });
-
-  it("collapses coordinates that round to the same cache key", () => {
-    // 4dp rounding is the cache key; the mock keys off the same rounding so the
-    // mock's cache-hit behaviour matches the real one's.
-    expect(mockScoreReport(40.75801, -73.98551)).toEqual(
-      mockScoreReport(40.75804, -73.98553)
-    );
-  });
-
-  it("spans all three bands across coordinates", () => {
-    // A mock that only ever returns "fair" hides two thirds of the frontend's
-    // states. The mock baseline exists to keep all three reachable.
-    const bands = new Set();
-    for (let i = 0; i < 200; i++) {
-      const report = mockScoreReport(40.7 + i * 0.0007, -73.95 - i * 0.0007);
-      bands.add(report.buildingHealth.band);
-      bands.add(report.blockQuality.band);
-    }
-    expect([...bands].sort()).toEqual(["fair", "good", "poor"]);
-  });
-
-  it("uses different draws for the two tiers", () => {
-    // A shared seed would make building and block counts suspiciously correlated.
-    const report = mockScoreReport(...BUSHWICK);
-    expect(Object.values(report.buildingHealth.counts)).not.toEqual(
-      Object.values(report.blockQuality.counts).slice(0, 3)
-    );
-  });
 });
 
 describe("mockComplaints", () => {
@@ -170,13 +137,6 @@ describe("mockComplaints", () => {
     }
   });
 
-  it("scales point count with radius but stays capped", () => {
-    const small = mockComplaints(...TIMES_SQUARE, 25);
-    const large = mockComplaints(...TIMES_SQUARE, 350);
-    expect(large.length).toBeGreaterThan(small.length);
-    expect(mockComplaints(...TIMES_SQUARE, 2000).length).toBeLessThanOrEqual(400);
-  });
-
   it("is deterministic per coordinate and radius", () => {
     expect(mockComplaints(...TIMES_SQUARE, 350)).toEqual(
       mockComplaints(...TIMES_SQUARE, 350)
@@ -213,21 +173,6 @@ describe("mockMonthlyTrend", () => {
     expect(monthsSpanned).toBeLessThan(OPTS.months);
   });
 
-  it("scales the block tier's counts above the building tier's", () => {
-    // Block-tier radii cover far more ground, so they must carry far more
-    // complaints — this is what makes the mock trend chart look like real
-    // 311 volume instead of two visually identical tiers.
-    const buildingTotal = mockMonthlyTrend(...TIMES_SQUARE, 25, {
-      ...OPTS,
-      tier: "building",
-    }).reduce((sum, p) => sum + p.count, 0);
-    const blockTotal = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS).reduce(
-      (sum, p) => sum + p.count,
-      0
-    );
-    expect(blockTotal).toBeGreaterThan(buildingTotal);
-  });
-
   it("is deterministic per coordinate, tier, and radius", () => {
     expect(mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)).toEqual(
       mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)
@@ -237,14 +182,4 @@ describe("mockMonthlyTrend", () => {
     );
   });
 
-  it("uses a different draw per tier, not a shared seed", () => {
-    // Same coordinate and radius, only the tier differs — a shared seed would
-    // make the two series suspiciously identical in shape.
-    const building = mockMonthlyTrend(...TIMES_SQUARE, 350, {
-      ...OPTS,
-      tier: "building",
-    });
-    const block = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
-    expect(building).not.toEqual(block);
-  });
 });

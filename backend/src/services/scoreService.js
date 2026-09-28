@@ -538,12 +538,17 @@ function zeroStatusCounts() {
  *
  * `total` counts distinct (day, type) pairs after filtering — GROUPS, not the
  * complaints inside them. Paging is over groups too.
+ *
+ * `beforeFill`, when given, runs only on a cache miss, immediately before the
+ * expensive upstream fill; if it throws, nothing is fetched. The route uses it
+ * to charge its fill rate limit only for real fills, while this service stays
+ * free of anything HTTP.
  */
 export async function fetchComplaintGroupList(
   lat,
   lng,
   radiusMeters,
-  { tier, months, bucket, status, offset = 0, limit = 25, now } = {}
+  { tier, months, bucket, status, offset = 0, limit = 25, now, beforeFill } = {}
 ) {
   let groups;
   let truncated = false;
@@ -573,6 +578,7 @@ export async function fetchComplaintGroupList(
     }
 
     if (!groups) {
+      beforeFill?.();
       // Always filled at the CACHE limit, never the caller's page size —
       // otherwise a limit=25 request would store a 25-row entry that every
       // later page has to discard.

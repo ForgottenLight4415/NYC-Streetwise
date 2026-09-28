@@ -141,11 +141,12 @@ ignored in favour of the committed file until the rebuilt one reaches Mongo.
 After a type-list or descriptor change, run `npm run verify:dataset` (every
 string and every excluded descriptor must have rows in the window) and
 `npm run baseline` (which also regenerates the frontend's
-`citywide-baseline.ts`). Pass `-- --refresh` whenever the change removes rows
-without adding a bucket: the baseline reads counts cache-first, and a cached
-document with every bucket present looks complete even though it holds the
-old rows. Production's complaint cache self-heals the same way within its
-24h TTL.
+`citywide-baseline.ts`). Cached counts, grouped rows and trend series are
+stamped with `typeSignature()` (providers/cache.js), a hash of the tier's
+bucket-to-type map and excluded descriptors, and any mismatch reads as a miss.
+So a type or descriptor change invalidates every cache at once, in dev and in
+production, and the baseline build cannot reuse counts from the old
+definition. `--refresh` remains for forcing fresh counts regardless.
 
 ## API contract
 
@@ -230,7 +231,7 @@ grid's job; every cache lookup is an exact match on a *rounded* coordinate.
 
 | Collection | Holds | TTL |
 |---|---|---|
-| `complaint_cache` | 311 counts + `bucketStatusCounts` + per-tier explanation, keyed `{lat, lng, radiusTier}` | 24h, sliding (refreshed on every write) |
+| `complaint_cache` | 311 counts + `bucketStatusCounts` + per-tier explanation, keyed `{lat, lng, radiusTier}`; stamped with `typeSignature` (as are the two below), a mismatch reads as a miss | 24h, sliding (refreshed on every write) |
 | `trend_cache` | `/api/trend` series, keyed `{lat, lng, radiusTier, months}` | 24h |
 | `complaint_groups_cache` | grouped complaint-browser rows, keyed `{lat, lng, radiusTier}` (no `months` — a shorter window is a prefix) | 24h |
 | `amenity_distance_cache` | Google-routed walking distances per amenity bucket, keyed `{lat, lng}` | 180d |

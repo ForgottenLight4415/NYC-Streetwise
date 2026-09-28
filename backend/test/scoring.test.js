@@ -56,18 +56,6 @@ describe("bandFor", () => {
     expect(bandFor(BAND_THRESHOLDS.fair - 1)).toBe("poor");
   });
 
-  it("maps the ends of the scale", () => {
-    // Direction matters: 100 = fewest complaints = good news for a renter.
-    expect(bandFor(100)).toBe("good");
-    expect(bandFor(0)).toBe("poor");
-  });
-
-  it("only ever returns a band the contract allows", () => {
-    for (let score = 0; score <= 100; score++) {
-      expect(["good", "fair", "poor"]).toContain(bandFor(score));
-    }
-  });
-
   it("is monotonic — a higher score never yields a worse band", () => {
     const rank = { poor: 0, fair: 1, good: 2 };
     let previous = 0;

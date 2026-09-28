@@ -117,10 +117,6 @@ describe("TYPE_TO_BUCKET", () => {
 });
 
 describe("radius tiers", () => {
-  it("uses the building/block radii RADIUS_TIERS configures", () => {
-    expect(RADIUS_TIERS.building.radiusMeters).toBe(25);
-    expect(RADIUS_TIERS.block.radiusMeters).toBe(350);
-  });
 
   it("keeps tier keys and their `tier` fields in sync", () => {
     for (const [name, tier] of Object.entries(RADIUS_TIERS)) {

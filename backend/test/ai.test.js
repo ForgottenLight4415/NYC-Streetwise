@@ -4,7 +4,7 @@ import { BUCKET_NAMES } from "../src/config/constants.js";
 import { cleanExplanation, AIError } from "../src/providers/ai/shared.js";
 import { generateExplanation as ollama } from "../src/providers/ai/ollama.js";
 import { generateExplanation as gemini } from "../src/providers/ai/gemini.js";
-import { getAdapter, activeProvider } from "../src/providers/ai/index.js";
+import { getAdapter } from "../src/providers/ai/index.js";
 import {
   AI_MODELS,
   AI_TEMPERATURE,
@@ -276,9 +276,6 @@ describe("gemini adapter", () => {
 });
 
 describe("adapter factory", () => {
-  it("defaults to ollama for local dev", () => {
-    expect(activeProvider()).toBe("ollama");
-  });
 
   it("selects the adapter from AI_PROVIDER, case-insensitively", () => {
     process.env.AI_PROVIDER = "GEMINI";

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   CACHE_COLLECTION,
   CACHE_COORD_PRECISION,
@@ -5,6 +6,8 @@ import {
   TREND_CACHE_COLLECTION,
   COMPLAINT_GROUPS_COLLECTION,
   BUCKET_NAMES,
+  EXCLUDED_DESCRIPTORS,
+  RADIUS_TIERS,
   AMENITY_DISTANCE_CACHE_COLLECTION,
   AMENITY_DISTANCE_CACHE_TTL_SECONDS,
   WALKABILITY_CACHE_COLLECTION,
@@ -100,6 +103,37 @@ export function resetCacheIndexMemo() {
   indexPromise = null;
 }
 
+const signatures = new Map();
+
+/**
+ * Fingerprint of the complaint definitions a tier's cached data was built
+ * from: its bucket -> complaint_type map plus any EXCLUDED_DESCRIPTORS that
+ * touch those types. A tier-less key (the trend cache's "every type") covers
+ * both tiers.
+ *
+ * Stamped on every counts, groups and trend document and compared on read, so
+ * editing a type list or an exclusion makes the old documents misses at once.
+ * Without it, a change that keeps every bucket name (a folded type, a new
+ * exclusion) left documents that looked complete but still held the old rows
+ * for their whole 24h TTL, including to the baseline build, which reads
+ * cache-first. Pure function of constants, so computed once per tier.
+ */
+export function typeSignature(radiusTier) {
+  if (!signatures.has(radiusTier)) {
+    const tiers = radiusTier in RADIUS_TIERS ? [radiusTier] : Object.keys(RADIUS_TIERS);
+    const buckets = tiers.map((tier) => RADIUS_TIERS[tier].buckets);
+    const types = new Set(buckets.flatMap((b) => Object.values(b).flat()));
+    const excluded = Object.fromEntries(
+      Object.entries(EXCLUDED_DESCRIPTORS).filter(([type]) => types.has(type))
+    );
+    const digest = createHash("sha256")
+      .update(JSON.stringify({ buckets, excluded }))
+      .digest("hex");
+    signatures.set(radiusTier, digest.slice(0, 16));
+  }
+  return signatures.get(radiusTier);
+}
+
 function isCompleteCounts(counts, radiusTier) {
   if (!counts || typeof counts !== "object") return false;
   // A partially-written document (schema change, interrupted write) would put a
@@ -183,7 +217,10 @@ export async function readCoordDocuments(lat, lng, radiusTiers, explanationTiers
         continue;
       }
 
-      if (isCompleteCounts(doc.counts, doc.radiusTier)) {
+      if (
+        doc.typeSignature === typeSignature(doc.radiusTier) &&
+        isCompleteCounts(doc.counts, doc.radiusTier)
+      ) {
         entries[doc.radiusTier] = {
           counts: doc.counts,
           // null (not zero-filled) on a document written before this field
@@ -260,6 +297,7 @@ export async function writeCounts(
         ...key,
         counts,
         ...(bucketStatusCounts ? { bucketStatusCounts } : {}),
+        typeSignature: typeSignature(radiusTier),
         createdAt: now ?? new Date(),
       },
       { upsert: true }
@@ -547,6 +585,8 @@ export async function readTrend(lat, lng, radiusTier, months) {
     // silently compress its own time axis. A short doc is a schema change or an
     // interrupted write; treat it as a miss.
     if (!doc || !Array.isArray(doc.points) || doc.points.length !== months) return null;
+    // Built from a different complaint-type definition: see typeSignature().
+    if (doc.typeSignature !== typeSignature(radiusTier)) return null;
     return doc.points;
   } catch (err) {
     console.warn("[cache] trend read failed, treating as miss:", err.message);
@@ -564,7 +604,11 @@ export async function writeTrend(lat, lng, radiusTier, months, points, { now } =
     const key = trendCacheKey(lat, lng, radiusTier, months);
     await db
       .collection(TREND_CACHE_COLLECTION)
-      .replaceOne(key, { ...key, points, createdAt: now ?? new Date() }, { upsert: true });
+      .replaceOne(
+        key,
+        { ...key, points, typeSignature: typeSignature(radiusTier), createdAt: now ?? new Date() },
+        { upsert: true }
+      );
     return true;
   } catch (err) {
     console.warn("[cache] trend write failed, continuing uncached:", err.message);
@@ -630,6 +674,8 @@ export async function readComplaintGroups(lat, lng, radiusTier) {
       .collection(COMPLAINT_GROUPS_COLLECTION)
       .findOne(cacheKey(lat, lng, radiusTier));
     if (!doc || !Array.isArray(doc.groups)) return null;
+    // Built from a different complaint-type definition: see typeSignature().
+    if (doc.typeSignature !== typeSignature(radiusTier)) return null;
     return { groups: doc.groups, truncated: Boolean(doc.truncated) };
   } catch (err) {
     console.warn("[cache] groups read failed, treating as miss:", err.message);
@@ -647,7 +693,7 @@ export async function writeComplaintGroups(lat, lng, radiusTier, groups, truncat
     const key = cacheKey(lat, lng, radiusTier);
     await db.collection(COMPLAINT_GROUPS_COLLECTION).replaceOne(
       key,
-      { ...key, groups, truncated, createdAt: now ?? new Date() },
+      { ...key, groups, truncated, typeSignature: typeSignature(radiusTier), createdAt: now ?? new Date() },
       { upsert: true }
     );
     return true;

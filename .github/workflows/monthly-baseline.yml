@@ -8,8 +8,8 @@
 #
 # Runs with no MONGODB_URI, so every sample point is a fresh Socrata call and
 # nothing is written to Mongo. --refresh is redundant without a cache and is
-# passed anyway, so adding a Mongo secret later cannot quietly make the
-# rebuild reuse stale counts.
+# passed anyway, so adding a Mongo secret later would still mean fresh counts
+# rather than up-to-24h-old cached ones.
 #
 # Repo setup: Settings → Actions → General → Workflow permissions must allow
 # "GitHub Actions to create and approve pull requests". SOCRATA_APP_TOKEN is an

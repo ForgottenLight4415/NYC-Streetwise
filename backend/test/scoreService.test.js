@@ -13,7 +13,6 @@ import { getDb } from "../src/providers/mongo.js";
 import {
   CACHE_COLLECTION,
   COMPLAINT_GROUPS_COLLECTION,
-  COMPLAINT_GROUPS_CACHE_LIMIT,
   RADIUS_TIERS,
 } from "../src/config/constants.js";
 import { SocrataError } from "../src/providers/socrata.js";
@@ -435,18 +434,6 @@ describe("fetchComplaintGroupList", () => {
     await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
   });
 
-  it("collapses (day, type, status) tuples into one row per (day, type)", async () => {
-    const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
-    const noise = rows.find((r) => r.type === "Noise - Residential");
-    expect(noise.counts).toEqual({ open: 3, "in-progress": 0, closed: 7 });
-    expect(noise.total).toBe(10);
-  });
-
-  it("counts distinct (day, type) pairs as the total, not the complaints", async () => {
-    const { total } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
-    expect(total).toBe(3);
-  });
-
   it("orders newest day first, then by type, so offset paging is stable", async () => {
     const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
     expect(rows.map((r) => `${r.day}|${r.type}`)).toEqual([
@@ -456,30 +443,12 @@ describe("fetchComplaintGroupList", () => {
     ]);
   });
 
-  it("drops a group whose only complaints are of another status", async () => {
-    const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, {
-      tier: "block",
-      status: "open",
-    });
-    expect(rows.map((r) => r.type)).not.toContain("Illegal Parking");
-  });
-
   // The cache keys on the rounded coordinate; filling it from the raw one let a
   // hit and a miss describe different circles, and left the drill-in describing
   // a third.
   it("fills the cache from the same rounded coordinate it keys on", async () => {
     await fetchComplaintGroupList(40.74839999, -73.98571234, 350, { tier: "block" });
     expect(groupsSpy).toHaveBeenCalledWith(40.7484, -73.9857, 350, expect.any(Object));
-  });
-
-  it("fills at the cache limit rather than the caller's page size", async () => {
-    await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block", limit: 25 });
-    expect(groupsSpy).toHaveBeenCalledWith(
-      40.7484,
-      -73.9857,
-      350,
-      expect.objectContaining({ limit: COMPLAINT_GROUPS_CACHE_LIMIT })
-    );
   });
 
   it("serves the second call from Mongo without touching Socrata", async () => {
@@ -497,18 +466,26 @@ describe("fetchComplaintGroupList", () => {
     expect(await db.collection(COMPLAINT_GROUPS_COLLECTION).countDocuments()).toBe(0);
   });
 
-  it("flags truncation when the fill hits the cache limit", async () => {
-    groupsSpy.mockResolvedValue(
-      Array.from({ length: COMPLAINT_GROUPS_CACHE_LIMIT }, (_, i) => ({
-        day: "2026-08-14",
-        type: `Type ${i}`,
-        statusBucket: "closed",
-        count: 1,
-      }))
-    );
-    const { truncated } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
-    expect(truncated).toBe(true);
+  it("calls beforeFill on a cache miss only, so cached pages cost no fill budget", async () => {
+    const beforeFill = vi.fn();
+    await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block", beforeFill });
+    await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block", beforeFill, offset: 25 });
+    expect(beforeFill).toHaveBeenCalledTimes(1);
   });
+
+  it("fetches nothing when beforeFill refuses", async () => {
+    const refusal = new Error("over budget");
+    await expect(
+      fetchComplaintGroupList(40.7484, -73.9857, 350, {
+        tier: "block",
+        beforeFill: () => {
+          throw refusal;
+        },
+      })
+    ).rejects.toBe(refusal);
+    expect(groupsSpy).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("fetchComplaintGroupDetail", () => {

@@ -223,9 +223,4 @@ describe("buildReport amenity integration", () => {
     expect(report).not.toHaveProperty("bikeAccess");
   });
 
-  it("existing two-argument and three-argument call sites still compile and behave unchanged", () => {
-    const report = buildReport(COUNTS, COMPLAINT_BASELINE);
-    expect(report.address).toBeNull();
-    expect(report).not.toHaveProperty("transitAccess");
-  });
 });

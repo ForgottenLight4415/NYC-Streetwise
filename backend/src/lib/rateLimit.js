@@ -92,6 +92,59 @@ function prune(buckets, now) {
 }
 
 /**
+ * Counts one request against a caller's window and publishes the X-RateLimit-*
+ * headers. Returns 0 when allowed, else the whole seconds until the window
+ * resets. The one place the counting happens, shared by the middleware and by
+ * the in-handler guard below.
+ */
+function consume({ limit, windowMs, name }, req, res) {
+  const now = Date.now();
+  const buckets = store();
+  const key = `${name}:${callerKey(req)}`;
+
+  let bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + windowMs };
+    buckets.set(key, bucket);
+    prune(buckets, now);
+  }
+
+  bucket.count += 1;
+
+  const remaining = Math.max(0, limit - bucket.count);
+  res.set("X-RateLimit-Limit", String(limit));
+  res.set("X-RateLimit-Remaining", String(remaining));
+  res.set("X-RateLimit-Reset", String(Math.ceil(bucket.resetAt / 1000)));
+
+  if (bucket.count <= limit) return 0;
+  return Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+}
+
+/**
+ * The 429 response, shared by the middleware and app.js's error handler (for a
+ * RateLimitedError thrown by a guard), so both refusals look identical to the
+ * client.
+ */
+export function sendRateLimited(res, retryAfter) {
+  res.set("Retry-After", String(retryAfter));
+  // 429 with a code the frontend can branch on. `details` says what to do,
+  // because unlike a 400 there is nothing to fix in the request itself.
+  return res.status(429).json({
+    error: "rate_limited",
+    details: `Too many requests. Try again in ${retryAfter}s.`,
+  });
+}
+
+/** Thrown by a rateLimitGuard() that refused; app.js turns it into a 429. */
+export class RateLimitedError extends Error {
+  constructor(retryAfter) {
+    super("rate_limited");
+    this.name = "RateLimitedError";
+    this.retryAfter = retryAfter;
+  }
+}
+
+/**
  * Express middleware limiting one caller to `limit` requests per `windowMs`.
  *
  * @param {object} options
@@ -105,36 +158,26 @@ function prune(buckets, now) {
 export function rateLimit({ limit, windowMs, name, when }) {
   return function rateLimitMiddleware(req, res, next) {
     if (when && !when(req)) return next();
-
-    const now = Date.now();
-    const buckets = store();
-    const key = `${name}:${callerKey(req)}`;
-
-    let bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      bucket = { count: 0, resetAt: now + windowMs };
-      buckets.set(key, bucket);
-      prune(buckets, now);
-    }
-
-    bucket.count += 1;
-
-    const remaining = Math.max(0, limit - bucket.count);
-    res.set("X-RateLimit-Limit", String(limit));
-    res.set("X-RateLimit-Remaining", String(remaining));
-    res.set("X-RateLimit-Reset", String(Math.ceil(bucket.resetAt / 1000)));
-
-    if (bucket.count > limit) {
-      const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-      res.set("Retry-After", String(retryAfter));
-      // 429 with a code the frontend can branch on. `details` says what to do,
-      // because unlike a 400 there is nothing to fix in the request itself.
-      return res.status(429).json({
-        error: "rate_limited",
-        details: `Too many requests. Try again in ${retryAfter}s.`,
-      });
-    }
-
+    const retryAfter = consume({ limit, windowMs, name }, req, res);
+    if (retryAfter) return sendRateLimited(res, retryAfter);
     next();
+  };
+}
+
+/**
+ * The same limit, charged from INSIDE a handler, for a cost only known partway
+ * through a request: the grouped complaint fill is expensive on a cache miss
+ * and ~10ms on a hit, and which one it is takes a cache read to find out.
+ * Middleware would have to charge every request the miss price. Returns a
+ * `(req, res) => void` that throws RateLimitedError when over the limit.
+ *
+ * On a charge it overwrites any X-RateLimit-* headers a middleware set
+ * earlier on the same request; that is intended, since the stricter budget is
+ * the one the caller just spent from.
+ */
+export function rateLimitGuard({ limit, windowMs, name }) {
+  return function chargeRateLimit(req, res) {
+    const retryAfter = consume({ limit, windowMs, name }, req, res);
+    if (retryAfter) throw new RateLimitedError(retryAfter);
   };
 }

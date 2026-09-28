@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   COMPLAINT_STATUS_OPTIONS,
+  RateLimitedError,
   TREND_WINDOW_OPTIONS,
   fetchComplaintGroups,
   fetchGroupDetail,
@@ -76,6 +77,9 @@ export function ComplaintsBrowserModal({
   const [selected, setSelected] = useState<Complaint | null>(null);
   // Populated only when the grouped fill fails; see the catch below.
   const [fallback, setFallback] = useState<Complaint[] | null>(null);
+  // Bumped to re-issue the current request unchanged: the automatic retry
+  // after a rate limit, and the fallback view's "Try again".
+  const [attempt, setAttempt] = useState(0);
 
   // Results are tagged with the request that produced them and compared against
   // the current one, rather than being cleared by a second effect. A stale page
@@ -91,6 +95,7 @@ export function ComplaintsBrowserModal({
     status,
     offset,
     pageSize,
+    attempt,
   ].join("|");
   const [fetched, setFetched] = useState<{
     key: string;
@@ -98,11 +103,14 @@ export function ComplaintsBrowserModal({
     total?: number;
     truncated?: boolean;
     error?: string;
+    /** Seconds until a rate-limited request is retried automatically. */
+    rateLimitedFor?: number;
   } | null>(null);
 
   const current = fetched?.key === requestKey ? fetched : null;
   const groups = current?.items ?? null;
   const error = current?.error ?? null;
+  const rateLimitedFor = current?.rateLimitedFor ?? null;
   const total = current?.total ?? 0;
   const truncated = current?.truncated ?? false;
 
@@ -118,6 +126,7 @@ export function ComplaintsBrowserModal({
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     fetchComplaintGroups(lat, lng, tier, radiusMeters, {
       months,
@@ -137,6 +146,18 @@ export function ComplaintsBrowserModal({
       })
       .catch((e) => {
         if (cancelled) return;
+        // Over the rate limit is not a failure: the data is fine and the same
+        // request will succeed shortly. So no fallback and the filters stay
+        // put; wait out Retry-After and re-issue it. Changing a filter or
+        // closing first cancels the timer via the cleanup below.
+        if (e instanceof RateLimitedError) {
+          setFetched({ key: requestKey, rateLimitedFor: e.retryAfter });
+          retryTimer = setTimeout(
+            () => setAttempt((n) => n + 1),
+            e.retryAfter * 1000,
+          );
+          return;
+        }
         // Replaces the fact rotation rather than leaving a fact frozen behind a
         // request that already failed.
         setFetched({
@@ -154,6 +175,7 @@ export function ComplaintsBrowserModal({
 
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
     };
   }, [
     requestKey,
@@ -331,7 +353,19 @@ export function ComplaintsBrowserModal({
                     error={error}
                     items={fallback}
                     onSelect={setSelected}
+                    onRetry={() => {
+                      setFallback(null);
+                      setAttempt((n) => n + 1);
+                    }}
                   />
+                ) : rateLimitedFor !== null ? (
+                  <p
+                    role="status"
+                    className="my-16 text-center text-sm text-(--text-muted)"
+                  >
+                    That was a lot of requests in a short time. Trying again in
+                    about {rateLimitedFor}s.
+                  </p>
                 ) : groups === null ? (
                   <FactRotator />
                 ) : groups.length === 0 ? (
@@ -454,10 +488,13 @@ function FallbackList({
   error,
   items,
   onSelect,
+  onRetry,
 }: {
   error: string;
   items: Complaint[] | null;
   onSelect: (complaint: Complaint) => void;
+  /** Re-issues the grouped request; the fill may well succeed a second time. */
+  onRetry: () => void;
 }) {
   return (
     <div className="py-4">
@@ -470,7 +507,14 @@ function FallbackList({
         }}
       >
         {error} Showing the most recent complaints instead. Filters and full
-        history are unavailable.
+        history are unavailable.{" "}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="font-medium underline underline-offset-2"
+        >
+          Try again
+        </button>
       </p>
 
       {items === null ? (

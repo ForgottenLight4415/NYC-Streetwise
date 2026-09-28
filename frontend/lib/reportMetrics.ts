@@ -22,11 +22,6 @@ export function sliceWindow(
   return points && points.length > 0 ? points.slice(-months) : null;
 }
 
-/** Sum of one already-sliced window. */
-export function windowTotal(points: TrendPoint[] | null): number | null {
-  return points ? points.reduce((sum, p) => sum + p.count, 0) : null;
-}
-
 /**
  * Year-over-year change: the most recent 12 months against the 12 before
  * them. `null` unless the full 24-month series is in hand — a partial

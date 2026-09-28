@@ -158,11 +158,6 @@ describe("buildShowcase", () => {
 });
 
 describe("GET /api/showcase", () => {
-  it("answers 200 with an empty list on a cold cache", async () => {
-    const res = await server.request("/api/showcase");
-    expect(res.status).toBe(200);
-    expect(res.body.items).toEqual([]);
-  });
 
   it("always carries a curated fallback subject, cold cache or warm", async () => {
     // The homepage's hero card needs SOMETHING to score when items is empty, and

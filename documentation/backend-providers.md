@@ -56,10 +56,10 @@ so per-string averaging would silently underweight noise against plumbing).
 `bucketStatusCounts` — one query, two aggregates, still two calls per
 uncached address, not three.
 
-### `fetchAllCounts(lat, lng, options)`
-
-Both tiers for one point, issued **in parallel** — the two HTTP calls per
-uncached address the project budgets for (not six, not twelve).
+The two HTTP calls per uncached address (not six, not twelve) are issued **in
+parallel** by `scoreService.js#getCounts()`, one `fetchCountsForTier` per
+missing tier, so a partial cache hit fetches only the tier it lacks. (A
+`fetchAllCounts` wrapper for both tiers used to live here; nothing called it.)
 
 ### `fetchComplaints(lat, lng, radiusMeters, { now, limit })`
 

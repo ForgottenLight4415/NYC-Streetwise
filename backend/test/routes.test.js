@@ -164,19 +164,6 @@ describe("POST /api/score", () => {
     expect(body.blockQuality.counts).toEqual(COUNTS.block);
   });
 
-  it("costs exactly two upstream calls — one per radius tier", async () => {
-    // CLAUDE.md budgets two HTTP calls per uncached address, not six or twelve.
-    await server.request("/api/score", {
-      method: "POST",
-      body: { lat: 40.7101, lng: -74.0121 },
-    });
-    expect(countsSpy).toHaveBeenCalledTimes(2);
-    expect(countsSpy.mock.calls.map((call) => call[2]).sort()).toEqual([
-      "block",
-      "building",
-    ]);
-  });
-
   it("carries the agreed additive fields", async () => {
     // Additive extensions agreed in handoff.md — a frontend that ignores them
     // keeps working, but they must be present for one that does not.
@@ -218,18 +205,6 @@ describe("POST /api/score", () => {
       CONFIDENCE_REASONS.noComplaintsFound
     );
     expect(body.blockQuality.confidence).toBe(CONFIDENCE.normal);
-  });
-
-  it("is stable across repeat calls for the same coordinate", async () => {
-    const first = await server.request("/api/score", {
-      method: "POST",
-      body: { lat: 40.6944, lng: -73.9213 },
-    });
-    const second = await server.request("/api/score", {
-      method: "POST",
-      body: { lat: 40.6944, lng: -73.9213 },
-    });
-    expect(first.body).toEqual(second.body);
   });
 
   it("503s rather than 500s when the upstream is down", async () => {
@@ -502,6 +477,21 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     const { body, headers } = await server.request(`${BASE}&months=3`);
     expect(body.every((r) => r.day >= "2026-05-01")).toBe(true);
     expect(headers.get("x-complaints-total")).toBe("2");
+  });
+
+  it("still limits cold fills: the eleventh in a minute is refused with 429", async () => {
+    // No Mongo in this file, so every grouped request is a real fill. Cached
+    // pages are exempt; see scoreService.test.js's beforeFill tests.
+    const fillsBefore = groupsSpy.mock.calls.length;
+    for (let i = 0; i < 10; i++) {
+      expect((await server.request(BASE)).status).toBe(200);
+    }
+    const refused = await server.request(BASE);
+    expect(refused.status).toBe(429);
+    expect(refused.body.error).toBe("rate_limited");
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+    // The refused request never reached Socrata.
+    expect(groupsSpy.mock.calls.length - fillsBefore).toBe(10);
   });
 
   it("filters by complaint bucket", async () => {

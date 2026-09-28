@@ -13,10 +13,10 @@
  *   1. Draws sample coordinates from REAL 311 records, spread across the five
  *      boroughs and thinned so no single dense block dominates.
  *   2. Calls getCounts() on each (cache-first, so a rerun is nearly free).
- *      Pass --refresh after narrowing a type list or excluding a descriptor:
- *      cached counts still hold the old rows, and because every bucket is
- *      present they look complete, so a cache-first run would reuse them.
- *      (Adding a bucket needs no flag; that makes every cached doc a miss.)
+ *      Cached counts carry a typeSignature of the complaint definitions they
+ *      were built from (providers/cache.js), so after a type-list or
+ *      descriptor change they already read as misses. --refresh bypasses the
+ *      cache entirely, for fresh counts regardless.
  *   3. Takes median + p90 per bucket per tier.
  *   4. Writes src/config/baseline.json (COMMIT IT) and, if Mongo is configured,
  *      the `baseline` document.

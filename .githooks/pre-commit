@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Pre-commit checks: the backend test suite and the frontend's ESLint, each run
+# only when the commit touches that side of the repo (a docs-only commit runs
+# neither).
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Run by hand, both sides: .githooks/pre-commit --all
+# Skip in an emergency:    git commit --no-verify
+#
+# Checks run against the WORKING TREE, not the staged snapshot: unstaged edits
+# to a staged side are included. Stashing them first would make the result
+# exact, but a failed or interrupted stash can lose work, which is a worse
+# failure than an occasionally optimistic pre-commit.
+
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root" || exit 1
+
+run_backend=false
+run_frontend=false
+
+if [[ "${1:-}" == "--all" ]]; then
+  run_backend=true
+  run_frontend=true
+else
+  staged="$(git diff --cached --name-only --diff-filter=ACMRD)"
+  grep -q '^backend/' <<<"$staged" && run_backend=true
+  grep -q '^frontend/' <<<"$staged" && run_frontend=true
+fi
+
+if ! $run_backend && ! $run_frontend; then
+  exit 0
+fi
+
+failed=()
+
+# Missing node_modules would otherwise surface as a confusing npx/vitest error.
+require_deps() {
+  if [[ ! -d "$1/node_modules" ]]; then
+    echo "pre-commit: $1/node_modules is missing. Run 'npm install' in $1/ first." >&2
+    exit 1
+  fi
+}
+
+if $run_backend; then
+  require_deps backend
+  echo "pre-commit: backend tests..."
+  if ! (cd backend && npm test --silent); then
+    failed+=("backend tests (cd backend && npm test)")
+  fi
+fi
+
+if $run_frontend; then
+  require_deps frontend
+  echo "pre-commit: frontend ESLint..."
+  if ! (cd frontend && npm run lint --silent); then
+    failed+=("frontend ESLint (cd frontend && npm run lint)")
+  fi
+fi
+
+if (( ${#failed[@]} > 0 )); then
+  echo >&2
+  echo "pre-commit: commit blocked. Failed:" >&2
+  printf '  - %s\n' "${failed[@]}" >&2
+  echo "Fix the failures, or bypass with 'git commit --no-verify'." >&2
+  exit 1
+fi
+
+echo "pre-commit: all checks passed."

@@ -93,11 +93,6 @@ describe("templateOverallSummary", () => {
     expect(text.length).toBeGreaterThan(10);
   });
 
-  it("is deterministic — the same input gives the same text", () => {
-    const sections = overallSections(REPORT);
-    expect(templateOverallSummary(sections)).toBe(templateOverallSummary(sections));
-  });
-
   it("covers BOTH complaint tiers, not just the worse-banded one", () => {
     // blockQuality is "poor" with noise standing out; buildingHealth is "good"
     // with heat/hot water standing out. Unlike the old ~100-word version

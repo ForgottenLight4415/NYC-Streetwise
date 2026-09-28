@@ -477,7 +477,9 @@ export const RATE_LIMIT_UPSTREAM = { limit: 60, windowMs: 60_000 };
 /**
  * The grouped complaint fill (`complete=1`), measured 2.3-74.3s per cold
  * address. The single most expensive thing an anonymous caller can trigger, so
- * it is priced separately from the cheap default mode of the same endpoint.
+ * it is priced separately. Charged only on a cache MISS (rateLimitGuard in
+ * routes/complaints.js): the complaints browser's filter and page clicks on a
+ * cached address are ~10ms reads and pay only RATE_LIMIT_UPSTREAM.
  */
 export const RATE_LIMIT_FILL = { limit: 10, windowMs: 60_000 };
 

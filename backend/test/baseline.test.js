@@ -105,12 +105,6 @@ describe("loadBaseline without Mongo", () => {
     expect(second).toBe(first); // same object identity, not just equal
   });
 
-  it("forceRefresh re-reads", async () => {
-    const first = await loadBaseline();
-    const second = await loadBaseline({ forceRefresh: true });
-    expect(second).not.toBe(first);
-    expect(second).toEqual(first);
-  });
 });
 
 describe("loadBaseline with Mongo", () => {

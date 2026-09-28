@@ -57,7 +57,7 @@ given their own section — read the source directly for those.
 - **`ReportBody.tsx`** — the shared body rendered by both the report page
   (`layout="page"`) and each compare column (`layout="column"`, via
   `CompareColumnContent`/`CompareAlignedBody`). Assembles: `ReportToolbar`
-  (page layout only — sticky address bar + global trend-window control),
+  (page layout only — address bar, sticky from `sm` up),
   a `VerdictBanner` + `OverviewHeader`/`ScoreRadar` split, the two complaint
   `ScorePanelCard`s plus Transit's `AmenityPanelCard` in one grid, the
   remaining amenity cards in a second grid sized by how many sections a
@@ -66,12 +66,12 @@ given their own section — read the source directly for those.
   and — page layout only — a sticky right rail holding `ActivitySpine` above
   `MapPanelLazy`. Column layout keeps the map inline and renders no activity
   feed at all, since the compare view fetches no complaint feeds to fill one
-  with. Local UI state (trend window, which amenity bucket's browser modal is
-  open) lives in the paired hook, **`useReportPanelState.ts`**, so
+  with. Local UI state (which amenity bucket's browser modal is open) lives in
+  the paired hook, **`useReportPanelState.ts`**, so
   `ReportBody` and `CompareAlignedBody` don't duplicate it.
-- **`ReportToolbar.tsx`** — the page layout's sticky title bar: address
-  heading, the global `WindowPills` trend-window control, and the "Compare
-  with another" link.
+- **`ReportToolbar.tsx`** — the page layout's title bar: address heading and
+  the "Compare with another" link. Sticky from `sm` up only; on a phone it
+  scrolls away with the page.
 - **`VerdictBanner.tsx`** — the headline: two bands side by side (Liveability
   from the two complaint tiers via `overallBand`, Access from however many
   amenity tiers are present via `overallAmenityBand`), each with its own
@@ -96,13 +96,20 @@ given their own section — read the source directly for those.
   status timeline — that feature was removed entirely; see
   [`frontend-lib.md`](./frontend-lib.md#typests)). Clicking an entry opens
   `ComplaintDetailModal`; a "browse all" link opens `ComplaintsBrowserModal`
-  — both lazy-loaded via `next/dynamic`.
+  — both lazy-loaded via `next/dynamic`. Always covers the report's full
+  scoring window (`meta.windowMonths`), not a trend window, so each browse
+  link's count is exactly the count on that tier's score card.
 
 ## Score panels (complaint tiers)
 
 - **`ScorePanelCard.tsx`** — one Building Health or Block Quality panel:
   `PanelShell` (shared chrome) plus `ComplaintBreakdownBars` and
-  `TrendSection`.
+  `TrendSection`. Its count line states the scoring window ("… in the last
+  24 months", from `meta.windowMonths`), and it owns its own trend window: the
+  window changes only this card's chart, and the tiers suit different ones
+  (sparse building history at 18–24 months, dense block history at 3–6).
+  Starting windows are per tier (`DEFAULT_WINDOW`): Building Health opens at
+  24 months, Block Quality at the shared 9-month default.
 - **`PanelShell.tsx`** — the chrome shared by both complaint and amenity
   panel cards: card frame, header, `ScoreMeter`, `StatusBadge`, a low-
   confidence callout (`CONFIDENCE_MESSAGE`). A `compact` prop swaps the 96px
@@ -117,12 +124,12 @@ given their own section — read the source directly for those.
   score, using the same tie-margin rule as the backend's
   `templateExplanation.js` so the two never disagree.
 - **`TrendSection.tsx`** / **`TrendSparkline.tsx`** — the monthly trend bar
-  chart plus its own `WindowPills` control (or, on the page layout, the
-  toolbar's shared one). `TrendSparkline` renders gridlines, a caption, and a
+  chart plus its `WindowPills` control, whose state the card owns.
+  `TrendSparkline` renders gridlines, a caption, and a
   hover tooltip with the exact month + count from `GET /api/trend`'s
   zero-filled series.
-- **`WindowPills.tsx`** — the shared trend-window radiogroup (3/6/9/12/18/24
-  months), used by the toolbar, `TrendSection`, and `CompareAlignedBody`.
+- **`WindowPills.tsx`** — the trend-window radiogroup (3/6/9/12/18/24
+  months), rendered by `TrendSection` in each complaint card.
 
 ## Amenity panels (transit / parks / bike / walkability)
 
@@ -153,11 +160,16 @@ given their own section — read the source directly for those.
 - **`ComplaintsBrowserModal.tsx`** — the full grouped complaint history
   (`(day, type)` rows with a status breakdown, `GET /api/complaints?complete=1`),
   paginated (`Pager.tsx`) and filterable by month window/bucket/status
-  (`FilterChips.tsx`, a shared roving-tabindex radiogroup also used by the
-  trend window control). The first load per address can take seconds (the
+  (`FilterChips.tsx`, a shared roving-tabindex radiogroup). The first load per address can take seconds (the
   backend's grouped-fill cache measured 2.3–74.3s cold), so it shows
   `FactRotator` rather than a spinner. Drilling into one group fetches its
-  individual complaints (`fetchGroupDetail`), also paginated.
+  individual complaints (`fetchGroupDetail`), also paginated. Two failure
+  paths, kept apart: a **429** (`RateLimitedError` from `lib/api.ts`) keeps
+  the filters, says so, and retries by itself after `Retry-After`; any other
+  failure switches to a reduced list of recent complaints
+  (`fetchNearbyComplaints`) with the filters hidden and a "Try again" link.
+  The chips wrap on narrow screens, since the category filter has seven
+  options.
 - **`FactRotator.tsx`** — rotating trivia used by both `ComplaintsBrowserModal`'s
   first open and the report's own loading view (`ReportLoading.tsx`) — any
   wait long enough that a spinner reads as a hang. Content is hardcoded

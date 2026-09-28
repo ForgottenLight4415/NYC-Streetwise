@@ -203,21 +203,6 @@ export async function fetchCountsForTier(lat, lng, tierName, { now } = {}) {
 }
 
 /**
- * Both tiers for one point — the two HTTP calls per uncached address that
- * CLAUDE.md specifies (not six, not twelve). Issued in parallel.
- *
- * @returns {Promise<{building: object, block: object}>} each value is
- *   fetchCountsForTier's `{counts, bucketStatusCounts}` shape.
- */
-export async function fetchAllCounts(lat, lng, options) {
-  const [building, block] = await Promise.all([
-    fetchCountsForTier(lat, lng, "building", options),
-    fetchCountsForTier(lat, lng, "block", options),
-  ]);
-  return { building, block };
-}
-
-/**
  * Individual complaint points for the frontend heatmap. Unlike the count
  * queries this returns rows, so it is capped well below the row limit.
  */

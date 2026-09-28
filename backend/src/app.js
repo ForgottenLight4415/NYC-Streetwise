@@ -7,6 +7,7 @@ import { trendRouter } from "./routes/trend.js";
 import { showcaseRouter } from "./routes/showcase.js";
 import { amenitiesRouter } from "./routes/amenities.js";
 import { BadRequestError } from "./lib/validate.js";
+import { RateLimitedError, sendRateLimited } from "./lib/rateLimit.js";
 
 /** Custom response headers the browser must be allowed to read cross-origin. */
 const COMPLAINTS_HEADERS = [
@@ -16,6 +17,9 @@ const COMPLAINTS_HEADERS = [
   "X-Complaints-Offset",
   "X-Complaints-Has-More",
   "X-Complaints-Cached",
+  // Not complaints-specific: a 429 from any limiter carries it, and the
+  // complaints browser reads it to say how long to wait before retrying.
+  "Retry-After",
 ];
 
 // Comma-separated list of origins allowed to read responses from a browser.
@@ -101,6 +105,12 @@ export function createApp() {
     // derived from an internal exception, so forwarding both leaks nothing.
     if (err instanceof BadRequestError) {
       return res.status(err.status).json({ error: err.message, details: err.details });
+    }
+
+    // A rateLimitGuard() refusing mid-handler: the same 429 the middleware
+    // sends, so a client cannot tell (or need to care) which one refused.
+    if (err instanceof RateLimitedError) {
+      return sendRateLimited(res, err.retryAfter);
     }
     console.error("[error]", err);
     res.status(500).json({ error: "internal_error" });

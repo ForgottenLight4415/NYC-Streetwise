@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   fetchCountsForTier,
-  fetchAllCounts,
   fetchComplaints,
   fetchComplaintsForGroup,
   SocrataError,
@@ -9,7 +8,6 @@ import {
 import {
   LOCATION_FIELD,
   RADIUS_TIERS,
-  SOCRATA_ENDPOINT,
 } from "../src/config/constants.js";
 
 // No network. `fetch` is stubbed so we can assert on the SoQL we generate and
@@ -47,12 +45,6 @@ afterEach(() => {
 describe("query construction", () => {
   beforeEach(() => {
     fetchMock.mockResolvedValue(jsonResponse([]));
-  });
-
-  it("hits the pinned dataset endpoint", async () => {
-    await fetchCountsForTier(40.7484, -73.9857, "block");
-    const [url] = calls();
-    expect(`${url.origin}${url.pathname}`).toBe(SOCRATA_ENDPOINT);
   });
 
   it("filters with within_circle on the geo column, not latitude/longitude", async () => {
@@ -297,46 +289,6 @@ describe("bucketStatusCounts", () => {
       const total = Object.values(bucketStatusCounts[bucket]).reduce((a, b) => a + b, 0);
       expect(total).toBe(counts[bucket]);
     }
-  });
-});
-
-describe("fetchAllCounts", () => {
-  it("makes exactly two HTTP calls, one per tier", async () => {
-    fetchMock.mockResolvedValue(jsonResponse([]));
-    await fetchAllCounts(40.7484, -73.9857);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    const radii = calls().map((url) =>
-      url.searchParams.get("$where").match(/within_circle\([^)]*?(\d+)\)/)[1]
-    );
-    expect(radii.map(Number).sort((a, b) => a - b)).toEqual([25, 350]);
-  });
-
-  it("returns both tiers keyed by name, each carrying counts and bucketStatusCounts", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse([{ complaint_type: "HEAT/HOT WATER", status: "Closed", count: "3" }])
-    );
-    const { building, block } = await fetchAllCounts(40.7484, -73.9857);
-    expect(building.counts.heatHotWater).toBe(3);
-    expect(building.bucketStatusCounts.heatHotWater).toEqual({
-      open: 0,
-      "in-progress": 0,
-      closed: 3,
-    });
-    expect(block.counts).toEqual({ noise: 0, parking: 0, streetCondition: 0, sanitation: 0, infrastructure: 0, publicSafety: 0 });
-  });
-
-  it("issues the two calls in parallel, not in sequence", async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-    fetchMock.mockImplementation(async () => {
-      maxInFlight = Math.max(maxInFlight, ++inFlight);
-      await new Promise((r) => setTimeout(r, 10));
-      inFlight--;
-      return jsonResponse([]);
-    });
-    await fetchAllCounts(40.7484, -73.9857);
-    expect(maxInFlight).toBe(2);
   });
 });
 

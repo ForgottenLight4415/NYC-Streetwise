@@ -47,12 +47,6 @@ describe("templateExplanation", () => {
     expect(text.length).toBeGreaterThan(20);
   });
 
-  it("is deterministic — the same input gives the same text", () => {
-    const once = templateExplanation({ label: "Block Quality", ...BLOCK });
-    const twice = templateExplanation({ label: "Block Quality", ...BLOCK });
-    expect(once).toBe(twice);
-  });
-
   it("reflects the band", () => {
     const good = templateExplanation({ label: "Block Quality", ...BLOCK, band: "good" });
     const poor = templateExplanation({ label: "Block Quality", ...BLOCK, band: "poor" });

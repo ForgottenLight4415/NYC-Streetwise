@@ -16,7 +16,6 @@ import { ScoreRadar } from "./ScoreRadar";
 import { ScorePanelCard } from "./ScorePanelCard";
 import { useReportPanelState } from "./useReportPanelState";
 import { VerdictBanner } from "./VerdictBanner";
-import { WindowPills } from "./WindowPills";
 
 const AmenityBrowserModal = dynamic(
   () => import("./AmenityBrowserModal").then((m) => m.AmenityBrowserModal),
@@ -92,12 +91,11 @@ export function CategoryIcon({
  * side effect of both cards reading from the same registry, the compare view
  * gains the amenity scores and the radar for free.
  *
- * The trend window used to live inside each ScorePanelCard independently.
- * It is lifted here so ONE control (the toolbar's, or this component's own
- * for the column layout) scopes both complaint panels and the activity feed
- * together. `useDeferredValue` - not a state update wrapped in
- * `startTransition` - keeps the selected pill's own highlight instantaneous
- * while the two sparklines and the feed re-slice behind it.
+ * Trend windows live in each ScorePanelCard. They were once lifted here so
+ * one control could also scope the activity feed; the feed now always covers
+ * the report's full scoring window (so its counts match the cards'), which
+ * left the window driving nothing but each card's own chart - so it moved
+ * back into the card, one per tier.
  */
 export function ReportBody({
   report,
@@ -113,9 +111,6 @@ export function ReportBody({
   panels?: Panels;
 }) {
   const {
-    months,
-    setMonths,
-    deferredMonths,
     openAmenity,
     setOpenAmenity,
     amenityCats,
@@ -188,6 +183,9 @@ export function ReportBody({
             complaints: panels[c.key].complaints?.data,
             isLoading: panels[c.key].complaints?.isLoading ?? false,
             radiusMeters: report[c.key].radiusMeters,
+            // The card's own count, so the "Browse" link beside the feed
+            // shows exactly the number on the card it belongs to.
+            total: Object.values(report[c.key].counts).reduce((sum, n) => sum + n, 0),
           }))
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,17 +197,15 @@ export function ReportBody({
       blockComplaints?.isLoading,
       report.buildingHealth.radiusMeters,
       report.blockQuality.radiusMeters,
+      report.buildingHealth.counts,
+      report.blockQuality.counts,
     ],
   );
 
   const mainColumn = (
     <div className="min-w-0">
       {layout === "page" && (
-        <ReportToolbar
-          address={address}
-          months={months}
-          onMonthsChange={setMonths}
-        />
+        <ReportToolbar address={address} />
       )}
 
       {layout === "page" ? (
@@ -250,18 +246,6 @@ export function ReportBody({
         <OverviewHeader report={report} coords={coords} />
       </div>
 
-      {layout === "column" && (
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
-            Trend window
-          </p>
-          <WindowPills
-            months={months}
-            onMonthsChange={setMonths}
-            ariaLabel="Trend window"
-          />
-        </div>
-      )}
 
       <div className={complaintGridClass}>
         {COMPLAINT_CATEGORIES.map((c) => {
@@ -277,7 +261,7 @@ export function ReportBody({
               tier={c.id}
               lat={coords.lat}
               lng={coords.lng}
-              months={deferredMonths}
+              windowMonths={report.meta.windowMonths}
               compact
             />
           );
@@ -406,7 +390,7 @@ export function ReportBody({
         <ActivitySpine
           lat={coords.lat}
           lng={coords.lng}
-          months={deferredMonths}
+          windowMonths={report.meta.windowMonths}
           tiers={activityTiers}
         />
 

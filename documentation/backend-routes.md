@@ -122,9 +122,13 @@ status breakdown, for the complaints browser. Extra params: `months`
 Headers: `X-Complaints-Total` (matching **groups**, not complaints, before
 paging), `X-Complaints-Offset`, `X-Complaints-Has-More`, `X-Complaints-Cached`.
 
-Rate limited under `RATE_LIMIT_UPSTREAM` in default mode, `RATE_LIMIT_FILL`
-(10/min) for `complete=1` — the first grouped request for an address fills a
-24h cache and was measured at 2.3–74.3s.
+Every request pays `RATE_LIMIT_UPSTREAM` (60/min). A `complete=1` request that
+misses the grouped cache also pays `RATE_LIMIT_FILL` (10/min), charged from
+inside the handler via `rateLimitGuard()` at the moment of the miss: that fill
+was measured at 2.3–74.3s, while a cached page, filter or window change is a
+~10ms read. (It used to be middleware on every `complete=1` request, so the
+browser's eleventh click in a minute got a 429.) Both refusals are the same
+`429 {error: "rate_limited"}` with `Retry-After`.
 
 ## `GET /api/complaints/group` — `complaints.js`
 

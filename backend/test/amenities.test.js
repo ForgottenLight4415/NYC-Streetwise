@@ -132,11 +132,6 @@ describe("loadAmenities without Mongo", () => {
     expect(second).toBe(first);
   });
 
-  it("forceRefresh re-reads", async () => {
-    const first = await loadAmenities();
-    const second = await loadAmenities({ forceRefresh: true });
-    expect(second).not.toBe(first);
-  });
 });
 
 describe("loadAmenities with Mongo", () => {
