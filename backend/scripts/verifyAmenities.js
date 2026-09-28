@@ -4,7 +4,7 @@
  * an "OPEN ITEMS — verify before building on top" check, re-runnable if a
  * source ever moves or a build starts producing suspiciously thin output.
  *
- *   npm run verify:amenities
+ *   yarn verify:amenities
  *
  * Confirms, for every AMENITY_SOURCES entry: the source resolves, its actual
  * field names, its row count, and the share of rows with usable geometry.

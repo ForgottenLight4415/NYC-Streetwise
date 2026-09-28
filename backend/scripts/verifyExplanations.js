@@ -2,7 +2,7 @@
  * Runs every available AI adapter against the SAME fixed whole-report inputs
  * and prints the outputs side by side, next to the deterministic template.
  *
- *   npm run verify:explanations
+ *   yarn verify:explanations
  *
  * This is the tone-consistency check CLAUDE.md requires before demo day.
  * Llama 3 and Gemini Flash-Lite are different models and may not produce

@@ -2,8 +2,8 @@
  * Distills AMENITY_SOURCES (constants.js) into the three committed amenity
  * dataset files the backend serves from at runtime.
  *
- *   npm run build:amenities
- *   npm run build:amenities -- --dry-run
+ *   yarn build:amenities
+ *   yarn build:amenities --dry-run
  *
  * WHY THIS EXISTS: the amenity scores (transit/parks/bike) are static-data
  * scores — no live upstream call sits on the request path. This script is
@@ -12,7 +12,7 @@
  * downstream reads only the committed JSON it produces (or the Mongo copy of
  * it — see providers/amenities/index.js).
  *
- * Run `npm run verify:amenities` FIRST if this is the first run, or if a
+ * Run `yarn verify:amenities` FIRST if this is the first run, or if a
  * rerun ever looks suspiciously thin — that script confirms each source
  * still resolves and reports actual row counts before this one commits to
  * writing anything.

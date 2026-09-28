@@ -38,7 +38,7 @@ failed=()
 # Missing node_modules would otherwise surface as a confusing npx/vitest error.
 require_deps() {
   if [[ ! -d "$1/node_modules" ]]; then
-    echo "pre-commit: $1/node_modules is missing. Run 'npm install' in $1/ first." >&2
+    echo "pre-commit: $1/node_modules is missing. Run 'yarn install' in $1/ first." >&2
     exit 1
   fi
 }
@@ -46,20 +46,20 @@ require_deps() {
 if $run_backend; then
   require_deps backend
   echo "pre-commit: backend ESLint..."
-  if ! (cd backend && npm run lint --silent); then
-    failed+=("backend ESLint (cd backend && npm run lint)")
+  if ! (cd backend && yarn run --silent lint); then
+    failed+=("backend ESLint (cd backend && yarn lint)")
   fi
   echo "pre-commit: backend tests..."
-  if ! (cd backend && npm test --silent); then
-    failed+=("backend tests (cd backend && npm test)")
+  if ! (cd backend && yarn run --silent test); then
+    failed+=("backend tests (cd backend && yarn test)")
   fi
 fi
 
 if $run_frontend; then
   require_deps frontend
   echo "pre-commit: frontend ESLint..."
-  if ! (cd frontend && npm run lint --silent); then
-    failed+=("frontend ESLint (cd frontend && npm run lint)")
+  if ! (cd frontend && yarn run --silent lint); then
+    failed+=("frontend ESLint (cd frontend && yarn lint)")
   fi
 fi
 
