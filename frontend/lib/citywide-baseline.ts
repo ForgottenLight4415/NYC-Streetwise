@@ -3,8 +3,8 @@
  *
  * GENERATED FILE - DO NOT EDIT BY HAND.
  * Source: backend/src/config/baseline.json (the committed output of
- * `npm run baseline`). Regenerate with `npm run sync:baseline` from
- * frontend/, which `npm run baseline` also does for you; `npm run
+ * `yarn baseline`). Regenerate with `yarn sync:baseline` from
+ * frontend/, which `yarn baseline` also does for you; `yarn
  * verify:baseline` fails if this file has fallen behind.
  *
  * Committed rather than fetched deliberately: CitywideBaselinePanel is what the
@@ -57,12 +57,12 @@ export const CITYWIDE_BASELINE: {
       radiusMeters: 350,
       colorVar: "--series-block",
       buckets: [
-        { key: "noise", median: 1002, p90: 3862 },
-        { key: "parking", median: 1339, p90: 2792 },
-        { key: "streetCondition", median: 105, p90: 220 },
-        { key: "sanitation", median: 308, p90: 721 },
-        { key: "infrastructure", median: 313, p90: 641 },
-        { key: "publicSafety", median: 62, p90: 482 },
+        { key: "noise", median: 1014, p90: 3875 },
+        { key: "parking", median: 1330, p90: 2794 },
+        { key: "streetCondition", median: 105, p90: 222 },
+        { key: "sanitation", median: 306, p90: 723 },
+        { key: "infrastructure", median: 313, p90: 644 },
+        { key: "publicSafety", median: 62, p90: 479 },
       ],
     },
   ],
