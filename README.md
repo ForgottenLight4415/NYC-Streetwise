@@ -30,11 +30,13 @@ app geocodes it, pulls every relevant 311 complaint filed near that location
 over the last two years, and turns the raw counts — plus a handful of public
 amenity datasets — into six things a person can actually act on:
 
-- A **Building Health Score** (0–100) — heat/hot water outages, unsanitary
-  conditions, and plumbing failures, scoped to a tight ~25m radius so it
+- A **Building Health Score** (0–100) — heat/hot water outages, pests and
+  mold, plumbing and leaks, disrepair, electrical and gas problems, and
+  building safety (detectors, fire escapes, elevators), scoped to a tight ~25m radius so it
   reflects *this building*, not the whole block.
-- A **Block Quality Score** (0–100) — noise, illegal parking, and street
-  condition complaints at a ~350m radius, describing what living on this
+- A **Block Quality Score** (0–100) — noise, parking and abandoned
+  vehicles, street condition, sanitation, street infrastructure, and public
+  safety complaints at a ~350m radius, describing what living on this
   block is actually like day to day.
 - **Transit, Parks, and Bike Access Scores** (0–100) — distance to the
   nearest subway/bus/rail, park/playground/garden, and Citi Bike dock/bike
@@ -79,7 +81,7 @@ view.
 
 ## Quick start
 
-**Prerequisites:** Node ≥ 20.6, npm.
+**Prerequisites:** Node ≥ 20.6, Yarn.
 
 The app is two independent servers — the Express backend (`:3001`) and the
 Next.js frontend (`:3000`). Run both.
@@ -96,8 +98,8 @@ curl localhost:3001/health
 
 # Option B — native Node
 cd backend
-npm install
-npm run dev                # → http://localhost:3001
+yarn install
+yarn dev                # → http://localhost:3001
 ```
 
 A fresh clone runs with **zero `.env`** — every piece of backend
@@ -127,8 +129,8 @@ not this section, if something here doesn't cover your case.**
 
 ```bash
 cd frontend
-npm install
-npm run dev                # → http://localhost:3000
+yarn install
+yarn dev                # → http://localhost:3000
 ```
 
 Create `frontend/.env.local` yourself — it's gitignored, so it won't exist on
@@ -253,9 +255,23 @@ documentation/    module-by-module reference docs for this whole repo — see be
 ## Testing
 
 ```bash
-cd backend && npm test        # vitest, 700 tests, no network needed
-cd frontend && npm run build  # type-checks + builds; no dedicated test suite yet
+cd backend && yarn test        # vitest, 700+ tests, no network needed
+cd backend && yarn lint    # ESLint
+cd frontend && yarn lint   # ESLint
+cd frontend && yarn build  # type-checks + builds; no dedicated test suite yet
 ```
+
+**Pre-commit hook.** `.githooks/pre-commit` runs the backend's ESLint and tests
+when a commit touches `backend/`, and the frontend's ESLint when it touches
+`frontend/` (about 7s and 3s). Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+.githooks/pre-commit --all    # run both checks by hand
+```
+
+It checks the working tree, so unstaged edits are included. Bypass it with
+`git commit --no-verify`.
 
 ---
 

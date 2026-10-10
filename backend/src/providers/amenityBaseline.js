@@ -110,7 +110,7 @@ export async function loadAmenityBaseline({ forceRefresh = false } = {}) {
       if (!doc) {
         console.warn(
           "[amenityBaseline] none found — amenity scores will be marked " +
-            "low-confidence. Run `npm run baseline:amenities`."
+            "low-confidence. Run `yarn baseline:amenities`."
         );
       }
       return doc;

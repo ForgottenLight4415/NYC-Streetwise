@@ -31,13 +31,13 @@ for the full field-by-field contract and every additive change made to it):
   "summary": { "explanation": string, "explanationSource": "ai" | "template" },
   "buildingHealth": {
     "score": 0-100, "band": "good"|"fair"|"poor",
-    "counts": { "heatHotWater", "unsanitaryCondition", "plumbing" },
+    "counts": { "heatHotWater", "unsanitaryCondition", "plumbing", "repairs", "electricGas", "buildingSafety" },
     "radiusMeters": 25, "confidence", "confidenceReason",
     "bucketScores": {...}, "bucketConfidence": {...},
     "explanation": string, "explanationSource": "template",  // always template here
     "bucketStatusCounts"?: { <bucket>: { open, "in-progress", closed } }
   },
-  "blockQuality": { /* same shape, buckets: noise, parking, streetCondition, radiusMeters: 350 */ },
+  "blockQuality": { /* same shape, buckets: noise, parking, streetCondition, sanitation, infrastructure, publicSafety, radiusMeters: 350 */ },
 
   // Present only when its own dataset/lookup succeeded — a failure omits the
   // key rather than scoring the tier as if nothing were nearby.
@@ -122,9 +122,13 @@ status breakdown, for the complaints browser. Extra params: `months`
 Headers: `X-Complaints-Total` (matching **groups**, not complaints, before
 paging), `X-Complaints-Offset`, `X-Complaints-Has-More`, `X-Complaints-Cached`.
 
-Rate limited under `RATE_LIMIT_UPSTREAM` in default mode, `RATE_LIMIT_FILL`
-(10/min) for `complete=1` — the first grouped request for an address fills a
-24h cache and was measured at 2.3–74.3s.
+Every request pays `RATE_LIMIT_UPSTREAM` (60/min). A `complete=1` request that
+misses the grouped cache also pays `RATE_LIMIT_FILL` (10/min), charged from
+inside the handler via `rateLimitGuard()` at the moment of the miss: that fill
+was measured at 2.3–74.3s, while a cached page, filter or window change is a
+~10ms read. (It used to be middleware on every `complete=1` request, so the
+browser's eleventh click in a minute got a 429.) Both refusals are the same
+`429 {error: "rate_limited"}` with `Retry-After`.
 
 ## `GET /api/complaints/group` — `complaints.js`
 
@@ -209,7 +213,7 @@ Socrata and caches it, so the homepage has real addresses on a cold cache.
 **The only authenticated route**, and the only one that needs to be — one
 call is sixteen live Socrata queries, ~62s. Fails closed: `CRON_SECRET` unset
 means `503 warm_not_configured` for everyone, cron included. Hit by a daily
-Vercel cron (`vercel.json`) and by `npm run warm:showcase` locally (bypasses
+Vercel cron (`vercel.json`) and by `yarn warm:showcase` locally (bypasses
 HTTP entirely).
 
 ---

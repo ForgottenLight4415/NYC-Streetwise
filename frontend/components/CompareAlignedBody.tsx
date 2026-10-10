@@ -13,7 +13,6 @@ import { ScoreRadar } from "./ScoreRadar";
 import { ScorePanelCard } from "./ScorePanelCard";
 import { useReportPanelState } from "./useReportPanelState";
 import { VerdictBanner } from "./VerdictBanner";
-import { WindowPills } from "./WindowPills";
 
 const AmenityBrowserModal = dynamic(
   () => import("./AmenityBrowserModal").then((m) => m.AmenityBrowserModal),
@@ -33,7 +32,7 @@ function preloadAmenityBrowser() {
  * something or stays empty.
  */
 const ROW_COUNT =
-  3 /* verdict banner, overview tiles, trend-window pills */ +
+  2 /* verdict banner, overview tiles */ +
   COMPLAINT_CATEGORIES.length +
   AMENITY_CATEGORIES.length +
   2; /* radar, map */
@@ -106,28 +105,6 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
     <OverviewHeader key="b-overview" report={b.report} coords={b.coords} />,
   );
 
-  const windowPillsRow = (
-    side: "a" | "b",
-    months: typeof panelsA.months,
-    onMonthsChange: typeof panelsA.setMonths,
-  ) => (
-    <div
-      key={`${side}-pills`}
-      className="flex items-center justify-between gap-3"
-    >
-      <p className="text-xs font-medium uppercase tracking-wide text-(--text-muted)">
-        Trend window
-      </p>
-      <WindowPills
-        months={months}
-        onMonthsChange={onMonthsChange}
-        ariaLabel="Trend window"
-      />
-    </div>
-  );
-  left.push(windowPillsRow("a", panelsA.months, panelsA.setMonths));
-  right.push(windowPillsRow("b", panelsB.months, panelsB.setMonths));
-
   for (const c of COMPLAINT_CATEGORIES) {
     left.push(
       <ScorePanelCard
@@ -140,7 +117,7 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
         tier={c.id}
         lat={a.coords.lat}
         lng={a.coords.lng}
-        months={panelsA.deferredMonths}
+        windowMonths={a.report.meta.windowMonths}
         compact
       />,
     );
@@ -155,7 +132,7 @@ export function CompareAlignedBody({ a, b }: { a: Side; b: Side }) {
         tier={c.id}
         lat={b.coords.lat}
         lng={b.coords.lng}
-        months={panelsB.deferredMonths}
+        windowMonths={b.report.meta.windowMonths}
         compact
       />,
     );

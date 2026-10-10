@@ -38,12 +38,18 @@ export type BuildingCounts = {
   heatHotWater: number;
   unsanitaryCondition: number;
   plumbing: number;
+  repairs: number;
+  electricGas: number;
+  buildingSafety: number;
 };
 
 export type BlockCounts = {
   noise: number;
   parking: number;
   streetCondition: number;
+  sanitation: number;
+  infrastructure: number;
+  publicSafety: number;
 };
 
 export type ExplanationSource = "ai" | "template";

@@ -46,7 +46,10 @@ export const CITYWIDE_BASELINE: {
       buckets: [
         { key: "heatHotWater", median: 32, p90: 169 },
         { key: "unsanitaryCondition", median: 10, p90: 48 },
-        { key: "plumbing", median: 6, p90: 38 },
+        { key: "plumbing", median: 9, p90: 56 },
+        { key: "repairs", median: 10, p90: 67 },
+        { key: "electricGas", median: 7, p90: 45 },
+        { key: "buildingSafety", median: 1, p90: 15 },
       ],
     },
     {
@@ -54,9 +57,12 @@ export const CITYWIDE_BASELINE: {
       radiusMeters: 350,
       colorVar: "--series-block",
       buckets: [
-        { key: "noise", median: 1005, p90: 3851 },
-        { key: "parking", median: 1153, p90: 2661 },
-        { key: "streetCondition", median: 106, p90: 217 },
+        { key: "noise", median: 1002, p90: 3862 },
+        { key: "parking", median: 1339, p90: 2792 },
+        { key: "streetCondition", median: 105, p90: 220 },
+        { key: "sanitation", median: 308, p90: 721 },
+        { key: "infrastructure", median: 313, p90: 641 },
+        { key: "publicSafety", median: 62, p90: 482 },
       ],
     },
   ],

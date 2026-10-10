@@ -9,8 +9,10 @@
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
     "start": "node --env-file-if-exists=.env src/index.js",
     "test": "vitest run",
+    "lint": "eslint .",
     "test:watch": "vitest",
-    "baseline": "node --env-file-if-exists=.env scripts/buildBaseline.js && node ../frontend/scripts/sync-baseline.mjs",
+    "baseline": "node --env-file-if-exists=.env scripts/buildBaseline.js",
+    "postbaseline": "node ../frontend/scripts/sync-baseline.mjs",
     "warm:showcase": "node --env-file-if-exists=.env scripts/warmShowcase.js",
     "verify:dataset": "node --env-file-if-exists=.env scripts/verifyDataset.js",
     "verify:amenities": "node --env-file-if-exists=.env scripts/verifyAmenities.js",
@@ -23,11 +25,15 @@
   "engines": {
     "node": ">=20.6"
   },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
   "dependencies": {
     "express": "^5.1.0",
     "mongodb": "^6.21.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.12.0",
     "mongodb-memory-server": "^11.2.0",
     "vitest": "^3.2.4"
   }

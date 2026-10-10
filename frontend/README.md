@@ -12,8 +12,8 @@ the report.
 ## Run it
 
 ```bash
-npm install
-npm run dev          # http://localhost:3000
+yarn install
+yarn dev             # http://localhost:3000
 ```
 
 The backend is read from `NEXT_PUBLIC_API_BASE_URL` (`lib/api.ts`), defaulting

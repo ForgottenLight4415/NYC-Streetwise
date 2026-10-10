@@ -66,8 +66,8 @@ function plural(n: number) {
  *
  * Zero counts are handled FIRST, and are not an edge case: the backend's notes
  * record that 9 of 10 sampled coordinates have no building complaints at all
- * inside the 25m radius, and that this is real - all three building types are
- * >99.99% geocoded. So the commonest thing this says is "nothing was filed", and
+ * inside the 25m radius, and that this is real - every building type is
+ * >99.98% geocoded. So the commonest thing this says is "nothing was filed", and
  * it has to read as a clean record rather than as missing data.
  */
 function explain(
@@ -80,8 +80,8 @@ function explain(
 
   if (total === 0) {
     return tier === "building"
-      ? "Nothing was filed against this building in the window - no heat or hot water outages, no plumbing failures, no unsanitary conditions. That is a real clean record, not missing data."
-      : "Nothing was filed on this block in the window - no noise, parking, or street-condition complaints. That is a real clean record, not missing data.";
+      ? "Nothing was filed against this building in the window - no heat outages, leaks, pests, repair, electrical or safety complaints. That is a real clean record, not missing data."
+      : "Nothing was filed on this block in the window - no noise, parking, sanitation, infrastructure or public-safety complaints. That is a real clean record, not missing data.";
   }
 
   const category = dominantCategory(counts, bucketScores);

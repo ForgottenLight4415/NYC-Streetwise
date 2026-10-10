@@ -186,7 +186,7 @@ randomness, so it's directly unit-testable.
   to render even with an empty directory.
 - **`warmShowcase({ onProgress })`** — the only showcase path that goes
   upstream: fetches and caches the 8 curated addresses from Socrata. Backs
-  both `GET /api/warm` and the local `npm run warm:showcase` script.
+  both `GET /api/warm` and the local `yarn warm:showcase` script.
 
 ---
 

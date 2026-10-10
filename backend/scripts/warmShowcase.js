@@ -1,7 +1,7 @@
 /**
  * Pre-warms the curated showcase set against the LIVE Socrata API.
  *
- *   npm run warm:showcase
+ *   yarn warm:showcase
  *
  * The homepage shows only cached scores — no fabricated ones, and nothing fetched
  * on the render path. So on a cold cache it has real but sparse content until
@@ -34,7 +34,7 @@ if (!isMongoConfigured()) {
 console.log(`Warming ${SHOWCASE_ADDRESSES.length} curated addresses.\n`);
 const startedAt = Date.now();
 
-const { warmed, failed, results } = await warmShowcase({
+const { warmed, failed } = await warmShowcase({
   onProgress: (result) => {
     if (result.ok) {
       const tiers = Object.entries(result.cache)

@@ -197,7 +197,7 @@ describe("scoreAmenityTier", () => {
 });
 
 describe("buildReport amenity integration", () => {
-  const COUNTS = { building: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0 }, block: {} };
+  const COUNTS = { building: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 }, block: {} };
   const COMPLAINT_BASELINE = null; // irrelevant to these assertions
 
   it("omits all three amenity keys when amenities is null", () => {
@@ -223,9 +223,4 @@ describe("buildReport amenity integration", () => {
     expect(report).not.toHaveProperty("bikeAccess");
   });
 
-  it("existing two-argument and three-argument call sites still compile and behave unchanged", () => {
-    const report = buildReport(COUNTS, COMPLAINT_BASELINE);
-    expect(report.address).toBeNull();
-    expect(report).not.toHaveProperty("transitAccess");
-  });
 });

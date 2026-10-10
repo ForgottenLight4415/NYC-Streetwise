@@ -64,8 +64,8 @@ Two containers run:
 
 ```bash
 cd backend
-npm install
-npm run dev          # http://localhost:3001, with --watch
+yarn install
+yarn dev          # http://localhost:3001, with --watch
 ```
 
 That is the whole setup — it runs with no `.env` at all, uncached and throttled.
@@ -84,7 +84,7 @@ Without one the app still starts, and says so:
 [cache] no usable MONGODB_URI — caching disabled, every lookup hits Socrata
 ```
 
-`npm start` is the same without file watching. Both load `.env` automatically via
+`yarn start` is the same without file watching. Both load `.env` automatically via
 Node's built-in `--env-file-if-exists` — there is no `dotenv` dependency.
 
 ---
@@ -154,7 +154,7 @@ docker compose up -d mongo
 
 That is it. It is published on `127.0.0.1:27017`, so it works both for the API
 running in Compose (which reaches it as `mongodb://mongo:27017`) and for
-`npm run dev` on the host. It is loopback-only and has no authentication —
+`yarn dev` on the host. It is loopback-only and has no authentication —
 never republish it on `0.0.0.0`.
 
 Already have a Homebrew `mongod` on 27017? The bind will collide. Either stop it
@@ -185,7 +185,7 @@ egress IP, so that is usually `0.0.0.0/0` — which makes the database password
 the only thing protecting the cluster.
 
 Check Mongo is actually reachable **from where the API runs**, before starting
-it. This needs no `mongosh` install — it reuses the driver `npm install` already
+it. This needs no `mongosh` install — it reuses the driver `yarn install` already
 put there, and reads `MONGODB_URI` straight from your `.env`:
 
 ```bash
@@ -210,7 +210,7 @@ boot:
 | Collection | Holds | Self-maintaining |
 | --- | --- | --- |
 | `complaint_cache` | 311 counts + explanations | 24h TTL, self-refreshing |
-| `baseline` | the citywide percentile baseline | written by `npm run baseline` |
+| `baseline` | the citywide percentile baseline | written by `yarn baseline` |
 
 ### Environment inside Docker
 
@@ -300,7 +300,7 @@ GEMINI_API_KEY=your-key-here
 Compare both providers on identical inputs before trusting either:
 
 ```bash
-npm run verify:explanations
+yarn verify:explanations
 ```
 
 ### If explanations come back as `"template"`
@@ -318,19 +318,19 @@ npm run verify:explanations
 ## Common tasks
 
 ```bash
-npm test                    # 700 tests, no network. Run these on the host, not in Docker.
-npm run baseline            # regenerate the citywide baseline (~3 min, live API)
-npm run verify:dataset      # confirm the 311 dataset hasn't moved
-npm run verify:scoring      # score distribution sanity check
-npm run verify:cache        # cache round-trip against a real Mongo
-npm run verify:explanations # both AI adapters, same inputs, side by side
+yarn test                    # 700 tests, no network. Run these on the host, not in Docker.
+yarn baseline            # regenerate the citywide baseline (~3 min, live API)
+yarn verify:dataset      # confirm the 311 dataset hasn't moved
+yarn verify:scoring      # score distribution sanity check
+yarn verify:cache        # cache round-trip against a real Mongo
+yarn verify:explanations # both AI adapters, same inputs, side by side
 ```
 
 With Docker:
 
 ```bash
 docker compose logs -f backend
-docker compose exec backend npm run baseline
+docker compose exec backend yarn baseline
 docker compose down                # stop; cached complaints survive
 docker compose down -v             # stop and wipe the cache volume
 ```
@@ -350,7 +350,7 @@ published. For prod, use the Atlas UI or Compass with the SRV string.
 ## Notes
 
 - **Tests don't run in the image.** `mongodb-memory-server` would download a
-  Linux `mongod` on every run and needs glibc. Keep `npm test` on the host.
+  Linux `mongod` on every run and needs glibc. Keep `yarn test` on the host.
 - **The backend never geocodes.** It takes `{lat, lng}`; turning an address into
   coordinates is frontend-side work.
 - **CORS is `*`.** Fine for a hackathon, tighten before anything public.

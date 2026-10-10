@@ -37,7 +37,7 @@ export const amenitiesRouter = Router();
  * Fetches fresh bikeShare, keeps the OTHER two "bike" dataset buckets
  * (bikeLane, protectedLane) exactly as currently served — loadRawAmenityDataset()
  * reads whichever source (Mongo or committed file) is currently winning, so
- * a bikeLane geometry rebuilt via `npm run build:amenities` and committed
+ * a bikeLane geometry rebuilt via `yarn build:amenities` and committed
  * since the last refresh is preserved, not silently reverted to whatever was
  * in Mongo. saveAmenityDataset() then runs the SAME >30%-drop sanity guard
  * scripts/buildAmenities.js's CLI does before writing.

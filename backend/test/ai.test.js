@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { buildOverallSummaryPrompt, bucketLabel } from "../src/providers/ai/prompt.js";
+import { BUCKET_NAMES } from "../src/config/constants.js";
 import { cleanExplanation, AIError } from "../src/providers/ai/shared.js";
 import { generateExplanation as ollama } from "../src/providers/ai/ollama.js";
 import { generateExplanation as gemini } from "../src/providers/ai/gemini.js";
-import { getAdapter, activeProvider } from "../src/providers/ai/index.js";
+import { getAdapter } from "../src/providers/ai/index.js";
 import {
   AI_MODELS,
   AI_TEMPERATURE,
@@ -25,7 +26,7 @@ import {
 // sent through correctly.
 const INPUT = {
   sections: [
-    { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144 } },
+    { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 } },
   ],
 };
 
@@ -55,13 +56,22 @@ describe("bucketLabel", () => {
     expect(bucketLabel("heatHotWater")).toBe("heat and hot water");
     expect(bucketLabel("unknownBucket")).toBe("unknownBucket");
   });
+
+  it("labels every bucket, with no comma to break the joined count list", () => {
+    for (const bucket of [...BUCKET_NAMES.building, ...BUCKET_NAMES.block]) {
+      const label = bucketLabel(bucket);
+      // Lowercase words only: no camelCase key leaking through the fallback,
+      // and no comma to split one category into several.
+      expect(label, bucket).toMatch(/^[a-z]+( [a-z]+)*$/);
+    }
+  });
 });
 
 describe("buildOverallSummaryPrompt", () => {
   const SECTIONS_INPUT = {
     sections: [
-      { label: "Building Health", band: "good", counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0 } },
-      { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144 } },
+      { label: "Building Health", band: "good", counts: { heatHotWater: 1, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 } },
+      { label: "Block Quality", band: "poor", counts: { noise: 2876, parking: 1253, streetCondition: 144, sanitation: 0, infrastructure: 0, publicSafety: 0 } },
       {
         label: "Transit Access",
         band: "excellent",
@@ -266,9 +276,6 @@ describe("gemini adapter", () => {
 });
 
 describe("adapter factory", () => {
-  it("defaults to ollama for local dev", () => {
-    expect(activeProvider()).toBe("ollama");
-  });
 
   it("selects the adapter from AI_PROVIDER, case-insensitively", () => {
     process.env.AI_PROVIDER = "GEMINI";

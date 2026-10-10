@@ -27,10 +27,8 @@ const TIER_LABEL: Record<ComplaintTierId, string> = {
  * a cliff that read as "complaints started recently". This cannot be
  * truncated; every window returns one point per month.
  *
- * `onMonthsChange` is optional: on the report page the window now lives in
- * ReportToolbar and is passed down as a prop, so this renders only the
- * "{months}-month trend" label with no control of its own. The compare
- * column still owns its window locally and passes the setter.
+ * The window's state lives in ScorePanelCard, one per card; this renders the
+ * control for it beside the "{months}-month trend" label.
  */
 export function TrendSection({
   lat,
@@ -45,7 +43,7 @@ export function TrendSection({
   tier: ComplaintTierId;
   colorVar: string;
   months: TrendWindow;
-  onMonthsChange?: (months: TrendWindow) => void;
+  onMonthsChange: (months: TrendWindow) => void;
 }) {
   // Always the widest window, sliced down for display. Every window is a suffix
   // of a longer one - the last 9 months are the last 9 entries of the last 24 -
@@ -68,13 +66,11 @@ export function TrendSection({
           {months}-month trend
         </p>
 
-        {onMonthsChange && (
-          <WindowPills
-            months={months}
-            onMonthsChange={onMonthsChange}
-            ariaLabel={`Trend window for ${TIER_LABEL[tier]}`}
-          />
-        )}
+        <WindowPills
+          months={months}
+          onMonthsChange={onMonthsChange}
+          ariaLabel={`Trend window for ${TIER_LABEL[tier]}`}
+        />
       </div>
 
       {failed ? (

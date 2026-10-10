@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { bearerAuthStatus } from "../src/lib/bearerAuth.js";
 
 // Pure, no network, no Mongo. The route tests in showcase.test.js prove the

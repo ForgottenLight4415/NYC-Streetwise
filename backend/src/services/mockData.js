@@ -84,10 +84,16 @@ const MOCK_BASELINE = {
   perBucket: {
     heatHotWater: { median: 2, p90: 20 },
     unsanitaryCondition: { median: 1, p90: 8 },
-    plumbing: { median: 1, p90: 6 },
+    plumbing: { median: 2, p90: 12 },
+    repairs: { median: 2, p90: 15 },
+    electricGas: { median: 1, p90: 10 },
+    buildingSafety: { median: 0, p90: 3 },
     noise: { median: 400, p90: 2500 },
-    parking: { median: 350, p90: 1600 },
+    parking: { median: 450, p90: 2000 },
     streetCondition: { median: 60, p90: 260 },
+    sanitation: { median: 120, p90: 500 },
+    infrastructure: { median: 100, p90: 350 },
+    publicSafety: { median: 40, p90: 400 },
   },
 };
 

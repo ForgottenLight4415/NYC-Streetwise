@@ -8,6 +8,7 @@
  * Checks:
  *   2. `location` is the geo-typed column within_circle() accepts
  *   3. null-geocoding rate PER BUCKET (not per string — buckets are what score)
+ *      and that every EXCLUDED_DESCRIPTORS entry still matches rows
  *   4. current dataset title + actual date range
  */
 
@@ -16,10 +17,12 @@ import {
   SOCRATA_DATASET_ID,
   LOCATION_FIELD,
   ALL_COMPLAINT_TYPES,
+  EXCLUDED_DESCRIPTORS,
   TYPE_TO_BUCKET,
   WINDOW_MONTHS,
   windowCutoffISO,
 } from "../src/config/constants.js";
+import { typeInClause } from "../src/providers/socrata.js";
 
 const APP_TOKEN = process.env.SOCRATA_APP_TOKEN;
 
@@ -75,7 +78,8 @@ async function checkNullGeocoding() {
 
   const rows = await query({
     $select: `complaint_type, count(*) AS total, count(${LOCATION_FIELD}) AS geocoded`,
-    $where: `complaint_type in (${quoteList(ALL_COMPLAINT_TYPES)}) AND created_date > '${cutoff}'`,
+    // The same filter scoring uses, so these are the rows that actually count.
+    $where: `${typeInClause(ALL_COMPLAINT_TYPES)} AND created_date > '${cutoff}'`,
     $group: "complaint_type",
     $limit: "500",
   });
@@ -121,6 +125,26 @@ async function checkNullGeocoding() {
   );
 }
 
+// An exclusion that matches nothing (a renamed descriptor) would silently let
+// those rows back into the score, so each one must still have rows to exclude.
+async function checkExcludedDescriptors() {
+  const cutoff = windowCutoffISO();
+  console.log("\n=== Excluded descriptors, rows each one removes ===");
+  for (const [type, descriptors] of Object.entries(EXCLUDED_DESCRIPTORS)) {
+    const rows = await query({
+      $select: "descriptor, count(*) AS n",
+      $where: `complaint_type = '${type}' AND descriptor in (${quoteList(descriptors)}) AND created_date > '${cutoff}'`,
+      $group: "descriptor",
+    });
+    const found = new Map(rows.map((r) => [r.descriptor, Number(r.n)]));
+    for (const descriptor of descriptors) {
+      const n = found.get(descriptor) ?? 0;
+      console.log(`  ${type} / ${descriptor}: ${n}${n === 0 ? "  <-- MATCHES NOTHING" : ""}`);
+    }
+  }
+}
+
 await checkDatasetIdentity();
 await checkGeoColumn();
 await checkNullGeocoding();
+await checkExcludedDescriptors();

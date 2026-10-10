@@ -51,8 +51,8 @@ import {
 
 const LAT = 40.7484;
 const LNG = -73.9857;
-const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0 };
-const BLOCK = { noise: 1653, parking: 402, streetCondition: 88 };
+const BUILDING = { heatHotWater: 12, unsanitaryCondition: 3, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
+const BLOCK = { noise: 1653, parking: 402, streetCondition: 88, sanitation: 0, infrastructure: 0, publicSafety: 0 };
 
 let mongo;
 

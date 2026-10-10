@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { rateLimit, resetRateLimits } from "../src/lib/rateLimit.js";
+import {
+  rateLimit,
+  rateLimitGuard,
+  RateLimitedError,
+  resetRateLimits,
+} from "../src/lib/rateLimit.js";
 import { RATE_LIMIT_MAX_KEYS } from "../src/config/constants.js";
 
 // The limiter as a unit. What matters is that it counts per caller, resets on a
@@ -172,5 +177,33 @@ describe("rateLimit", () => {
   it("survives a request with no headers and no socket", () => {
     const mw = rateLimit({ limit: 1, windowMs: 60_000, name: "t" });
     expect(hit(mw, { headers: {} }).passed).toBe(true);
+  });
+});
+
+describe("rateLimitGuard", () => {
+  it("allows `limit` charges, then throws RateLimitedError with a retry delay", () => {
+    const charge = rateLimitGuard({ limit: 2, windowMs: 60_000, name: "g" });
+    const req = fakeReq();
+
+    charge(req, fakeRes());
+    charge(req, fakeRes());
+    const res = fakeRes();
+    let thrown;
+    try {
+      charge(req, res);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RateLimitedError);
+    expect(thrown.retryAfter).toBeGreaterThanOrEqual(1);
+    expect(res.headers["X-RateLimit-Remaining"]).toBe("0");
+  });
+
+  it("shares a counter with middleware of the same name", () => {
+    // One budget, whichever way it is charged.
+    const opts = { limit: 1, windowMs: 60_000, name: "shared" };
+    const req = fakeReq();
+    rateLimitGuard(opts)(req, fakeRes());
+    expect(hit(rateLimit(opts), req).passed).toBe(false);
   });
 });

@@ -3,8 +3,8 @@
  * scorer compares every address against — the amenity-scores analogue of
  * buildBaseline.js.
  *
- *   npm run baseline:amenities
- *   npm run baseline:amenities -- --samples=80 --dry-run
+ *   yarn baseline:amenities
+ *   yarn baseline:amenities --samples=80 --dry-run
  *
  * WHY THIS EXISTS: same reason as buildBaseline.js — percentile-vs-citywide
  * is the whole defensibility argument, and that needs a baseline computed
@@ -305,7 +305,7 @@ if (usable < sample.length * 0.7) {
   throw new Error(
     `only ${usable}/${sample.length} points returned amenity metrics — ` +
       `the amenity datasets are probably missing or invalid. Not writing a baseline from this. ` +
-      `Run \`npm run build:amenities\` first.`
+      `Run \`yarn build:amenities\` first.`
   );
 }
 

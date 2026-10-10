@@ -7,6 +7,7 @@ import { trendRouter } from "./routes/trend.js";
 import { showcaseRouter } from "./routes/showcase.js";
 import { amenitiesRouter } from "./routes/amenities.js";
 import { BadRequestError } from "./lib/validate.js";
+import { RateLimitedError, sendRateLimited } from "./lib/rateLimit.js";
 
 /** Custom response headers the browser must be allowed to read cross-origin. */
 const COMPLAINTS_HEADERS = [
@@ -16,12 +17,15 @@ const COMPLAINTS_HEADERS = [
   "X-Complaints-Offset",
   "X-Complaints-Has-More",
   "X-Complaints-Cached",
+  // Not complaints-specific: a 429 from any limiter carries it, and the
+  // complaints browser reads it to say how long to wait before retrying.
+  "Retry-After",
 ];
 
 // Comma-separated list of origins allowed to read responses from a browser.
 // Read at request time (not module load) so it can be set after the module
 // graph is built, same reasoning as MONGODB_URI in providers/mongo.js.
-// Defaults to the frontend's local dev origin so `npm run dev` on both sides
+// Defaults to the frontend's local dev origin so `yarn dev` on both sides
 // works with zero config; the deployed frontend's Vercel URL must be set here
 // explicitly via ALLOWED_ORIGIN, or its browser calls will be blocked from
 // reading the response (the request still completes — this is a read-only
@@ -78,7 +82,10 @@ export function createApp() {
 
   // Central error handler. Routes throw BadRequestError (400) via the shared
   // validator; anything else is a 500 with no internals leaked.
-  app.use((err, req, res, next) => {
+  // Four parameters even though `_next` goes unused: Express recognises an
+  // error handler by its arity, so dropping it would silently turn this into
+  // ordinary middleware that never sees an error.
+  app.use((err, req, res, _next) => {
     // Dispatch on error TYPE, never on `err.status` alone. SocrataError also
     // carries a `status`, but it is the UPSTREAM's status, not ours — a generic
     // "4xx means client error" branch here would forward Socrata's 400 body
@@ -101,6 +108,12 @@ export function createApp() {
     // derived from an internal exception, so forwarding both leaks nothing.
     if (err instanceof BadRequestError) {
       return res.status(err.status).json({ error: err.message, details: err.details });
+    }
+
+    // A rateLimitGuard() refusing mid-handler: the same 429 the middleware
+    // sends, so a client cannot tell (or need to care) which one refused.
+    if (err instanceof RateLimitedError) {
+      return sendRateLimited(res, err.retryAfter);
     }
     console.error("[error]", err);
     res.status(500).json({ error: "internal_error" });

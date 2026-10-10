@@ -106,7 +106,7 @@ export async function loadBaseline({ forceRefresh = false } = {}) {
       if (!doc) {
         console.warn(
           "[baseline] none found — scores will be marked low-confidence. " +
-            "Run `npm run baseline`."
+            "Run `yarn baseline`."
         );
       }
       return doc;

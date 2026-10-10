@@ -153,7 +153,7 @@ showcaseRouter.post(
  *
  * Vercel sends the bearer header on scheduled invocations automatically once
  * CRON_SECRET is set on the project, so the cron needs no code of its own.
- * `npm run warm:showcase` bypasses HTTP entirely and needs no secret.
+ * `yarn warm:showcase` bypasses HTTP entirely and needs no secret.
  */
 showcaseRouter.get("/api/warm", async (req, res, next) => {
   const auth = bearerAuthStatus(req, process.env.CRON_SECRET);

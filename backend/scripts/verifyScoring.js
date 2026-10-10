@@ -1,7 +1,7 @@
 /**
  * Does the score actually DISCRIMINATE, and is it centred where we claim?
  *
- *   npm run verify:scoring
+ *   yarn verify:scoring
  *
  * The unit tests prove the maths is right for fixtures. They cannot tell you
  * that the scale is useful — a scorer that returns "fair" for all of NYC would
@@ -10,7 +10,7 @@
  * the resulting distribution.
  *
  * No network: it reads the cache and the baseline, nothing else. If the cache is
- * empty, run `npm run baseline` first.
+ * empty, run `yarn baseline` first.
  *
  * What to look for:
  *   - all three bands present on both tiers, none swallowing everything
@@ -35,7 +35,7 @@ if (!isMongoConfigured()) {
 
 const baseline = await loadBaseline();
 if (!baseline) {
-  console.error("No baseline found. Run `npm run baseline` first.");
+  console.error("No baseline found. Run `yarn baseline` first.");
   process.exit(2);
 }
 console.log(
@@ -48,7 +48,7 @@ const db = await getDb();
 const docs = await db.collection(CACHE_COLLECTION).find({}).toArray();
 
 if (docs.length === 0) {
-  console.error("\nCache is empty. Run `npm run baseline` first.");
+  console.error("\nCache is empty. Run `yarn baseline` first.");
   await closeMongo();
   process.exit(2);
 }

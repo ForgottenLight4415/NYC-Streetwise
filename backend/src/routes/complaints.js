@@ -3,7 +3,7 @@ import {
   RATE_LIMIT_FILL,
   RATE_LIMIT_UPSTREAM,
 } from "../config/constants.js";
-import { rateLimit } from "../lib/rateLimit.js";
+import { rateLimit, rateLimitGuard } from "../lib/rateLimit.js";
 import {
   validateCoords,
   validateRadius,
@@ -60,18 +60,18 @@ export const complaintsRouter = Router();
  *   served from the grouped cache. Used by the complaints browser, where an
  *   explicit click justifies paying for the fill once per address per day.
  */
-// Two limiters, because this endpoint has two wildly different costs behind one
-// path. The default mode is a bounded row query; `complete=1` triggers the
-// grouped fill, measured 2.3-74.3s per cold address and the single most
-// expensive thing an anonymous caller can ask for. `when` applies the strict one
-// only to that mode, so the cheap read is not punished for sharing a route.
+// Two budgets, because this endpoint has two wildly different costs behind one
+// path. Every request pays RATE_LIMIT_UPSTREAM. Only a grouped FILL, the cold
+// Socrata aggregation measured at 2.3-74.3s, also pays the strict
+// RATE_LIMIT_FILL, charged from inside the service at the moment it misses the
+// cache. It used to be middleware on every complete=1 request, which charged
+// the complaints browser's ~10ms cached filter and page clicks the fill price:
+// an eleventh click inside a minute returned 429 and knocked the browser into
+// its reduced fallback view.
+const chargeFill = rateLimitGuard({ ...RATE_LIMIT_FILL, name: "complaints-fill" });
+
 complaintsRouter.get(
   "/api/complaints",
-  rateLimit({
-    ...RATE_LIMIT_FILL,
-    name: "complaints-fill",
-    when: (req) => req.query.complete === "1" || req.query.complete === "true",
-  }),
   rateLimit({ ...RATE_LIMIT_UPSTREAM, name: "complaints" }),
   async (req, res, next) => {
   try {
@@ -119,6 +119,7 @@ complaintsRouter.get(
       status,
       offset,
       limit,
+      beforeFill: () => chargeFill(req, res),
     });
 
     res.set("X-Complaints-Truncated", String(result.truncated));

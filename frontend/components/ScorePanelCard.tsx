@@ -1,16 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import { ComplaintBreakdownBars } from "./ComplaintBreakdownBars";
 import { PanelShell } from "./PanelShell";
 import { TrendSection } from "./TrendSection";
 import { formatDistance } from "@/lib/amenities";
-import type { TrendWindow } from "@/lib/api";
+import { TREND_DEFAULT_MONTHS, type TrendWindow } from "@/lib/api";
 import type {
   ComplaintStatus,
   ComplaintTierId,
   Confidence,
   ScoreBand,
 } from "@/lib/types";
+
+/**
+ * Each tier's starting trend window. A lookup, not a ternary, so a third tier
+ * is a type error here rather than silently getting another tier's default.
+ * Building history at 25m is sparse (a handful of complaints a year is
+ * typical), so it starts at the full 24 months where a shape is visible;
+ * block history is dense enough to read at the shorter default.
+ */
+const DEFAULT_WINDOW: Record<ComplaintTierId, TrendWindow> = {
+  building: TREND_DEFAULT_MONTHS as TrendWindow,
+  block: TREND_DEFAULT_MONTHS as TrendWindow,
+};
 
 export function ScorePanelCard({
   icon,
@@ -21,7 +34,7 @@ export function ScorePanelCard({
   tier,
   lat,
   lng,
-  months,
+  windowMonths,
   compact = false,
 }: {
   icon: React.ReactNode;
@@ -51,15 +64,22 @@ export function ScorePanelCard({
   tier: ComplaintTierId;
   lat: number;
   lng: number;
-  /** The report's one global trend window, owned by ReportBody so it also
-   *  scopes ActivitySpine below. */
-  months: TrendWindow;
+  /** The window the score's counts cover (the report's `meta.windowMonths`,
+   *  i.e. the backend's WINDOW_MONTHS), stated beside the count. */
+  windowMonths: number;
   /** Swaps PanelShell's 96px meter for the small score chip - see PanelShell's
    *  own doc for why. Threaded through so complaint cards can match the
    *  amenity cards' density now that ReportBody no longer needs the meter's
    *  full width to justify a two-column row at a wide breakpoint. */
   compact?: boolean;
 }) {
+  // This card's own trend window. Per card, not report-wide: the window drives
+  // nothing but the trend chart below it (the counts above are always the
+  // full scoring window), and the two tiers want different ones - building
+  // history at 25m is sparse enough to need 18-24 months to show a shape,
+  // while a block's is dense enough to read at 3-6.
+  const [months, setMonths] = useState<TrendWindow>(DEFAULT_WINDOW[tier]);
+
   const totalComplaints = Object.values(panel.counts).reduce(
     (sum, n) => sum + n,
     0,
@@ -73,8 +93,10 @@ export function ScorePanelCard({
       complaints within{" "}
       <span className="font-data font-medium text-(--text-primary)">
         {formatDistance(panel.radiusMeters)}
-      </span>
-      .
+      </span>{" "}
+      {/* The score's own window, not the trend window below: these are the
+          counts the score was computed from, whatever the pills are set to. */}
+      in the last {windowMonths} months.
     </p>
   );
 
@@ -111,6 +133,7 @@ export function ScorePanelCard({
         tier={tier}
         colorVar={colorVar}
         months={months}
+        onMonthsChange={setMonths}
       />
     </PanelShell>
   );

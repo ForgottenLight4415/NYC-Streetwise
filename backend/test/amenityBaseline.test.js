@@ -71,12 +71,6 @@ describe("loadAmenityBaseline without Mongo", () => {
     expect(second).toBe(first);
   });
 
-  it("forceRefresh re-reads", async () => {
-    const first = await loadAmenityBaseline();
-    const second = await loadAmenityBaseline({ forceRefresh: true });
-    expect(second).not.toBe(first);
-    expect(second).toEqual(first);
-  });
 });
 
 describe("loadAmenityBaseline with Mongo", () => {

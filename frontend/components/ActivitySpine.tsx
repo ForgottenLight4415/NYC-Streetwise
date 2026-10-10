@@ -3,9 +3,8 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { STATUS_LABEL, STATUS_VAR } from "@/lib/score";
-import { monthsAgoISO, sliceWindow, windowTotal } from "@/lib/reportMetrics";
-import type { TrendWindow } from "@/lib/api";
-import { useTrend } from "@/lib/hooks";
+import { monthsAgoISO } from "@/lib/reportMetrics";
+import { TREND_WINDOW_OPTIONS, type TrendWindow } from "@/lib/api";
 import type { Complaint, ComplaintTierId } from "@/lib/types";
 import { ChevronRightIcon } from "./icons";
 
@@ -49,6 +48,8 @@ interface TierFeed {
   complaints: Complaint[] | undefined;
   isLoading: boolean;
   radiusMeters: number;
+  /** The tier's complaint count as shown on its score card. */
+  total: number;
 }
 
 interface TaggedComplaint extends Complaint {
@@ -74,15 +75,22 @@ function shortTierTag(label: string): string {
  * each ScorePanelCard. Both tiers' newest complaints are interleaved here
  * instead, so nothing is listed twice.
  */
+/**
+ * The feed and its "Browse" links always cover the report's full scoring
+ * window (`windowMonths`), not a trend window: the link counts are the score
+ * cards' own counts, so the number beside "Browse building health" is the
+ * number on the Building Health card. The modal still opens at that window
+ * and offers its own window chips from there.
+ */
 export function ActivitySpine({
   lat,
   lng,
-  months,
+  windowMonths,
   tiers,
 }: {
   lat: number;
   lng: number;
-  months: TrendWindow;
+  windowMonths: number;
   tiers: TierFeed[];
 }) {
   const [selected, setSelected] = useState<Complaint | null>(null);
@@ -92,7 +100,12 @@ export function ActivitySpine({
     (t) => t.complaints === undefined || t.isLoading,
   );
 
-  const cutoff = monthsAgoISO(months);
+  const cutoff = monthsAgoISO(windowMonths);
+  // The modal's window chips offer TREND_WINDOW_OPTIONS only; start it at the
+  // report's window when that is one of them, else the widest.
+  const modalMonths: TrendWindow =
+    TREND_WINDOW_OPTIONS.find((m) => m === windowMonths) ??
+    TREND_WINDOW_OPTIONS[TREND_WINDOW_OPTIONS.length - 1];
   const merged: TaggedComplaint[] = useMemo(() => {
     const rows = tiers.flatMap((t) =>
       (t.complaints ?? [])
@@ -106,16 +119,6 @@ export function ActivitySpine({
     rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     return rows.slice(0, ROWS_SHOWN);
   }, [tiers, cutoff]);
-
-  // Exact per-tier window totals from the aggregated trend series, not the
-  // row-capped complaint arrays above - the same reasoning RecentComplaintsList
-  // used to apply per panel.
-  const buildingTrend = useTrend({ lat, lng }, "building");
-  const blockTrend = useTrend({ lat, lng }, "block");
-  const trendByTier: Record<ComplaintTierId, ReturnType<typeof useTrend>> = {
-    building: buildingTrend,
-    block: blockTrend,
-  };
 
   const browsingTier = tiers.find((t) => t.tier === browsing);
 
@@ -139,7 +142,7 @@ export function ActivitySpine({
         />
       ) : merged.length === 0 ? (
         <p className="text-sm text-(--text-muted)">
-          No complaints in the last {months} months.
+          No complaints in the last {windowMonths} months.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-(--gridline)">
@@ -185,24 +188,18 @@ export function ActivitySpine({
       )}
 
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5">
-        {tiers.map((t) => {
-          const total = windowTotal(
-            sliceWindow(trendByTier[t.tier].data, months),
-          );
-          return (
-            <button
-              key={t.tier}
-              type="button"
-              onClick={() => setBrowsing(t.tier)}
-              onPointerEnter={preloadBrowser}
-              onFocus={preloadBrowser}
-              className="min-h-11 text-xs font-semibold text-(--brand-ink)"
-            >
-              Browse {t.label.toLowerCase()}
-              {total !== null ? ` (${total.toLocaleString()})` : ""}
-            </button>
-          );
-        })}
+        {tiers.map((t) => (
+          <button
+            key={t.tier}
+            type="button"
+            onClick={() => setBrowsing(t.tier)}
+            onPointerEnter={preloadBrowser}
+            onFocus={preloadBrowser}
+            className="min-h-11 text-xs font-semibold text-(--brand-ink)"
+          >
+            Browse {t.label.toLowerCase()} ({t.total.toLocaleString()})
+          </button>
+        ))}
       </div>
 
       {selected && (
@@ -219,7 +216,7 @@ export function ActivitySpine({
           tier={browsingTier.tier}
           radiusMeters={browsingTier.radiusMeters}
           panelLabel={browsingTier.label}
-          initialMonths={months}
+          initialMonths={modalMonths}
           onClose={() => setBrowsing(null)}
         />
       )}

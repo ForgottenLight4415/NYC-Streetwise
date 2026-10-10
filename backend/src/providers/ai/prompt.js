@@ -5,14 +5,24 @@
 
 import { formatDistanceImperial } from "../../lib/geo.js";
 
-/** Human-readable bucket names. The model should never see our camelCase keys. */
+/**
+ * Human-readable bucket names. The model should never see our camelCase keys.
+ * Short noun phrases with NO commas: formatCounts() joins them with ", ", so a
+ * comma inside a label would read as several separate categories.
+ */
 const BUCKET_LABELS = {
   heatHotWater: "heat and hot water",
   unsanitaryCondition: "unsanitary conditions",
-  plumbing: "plumbing",
+  plumbing: "plumbing and leaks",
+  repairs: "repairs",
+  electricGas: "electrical and gas problems",
+  buildingSafety: "building safety",
   noise: "noise",
-  parking: "illegal parking and blocked driveways",
+  parking: "parking and abandoned vehicles",
   streetCondition: "street and sidewalk condition",
+  sanitation: "sanitation and rodents",
+  infrastructure: "street infrastructure",
+  publicSafety: "public safety",
 };
 
 export function bucketLabel(bucket) {
@@ -87,7 +97,7 @@ export function buildOverallSummaryPrompt({ sections }) {
     "",
     ...sections.map(formatSection),
     "",
-    "Write ONE summary, under 120 words total (roughly 5-7 short sentences), covering only what stands out.",
+    "Write ONE summary, under 150 words total (roughly 7-9 short sentences), covering only what stands out.",
     "",
     "Rules:",
     "- Mention only what is unusual: a notably high or low complaint count, or a notably close or far amenity. Most of the sections above will not be worth a sentence — do not describe every one of them.",

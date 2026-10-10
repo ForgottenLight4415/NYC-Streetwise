@@ -3,10 +3,10 @@
 import { TREND_WINDOW_OPTIONS, type TrendWindow } from "@/lib/api";
 
 /**
- * The trend-window radiogroup, extracted out of TrendSection so the report
- * toolbar can render the exact same control for the one global window it now
- * owns - same arrow-key roving tabindex, same touch sizing, same numerals.
- * One implementation, one accessibility behavior, wherever this appears.
+ * The trend-window radiogroup: arrow-key roving tabindex, touch sizing and
+ * data numerals. Rendered by TrendSection, one per complaint card. Kept as its
+ * own component (it was once shared with a report-wide toolbar control) so
+ * any future second use gets the same keyboard and accessibility behaviour.
  */
 export function WindowPills({
   months,

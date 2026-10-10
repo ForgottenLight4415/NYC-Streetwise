@@ -21,11 +21,15 @@ export function FilterChips<T extends string | number>({
   onChange: (value: T) => void;
   suffix?: string;
 }) {
+  // Wraps, capped to its container: the complaint-type group has seven options
+  // (six categories plus All), far wider than a phone. The 18px radius is a
+  // full pill for one row of 32px chips plus padding, and a rounded rectangle
+  // once it wraps, where rounded-full would stretch into an oval.
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+      className="inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-[18px] border p-0.5"
       style={{ borderColor: "var(--border-hairline)" }}
     >
       {options.map((option, i) => {

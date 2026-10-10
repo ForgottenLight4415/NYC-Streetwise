@@ -158,6 +158,19 @@ export const COMPLAINT_STATUS_OPTIONS = [
 ] as const;
 
 /**
+ * The backend refused a request for being over a rate limit (HTTP 429).
+ * Distinct from a failure: the data is fine and the same request will work
+ * after `retryAfter` seconds, so a caller should wait and retry rather than
+ * fall back to a reduced view.
+ */
+export class RateLimitedError extends Error {
+  constructor(readonly retryAfter: number) {
+    super(`Too many requests. Try again in ${retryAfter}s.`);
+    this.name = "RateLimitedError";
+  }
+}
+
+/**
  * One page of day+type groups for the complaints browser.
  *
  * The FIRST call for an address fills a 24h server-side cache and was measured
@@ -207,6 +220,11 @@ export async function fetchComplaintGroups(
     res = await fetch(`${API_BASE_URL}/api/complaints?${params}`);
   } catch {
     throw new Error("Couldn't load the full complaint history.");
+  }
+  if (res.status === 429) {
+    // Retry-After is exposed by the backend's CORS config; 30s if a proxy
+    // stripped it.
+    throw new RateLimitedError(Number(res.headers.get("Retry-After")) || 30);
   }
   if (!res.ok) throw new Error("Couldn't load the full complaint history.");
   const items: ComplaintGroup[] = await res.json();
@@ -288,7 +306,7 @@ export const TREND_WINDOW_OPTIONS = [3, 6, 9, 12, 18, 24] as const;
  * two signals that actually differ between apartments — without pulling in
  * history from two tenants ago. Also the fastest window to query.
  */
-export const TREND_DEFAULT_MONTHS = 9;
+export const TREND_DEFAULT_MONTHS = 24;
 
 export type TrendWindow = (typeof TREND_WINDOW_OPTIONS)[number];
 

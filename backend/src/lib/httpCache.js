@@ -57,7 +57,7 @@ const DAY = 24 * 60 * 60;
  * Amenity instance lists for the three STATIC tiers (transit/parks/bike).
  *
  * A week is long because the data behind it is rebuilt by
- * `npm run build:amenities` on a scale of years. The one bucket that really
+ * `yarn build:amenities` on a scale of years. The one bucket that really
  * moves is bike-share, refreshed by the monthly `GET /api/refresh-amenities`
  * cron — so the worst case this introduces is a newly-opened Citi Bike dock
  * taking up to a week longer to appear in a list it was already going to wait

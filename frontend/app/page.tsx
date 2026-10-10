@@ -60,13 +60,13 @@ const RADII = [
     value: "25",
     unit: "m",
     label: "Building radius",
-    body: "Complaints filed at the address itself: heat, hot water, plumbing.",
+    body: "Complaints filed at the address itself: heat, pests, leaks, repairs, wiring, safety.",
   },
   {
     value: "350",
     unit: "m",
     label: "Block radius",
-    body: "The surrounding street: noise, illegal parking, street condition.",
+    body: "The surrounding street: noise, parking, sanitation, infrastructure, public safety.",
   },
 ];
 
@@ -74,14 +74,14 @@ const FEATURES = [
   {
     icon: BuildingIcon,
     title: "Building Health Score",
-    body: "Heat and hot water outages, unsanitary conditions, and plumbing failures tied to the specific address - the record nobody reads before signing a lease.",
+    body: "Heat outages, pests and mold, leaks, broken repairs, and faulty wiring or gas tied to the specific address - the record nobody reads before signing a lease.",
     colorVar: "--series-building",
     inkVar: "--series-building-ink",
   },
   {
     icon: BlockIcon,
     title: "Block Quality Score",
-    body: "Noise and illegal parking are the two highest-volume 311 categories citywide. See what the block is actually like before you move in.",
+    body: "Noise, parking, sanitation, broken street infrastructure, and public safety complaints within a few blocks. See what the block is actually like before you move in.",
     colorVar: "--series-block",
     inkVar: "--series-block-ink",
   },
