@@ -19,7 +19,7 @@ Google Maps is two keys, server vs browser —
 
 1. [`backend-architecture.md`](./backend-architecture.md) — layering, request
    lifecycle, app wiring, entry point, core design principles
-2. [`backend-routes.md`](./backend-routes.md) — every HTTP endpoint (9 route
+2. [`backend-routes.md`](./backend-routes.md) — every HTTP endpoint (7 route
    modules — score, complaints, trend, showcase, amenities, explanation,
    health), request/response shapes, error codes
 3. [`backend-services.md`](./backend-services.md) — orchestration, the
