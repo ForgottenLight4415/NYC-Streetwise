@@ -1,6 +1,6 @@
 # Backend — Routes (`backend/src/routes/`)
 
-Nine route modules, each mounted directly onto the Express app in
+Seven route modules, each mounted directly onto the Express app in
 `src/app.js`. All request validation lives in `src/lib/validate.js`; all
 per-caller throttling goes through `src/lib/rateLimit.js`
 (see [`backend-config-and-scripts.md`](./backend-config-and-scripts.md#rate-limits)

@@ -18,7 +18,7 @@ routes/  →  services/  →  providers/
 This separation is deliberate and enforced by convention (see
 `backend/CLAUDE.md`):
 
-- **Routes** (`src/routes/`, 9 modules — see
+- **Routes** (`src/routes/`, 7 modules — see
   [`backend-routes.md`](./backend-routes.md)) never call Socrata, Mongo, or an
   AI provider directly. They validate input (`lib/validate.js`), apply a
   per-caller rate limit sized to what the call costs (`lib/rateLimit.js`),
@@ -109,7 +109,7 @@ This separation is deliberate and enforced by convention (see
 
 ## Further reading
 
-- [`backend-routes.md`](./backend-routes.md) — endpoint-by-endpoint reference, all 9 route modules
+- [`backend-routes.md`](./backend-routes.md) — endpoint-by-endpoint reference, all 7 route modules
 - [`backend-services.md`](./backend-services.md) — orchestration + the scoring algorithm + explanations
 - [`backend-providers.md`](./backend-providers.md) — Socrata client, Mongo cache, baseline loader, amenity datasets, Google/AI providers
 - [`backend-config-and-scripts.md`](./backend-config-and-scripts.md) — every tunable constant, and the offline scripts
