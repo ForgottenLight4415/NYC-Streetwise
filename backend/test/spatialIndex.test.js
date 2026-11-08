@@ -83,6 +83,7 @@ function buildRandomDataset(rand, count) {
 }
 
 describe("buildIndex.nearest", () => {
+  // index.nearest matches a brute-force haversine scan for 200 random queries over 1,000 random NYC points.
   it("matches a brute-force scan over 1,000 random NYC points", () => {
     const rand = seededRandom(20260829);
     const { points, names } = buildRandomDataset(rand, 1000);
@@ -104,11 +105,13 @@ describe("buildIndex.nearest", () => {
     }
   });
 
+  // index.nearest returns null on an empty index.
   it("returns null on an empty index", () => {
     const index = buildIndex([], []);
     expect(index.nearest(40.75, -73.98, 2000)).toBeNull();
   });
 
+  // index.nearest returns null when the closest point is beyond maxMeters, and a result when maxMeters is large enough.
   it("returns null when the nearest point is past maxMeters", () => {
     const points = [40.75, -73.98, 0];
     const names = ["only-point"];
@@ -120,6 +123,7 @@ describe("buildIndex.nearest", () => {
     expect(near).not.toBeNull();
   });
 
+  // index.nearest finds the closest point even when it lies in an adjacent grid cell.
   it("finds a point in an adjacent grid cell, not just the query's own cell", () => {
     // Two points 400m apart, straddling a grid boundary — a naive same-cell-
     // only search would miss the second one.
@@ -133,6 +137,7 @@ describe("buildIndex.nearest", () => {
 });
 
 describe("buildIndex.nearestN", () => {
+  // index.nearestN matches a brute-force top-3 scan for 200 random queries over 1,000 random NYC points.
   it("matches a brute-force top-N scan over 1,000 random NYC points", () => {
     const rand = seededRandom(90210);
     const { points, names } = buildRandomDataset(rand, 1000);
@@ -152,6 +157,7 @@ describe("buildIndex.nearestN", () => {
     }
   });
 
+  // index.nearestN results include each candidate's own lat and lng.
   it("includes each candidate's own coordinates, unlike nearest()", () => {
     const points = [40.75, -73.98, 0];
     const names = ["only-point"];
@@ -161,6 +167,7 @@ describe("buildIndex.nearestN", () => {
     expect(result.lng).toBeCloseTo(-73.98, 6);
   });
 
+  // index.nearest returns the same result as the first entry of nearestN with count 1.
   it("nearest() is exactly nearestN(..., 1, ...)'s first result", () => {
     const rand = seededRandom(777);
     const { points, names } = buildRandomDataset(rand, 300);
@@ -173,6 +180,7 @@ describe("buildIndex.nearestN", () => {
     expect(single.name).toBe(first.name);
   });
 
+  // index.nearestN returns fewer than N results when fewer points are in range.
   it("returns fewer than N when the dataset has fewer than N points in range", () => {
     const points = [40.75, -73.98, 0, 40.7502, -73.98, 1];
     const names = ["a", "b"];
@@ -180,6 +188,7 @@ describe("buildIndex.nearestN", () => {
     expect(index.nearestN(40.75, -73.98, 5, 2000).length).toBe(2);
   });
 
+  // index.nearestN returns [] for an empty index or a count of 0.
   it("returns [] on an empty index or a non-positive count", () => {
     const index = buildIndex([], []);
     expect(index.nearestN(40.75, -73.98, 3, 2000)).toEqual([]);
@@ -190,6 +199,7 @@ describe("buildIndex.nearestN", () => {
 });
 
 describe("buildIndex.countWithin", () => {
+  // index.countWithin matches a brute-force count for 50 random queries.
   it("matches a brute-force scan", () => {
     const rand = seededRandom(4242);
     const { points, names } = buildRandomDataset(rand, 500);
@@ -204,6 +214,7 @@ describe("buildIndex.countWithin", () => {
     }
   });
 
+  // index.countWithin includes a point at exactly the boundary distance and excludes it 1m inside.
   it("is inclusive at the exact boundary", () => {
     const points = [40.75, -73.98, 0];
     const names = ["p"];
@@ -213,6 +224,7 @@ describe("buildIndex.countWithin", () => {
     expect(index.countWithin(40.751, -73.98, exactDistance - 1)).toBe(0);
   });
 
+  // index.countWithin returns 0 for an empty index.
   it("returns 0 for an empty index", () => {
     const index = buildIndex([], []);
     expect(index.countWithin(40.75, -73.98, 800)).toBe(0);
@@ -220,6 +232,7 @@ describe("buildIndex.countWithin", () => {
 });
 
 describe("buildIndex.allWithin", () => {
+  // index.allWithin matches a brute-force scan and is sorted by ascending distance.
   it("matches a brute-force scan, sorted ascending by distance", () => {
     const rand = seededRandom(13579);
     const { points, names } = buildRandomDataset(rand, 500);
@@ -239,6 +252,7 @@ describe("buildIndex.allWithin", () => {
     }
   });
 
+  // index.allWithin without a limit returns the same number of points as countWithin.
   it("count matches countWithin exactly (same underlying set, no limit)", () => {
     const rand = seededRandom(24680);
     const { points, names } = buildRandomDataset(rand, 500);
@@ -253,6 +267,7 @@ describe("buildIndex.allWithin", () => {
     }
   });
 
+  // index.allWithin results include each match's own lat and lng.
   it("includes each match's own coordinates, same shape as nearestN", () => {
     const points = [40.75, -73.98, 0];
     const names = ["only-point"];
@@ -262,6 +277,7 @@ describe("buildIndex.allWithin", () => {
     expect(result.lng).toBeCloseTo(-73.98, 6);
   });
 
+  // index.allWithin defaults to a limit of 50 results while countWithin still reports all 60.
   it("defaults limit to 50 and caps the returned array there", () => {
     const points = [];
     const names = [];
@@ -276,6 +292,7 @@ describe("buildIndex.allWithin", () => {
     expect(index.countWithin(40.75, -73.98, 800)).toBe(60);
   });
 
+  // index.allWithin honours an explicit limit smaller than the match count, returning the nearest ones.
   it("respects an explicit limit smaller than the match count", () => {
     const points = [40.75, -73.98, 0, 40.7502, -73.98, 1, 40.7505, -73.98, 2];
     const names = ["a", "b", "c"];
@@ -286,11 +303,13 @@ describe("buildIndex.allWithin", () => {
     expect(result[1].name).toBe("b");
   });
 
+  // index.allWithin returns [] for an empty index.
   it("returns [] for an empty index", () => {
     const index = buildIndex([], []);
     expect(index.allWithin(40.75, -73.98, 800)).toEqual([]);
   });
 
+  // index.allWithin includes each point's route list when the index was built with routeSets/routeIdx (empty for points with none).
   it("carries routes when the index was built with routeSets/routeIdx", () => {
     const points = [40.75, -73.98, -1, 40.7501, -73.98, -1];
     const names = [];
@@ -302,6 +321,7 @@ describe("buildIndex.allWithin", () => {
     expect(result.find((r) => r.meters > 1).routes).toEqual([]);
   });
 
+  // index.allWithin omits the routes field when the index has no route data.
   it("omits routes entirely when the index has no route data", () => {
     const points = [40.75, -73.98, -1];
     const index = buildIndex(points, []);

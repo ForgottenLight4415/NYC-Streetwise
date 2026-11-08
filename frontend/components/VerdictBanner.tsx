@@ -153,7 +153,6 @@ export function VerdictBanner({
       style={{
         boxShadow: "var(--shadow-md)",
         border: "1px solid var(--border-hairline)",
-        borderLeft: `3px solid ${color}`,
         background: `color-mix(in srgb, ${color} 5%, var(--surface-1))`,
       }}
     >

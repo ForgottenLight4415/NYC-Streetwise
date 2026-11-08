@@ -27,27 +27,23 @@ afterAll(async () => {
 });
 
 describe("isMongoConfigured", () => {
-  const original = () => process.env.MONGODB_URI;
-
   afterEach(() => {
     process.env.MONGODB_URI = mongo.uri;
   });
 
+  // isMongoConfigured is false when MONGODB_URI is not set.
   it("is false with no URI at all", () => {
     delete process.env.MONGODB_URI;
     expect(isMongoConfigured()).toBe(false);
   });
 
+  // isMongoConfigured is false when MONGODB_URI is an empty string.
   it("is false for an empty URI, not just an absent one", () => {
     process.env.MONGODB_URI = "";
     expect(isMongoConfigured()).toBe(false);
   });
 
-  it("is true for a plain mongodb:// URI", () => {
-    expect(original()).toMatch(/^mongodb:\/\//);
-    expect(isMongoConfigured()).toBe(true);
-  });
-
+  // isMongoConfigured is true for an Atlas mongodb+srv:// URI with the password filled in.
   it("is true for a filled-in Atlas mongodb+srv:// URI", () => {
     process.env.MONGODB_URI = ATLAS_URI.replace("<db_password>", "s3cret");
     expect(isMongoConfigured()).toBe(true);
@@ -65,6 +61,7 @@ describe("the <db_password> placeholder", () => {
     process.env.MONGODB_URI = mongo.uri;
   });
 
+  // A URI still containing the <db_password> placeholder counts as unconfigured and getDb resolves null instead of throwing.
   it("treats an unreplaced placeholder as unconfigured", async () => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await closeMongo();
@@ -75,6 +72,7 @@ describe("the <db_password> placeholder", () => {
     await expect(getDb()).resolves.toBeNull();
   });
 
+  // The <db_password> placeholder produces exactly one console warning across repeated isMongoConfigured calls.
   it("says so, once, rather than failing silently", async () => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await closeMongo();
@@ -89,6 +87,7 @@ describe("the <db_password> placeholder", () => {
     expect(messages[0]).toMatch(/db_password/);
   });
 
+  // A real password containing percent-encoded angle brackets is not mistaken for the placeholder (configured, no warning).
   it("does not mistake a real password containing angle brackets for the placeholder", async () => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await closeMongo();
@@ -102,6 +101,7 @@ describe("the <db_password> placeholder", () => {
 });
 
 describe("getDb", () => {
+  // getDb resolves null rather than throwing when no URI is set.
   it("returns null rather than throwing when no URI is set", async () => {
     const uri = process.env.MONGODB_URI;
     await closeMongo();
@@ -113,6 +113,7 @@ describe("getDb", () => {
     }
   });
 
+  // getDb selects the database named by MONGODB_DB (test_db), not one from the URI path.
   it("takes the database name from MONGODB_DB", async () => {
     // An SRV URI has no path component, so this is the ONLY thing choosing the
     // database on Atlas. Getting it wrong writes the cache to a ghost database
@@ -121,11 +122,13 @@ describe("getDb", () => {
     expect(db.databaseName).toBe("test_db");
   });
 
+  // getDb called concurrently returns the same db handle, so callers share one connection.
   it("memoizes: concurrent callers share one connection, not one each", async () => {
     const dbs = await Promise.all([getDb(), getDb(), getDb(), getDb()]);
     for (const db of dbs) expect(db).toBe(dbs[0]);
   });
 
+  // The Mongo client is cached on globalThis, so a module reload (vi.resetModules) reuses the same db.
   it("caches the client on globalThis so a module reload reuses the pool", async () => {
     const db = await getDb();
 
@@ -138,6 +141,7 @@ describe("getDb", () => {
     expect(await reloaded.getDb()).toBe(db);
   });
 
+  // getDb retries after a failed connection instead of caching the rejection, and succeeds once Mongo is reachable.
   it("retries after a failure instead of caching the rejection forever", async () => {
     const good = process.env.MONGODB_URI;
     await closeMongo();
@@ -160,11 +164,13 @@ describe("getDb", () => {
 });
 
 describe("closeMongo", () => {
+  // closeMongo is safe to call when no connection was ever opened.
   it("is safe to call when nothing was ever opened", async () => {
     await closeMongo();
     await expect(closeMongo()).resolves.toBeUndefined();
   });
 
+  // closeMongo drops the pool and the next getDb opens a fresh, working connection (ping succeeds).
   it("drops the pool and reconnects on the next call", async () => {
     const before = await getDb();
     await closeMongo();

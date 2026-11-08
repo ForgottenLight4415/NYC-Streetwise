@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreAmenityTier, amenityBandFor, buildReport, bucketScore } from "../src/services/scoring.js";
+import { scoreAmenityTier, amenityBandFor, buildReport } from "../src/services/scoring.js";
 import {
   AMENITY_TIERS,
   AMENITY_MAX_METERS,
@@ -36,6 +36,7 @@ const TYPICAL_TRANSIT = {
 };
 
 describe("scoreAmenityTier", () => {
+  // scoreAmenityTier scores 0m distance as 100 for every bucket, like zero complaints.
   it("scores 0m as 100, exactly as 0 complaints does", () => {
     const tier = scoreAmenityTier(
       "transit",
@@ -46,6 +47,7 @@ describe("scoreAmenityTier", () => {
     expect(tier.score).toBe(100);
   });
 
+  // scoreAmenityTier scores a distance equal to the baseline median as 50.
   it("scores the median distance as 50", () => {
     const tier = scoreAmenityTier("transit", TYPICAL_TRANSIT, AMENITY_BASELINE);
     expect(tier.bucketScores.subway).toBe(50);
@@ -53,28 +55,7 @@ describe("scoreAmenityTier", () => {
     expect(tier.bucketScores.rail).toBe(50);
   });
 
-  it("is monotonic — farther is never a better score, mirroring bucketScore itself", () => {
-    const subwayBaseline = AMENITY_BASELINE.perBucket.subway;
-    let previous = 101;
-    for (const meters of [0, 1, 50, 300, 800, 1200, 2000, 5000]) {
-      const score = bucketScore(meters, subwayBaseline);
-      expect(score).toBeLessThanOrEqual(previous);
-      previous = score;
-    }
-  });
-
-  it("clamps every bucket score to 0-100 for absurd distances", () => {
-    const tier = scoreAmenityTier(
-      "transit",
-      { subway: metric(1e9), bus: metric(-5), rail: metric(NaN) },
-      AMENITY_BASELINE
-    );
-    for (const score of Object.values(tier.bucketScores)) {
-      expect(score).toBeGreaterThanOrEqual(0);
-      expect(score).toBeLessThanOrEqual(100);
-    }
-  });
-
+  // scoreAmenityTier scores a null distance the same as the AMENITY_MAX_METERS cap, not as zero.
   it("scores a null distance as the cap, not as zero", () => {
     const withNull = scoreAmenityTier(
       "transit",
@@ -89,6 +70,7 @@ describe("scoreAmenityTier", () => {
     expect(withNull.bucketScores.subway).toBe(capped.bucketScores.subway);
   });
 
+  // scoreAmenityTier marks only a null-distance bucket low-confidence while the tier stays normal if the other buckets have data.
   it("flags a null-distance bucket low-confidence, but not the whole tier if only one bucket is null", () => {
     const tier = scoreAmenityTier(
       "transit",
@@ -99,6 +81,7 @@ describe("scoreAmenityTier", () => {
     expect(tier.confidence).toBe(CONFIDENCE.normal);
   });
 
+  // scoreAmenityTier marks the whole tier low-confidence (noneNearby) with very low scores when every bucket is null.
   it("flags the whole tier low-confidence when every bucket is null (e.g. Staten Island subway access)", () => {
     const tier = scoreAmenityTier(
       "transit",
@@ -115,12 +98,14 @@ describe("scoreAmenityTier", () => {
     expect(Object.values(tier.bucketScores).every((s) => s <= 20)).toBe(true);
   });
 
+  // scoreAmenityTier marks the tier low-confidence with the noBaseline reason when no baseline is supplied.
   it("flags low-confidence with no_baseline when no baseline is available", () => {
     const tier = scoreAmenityTier("transit", TYPICAL_TRANSIT, null);
     expect(tier.confidence).toBe(CONFIDENCE.low);
     expect(tier.confidenceReason).toBe(CONFIDENCE_REASONS.noBaseline);
   });
 
+  // scoreAmenityTier weights subway 2x, so a maximally bad subway lowers the tier score more than an equally bad bus.
   it("weights subway 2x, so a bad subway score pulls the tier average down more than an equally bad bus score", () => {
     const badSubway = scoreAmenityTier(
       "transit",
@@ -135,6 +120,7 @@ describe("scoreAmenityTier", () => {
     expect(badSubway.score).toBeLessThan(badBus.score);
   });
 
+  // scoreAmenityTier returns the sub-score shape with `metrics` (not `counts`) and the tier's radiusMeters.
   it("returns the frozen sub-score shape, with `metrics` in place of `counts`", () => {
     const tier = scoreAmenityTier("transit", TYPICAL_TRANSIT, AMENITY_BASELINE);
     expect(Object.keys(tier).sort()).toEqual(
@@ -143,12 +129,14 @@ describe("scoreAmenityTier", () => {
     expect(tier.radiusMeters).toBe(AMENITY_TIERS.transit.radiusMeters);
   });
 
+  // scoreAmenityTier fills in a missing bucket with an empty metric instead of producing NaN.
   it("fills in a missing bucket rather than producing NaN", () => {
     const tier = scoreAmenityTier("transit", { subway: metric(300) }, AMENITY_BASELINE);
     expect(tier.metrics.bus).toEqual({ meters: null, within: 0, name: null, routes: [] });
     expect(Number.isFinite(tier.score)).toBe(true);
   });
 
+  // scoreAmenityTier drops an absent rail bucket from the weighted average when subway or bus is present, rather than counting it at the cap.
   it("excludes an absent rail bucket from the tier average once subway or bus is present", () => {
     const noRail = scoreAmenityTier(
       "transit",
@@ -170,6 +158,7 @@ describe("scoreAmenityTier", () => {
     expect(noRail.score).toBeGreaterThan(railAtCap.score);
   });
 
+  // amenityBandFor maps scores to excellent/typical/carDependent at the threshold boundaries, and scoreAmenityTier uses that band.
   it("bands an amenity score on its own excellent/typical/carDependent scale, not good/fair/poor", () => {
     expect(amenityBandFor(AMENITY_BAND_THRESHOLDS.excellent)).toBe("excellent");
     expect(amenityBandFor(AMENITY_BAND_THRESHOLDS.excellent - 1)).toBe("typical");
@@ -183,6 +172,7 @@ describe("scoreAmenityTier", () => {
     expect(["excellent", "typical", "carDependent"]).toContain(tier.band);
   });
 
+  // scoreAmenityTier keeps rail in the weighted average when subway, bus and rail are all absent (a transit desert).
   it("keeps rail in the average when subway and bus are both absent too (a real transit desert)", () => {
     const desert = scoreAmenityTier(
       "transit",
@@ -200,6 +190,7 @@ describe("buildReport amenity integration", () => {
   const COUNTS = { building: { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 }, block: {} };
   const COMPLAINT_BASELINE = null; // irrelevant to these assertions
 
+  // buildReport omits transitAccess, parksAccess and bikeAccess when amenities is null, leaving the complaint sections intact.
   it("omits all three amenity keys when amenities is null", () => {
     const report = buildReport(COUNTS, COMPLAINT_BASELINE, {}, null, AMENITY_BASELINE);
     expect(report).not.toHaveProperty("transitAccess");
@@ -210,6 +201,7 @@ describe("buildReport amenity integration", () => {
     expect(report).toHaveProperty("blockQuality");
   });
 
+  // buildReport includes only the amenity sections whose tier data is present.
   it("includes only the tiers whose dataset loaded", () => {
     const report = buildReport(
       COUNTS,

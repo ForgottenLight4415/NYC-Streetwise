@@ -74,6 +74,7 @@ afterEach(() => {
 const STATIC_AMENITY_TIERS = Object.entries(AMENITY_TIERS).filter(([, def]) => def.dataset);
 
 describe("getAmenityMetrics against the real committed data", () => {
+  // getAmenityMetrics returns every static tier and bucket, each with meters, within and name, using the real committed data.
   it("returns every tier and bucket the frozen shape expects", async () => {
     const result = await getAmenityMetrics(LUDLOW_ST.lat, LUDLOW_ST.lng);
     expect(result).not.toBeNull();
@@ -88,6 +89,7 @@ describe("getAmenityMetrics against the real committed data", () => {
     }
   });
 
+  // getAmenityMetrics finds a named subway station within AMENITY_MAX_METERS for a dense Lower East Side address.
   it("finds a nearby subway station within a plausible distance for a dense LES address", async () => {
     const result = await getAmenityMetrics(LUDLOW_ST.lat, LUDLOW_ST.lng);
     expect(result.transit.subway.meters).not.toBeNull();
@@ -95,6 +97,7 @@ describe("getAmenityMetrics against the real committed data", () => {
     expect(typeof result.transit.subway.name).toBe("string");
   });
 
+  // getAmenityMetrics never reports a distance beyond AMENITY_MAX_METERS, even far from any amenity.
   it("never reports a distance past AMENITY_MAX_METERS", async () => {
     // The middle of Long Island Sound — nothing on land nearby for most buckets.
     const result = await getAmenityMetrics(40.98, -73.2);
@@ -110,6 +113,7 @@ describe("getAmenityMetrics against the real committed data", () => {
 });
 
 describe("getAmenityMetrics degradation", () => {
+  // getAmenityMetrics sets a tier to null when its dataset failed to load but still returns the other tiers.
   it("marks a tier null when its dataset is unavailable, but still returns the others", async () => {
     loadAmenitiesSpy.mockResolvedValue({
       transit: null,
@@ -123,6 +127,7 @@ describe("getAmenityMetrics degradation", () => {
     expect(result.bike).not.toBeNull();
   });
 
+  // getAmenityMetrics returns null overall when every dataset is unavailable.
   it("returns null overall when every dataset is unavailable", async () => {
     loadAmenitiesSpy.mockResolvedValue({ transit: null, parks: null, bike: null });
 
@@ -130,6 +135,7 @@ describe("getAmenityMetrics degradation", () => {
     expect(result).toBeNull();
   });
 
+  // getAmenityMetrics fills a bucket missing from a loaded tier with null meters, zero within and no name.
   it("falls back to null/0 metrics for a bucket missing from an otherwise-loaded tier", async () => {
     loadAmenitiesSpy.mockResolvedValue({
       transit: { subway: NULL_INDEX }, // bus and rail missing entirely
@@ -167,6 +173,7 @@ describe("getAmenityMetrics walking-distance correction", () => {
     };
   }
 
+  // getAmenityMetrics uses a cached walking-distance correction without calling Google or writing the cache.
   it("serves a cached correction without calling Google again", async () => {
     loadAmenitiesSpy.mockResolvedValue(transitOnlyDatasets(SUBWAY_CANDIDATES));
     readAmenityDistancesSpy.mockResolvedValue({
@@ -185,6 +192,7 @@ describe("getAmenityMetrics walking-distance correction", () => {
     expect(writeAmenityDistancesSpy).not.toHaveBeenCalled();
   });
 
+  // On a cache miss getAmenityMetrics sends all candidates in one Google call, keeps the shortest walking distance (not the nearest by air) and caches it.
   it("on a cache miss, batches every candidate into one call and keeps whichever comes back shortest — not necessarily the straight-line-nearest", async () => {
     loadAmenitiesSpy.mockResolvedValue(transitOnlyDatasets(SUBWAY_CANDIDATES));
     // Google says the straight-line-FARTHEST of the three is actually the
@@ -214,6 +222,7 @@ describe("getAmenityMetrics walking-distance correction", () => {
     expect(cached).toEqual({ transit: { subway: { meters: 150, name: "Actually-closest-on-foot" } } });
   });
 
+  // getAmenityMetrics falls back to the nearest straight-line candidate and does not cache when Google returns no route for any candidate.
   it("falls back to the straight-line-nearest when Google finds no route for any candidate", async () => {
     loadAmenitiesSpy.mockResolvedValue(transitOnlyDatasets(SUBWAY_CANDIDATES));
     computeWalkingDistancesSpy.mockResolvedValue([null, null, null]);
@@ -232,6 +241,7 @@ describe("getAmenityMetrics walking-distance correction", () => {
     expect(writeAmenityDistancesSpy).not.toHaveBeenCalled();
   });
 
+  // getAmenityMetrics keeps a Google-corrected bucket and falls back to straight-line for another bucket in the same call, caching only the corrected one.
   it("keeps a partial correction: a bucket Google covered stays corrected even when another bucket in the same call comes back empty", async () => {
     loadAmenitiesSpy.mockResolvedValue({
       transit: {
@@ -266,6 +276,7 @@ describe("getAmenityMetrics walking-distance correction", () => {
     );
   });
 
+  // getAmenityMetrics skips the Google call when no candidates are in range.
   it("skips the Google call entirely when there are no straight-line candidates in range", async () => {
     loadAmenitiesSpy.mockResolvedValue({
       transit: nullIndexed(AMENITY_TIERS.transit.buckets),

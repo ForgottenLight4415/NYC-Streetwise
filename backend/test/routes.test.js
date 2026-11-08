@@ -87,6 +87,18 @@ function groupTuple(day, type, statusBucket, count) {
   return { day, type, statusBucket, count };
 }
 
+/** "YYYY-MM-DD" (UTC, matching the route's own cutoff maths) for `n` days before today. */
+function daysAgo(n) {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// Fixture days for the grouped browser are relative to today, not fixed dates:
+// the route drops groups older than the default 24-month window, so a fixed
+// date silently ages out and breaks the totals. RECENT_DAY is inside every
+// offered window (including 3 months); OLD_DAY is inside 24 months but outside 3.
+const RECENT_DAY = daysAgo(14);
+const OLD_DAY = daysAgo(365);
+
 let server;
 
 beforeAll(async () => {
@@ -114,6 +126,7 @@ beforeEach(() => {
 });
 
 describe("GET /health", () => {
+  // GET /health returns 200 with status ok and a numeric uptimeSeconds.
   it("answers 200 for deploy checks and keep-warm pings", async () => {
     const { status, body } = await server.request("/health");
     expect(status).toBe(200);
@@ -121,6 +134,7 @@ describe("GET /health", () => {
     expect(body.uptimeSeconds).toBeTypeOf("number");
   });
 
+  // GET /health sends Cache-Control: no-store.
   it("is never cached — a cached 200 would mask a wedged instance", async () => {
     const { headers } = await server.request("/health");
     expect(headers.get("cache-control")).toBe("no-store");
@@ -128,6 +142,7 @@ describe("GET /health", () => {
 });
 
 describe("POST /api/score", () => {
+  // POST /api/score returns the report shape: null address, both tiers' radii and bucket keys, scores 0-100 and a good/fair/poor band.
   it("returns the frozen report shape", async () => {
     const { status, body } = await server.request("/api/score", {
       method: "POST",
@@ -155,15 +170,23 @@ describe("POST /api/score", () => {
     }
   });
 
-  it("serves the counts the provider returned, summed per bucket", async () => {
+  // POST /api/score passes Socrata's per-bucket counts through and scores each bucket (zero count = 100, busiest bucket lower).
+  it("passes the provider's per-bucket counts through and scores each one", async () => {
     const { body } = await server.request("/api/score", {
       method: "POST",
       body: { lat: 40.7484, lng: -73.9857 },
     });
     expect(body.buildingHealth.counts).toEqual(COUNTS.building);
     expect(body.blockQuality.counts).toEqual(COUNTS.block);
+    // Scored per bucket, not just echoed: a zero-count bucket is a perfect 100,
+    // and the busiest bucket (noise, 1653) scores below it.
+    expect(body.blockQuality.bucketScores.sanitation).toBe(100);
+    expect(body.blockQuality.bucketScores.noise).toBeLessThan(
+      body.blockQuality.bucketScores.sanitation
+    );
   });
 
+  // POST /api/score includes the additive fields: confidence, bucketScores matching counts, bucketConfidence (streetCondition weak) and baselineVersion.
   it("carries the agreed additive fields", async () => {
     // Additive extensions agreed in handoff.md — a frontend that ignores them
     // keeps working, but they must be present for one that does not.
@@ -186,6 +209,7 @@ describe("POST /api/score", () => {
     expect(body.meta.baselineVersion).toBeTypeOf("string");
   });
 
+  // POST /api/score gives an all-zero building a score of 100 but flags it low confidence with noComplaintsFound, leaving the block normal.
   it("flags a building with no complaints as low confidence", async () => {
     // The score is honest to the data (100), the doubt rides alongside it.
     countsSpy.mockImplementation(async (lat, lng, tier) => ({
@@ -207,6 +231,7 @@ describe("POST /api/score", () => {
     expect(body.blockQuality.confidence).toBe(CONFIDENCE.normal);
   });
 
+  // POST /api/score returns 503 upstream_unavailable, not 500, when Socrata is down.
   it("503s rather than 500s when the upstream is down", async () => {
     // Socrata went fully dark for hours during M3. The frontend can say "NYC's
     // data service is unavailable" off a 503; it can say nothing off a 500.
@@ -220,6 +245,7 @@ describe("POST /api/score", () => {
     expect(body.error).toBe("upstream_unavailable");
   });
 
+  // POST /api/score returns 400 with an error and details for a missing body, missing lng, non-numeric lat, out-of-NYC coordinates and swapped lat/lng.
   it.each([
     ["missing body", {}],
     ["missing lng", { lat: 40.7484 }],
@@ -236,11 +262,13 @@ describe("POST /api/score", () => {
     expect(body.details).toBeTypeOf("string");
   });
 
+  // POST /api/score returns 400 rather than 500 when no request body is sent.
   it("400s rather than 500s when no body is sent at all", async () => {
     const res = await fetch(`${server.baseUrl}/api/score`, { method: "POST" });
     expect(res.status).toBe(400);
   });
 
+  // POST /api/score rejects invalid coordinates without calling Socrata.
   it("rejects bad input before spending an upstream call", async () => {
     await server.request("/api/score", {
       method: "POST",
@@ -261,6 +289,7 @@ describe("POST /api/score — amenity sections", () => {
   // not silently omitted just because the live call didn't fire.
   const LUDLOW_ST = { lat: 40.7215, lng: -73.9878 };
 
+  // POST /api/score for a dense address returns all six scored sections plus summary and meta, each amenity section with its radius, metrics, score and band, and walkability empty without an API key.
   it("returns the full six-section payload", async () => {
     const { status, body } = await server.request("/api/score", {
       method: "POST",
@@ -304,6 +333,7 @@ describe("POST /api/score — amenity sections", () => {
     }
   });
 
+  // POST /api/score still returns the complaint sections plus walkability when all three static amenity datasets fail to load.
   it("degrades to the two complaint sections plus walkability when every static dataset fails to load", async () => {
     loadAmenitiesSpy.mockResolvedValue({ transit: null, parks: null, bike: null });
 
@@ -324,6 +354,7 @@ describe("POST /api/score — amenity sections", () => {
     expect(body.buildingHealth.score).toBeGreaterThanOrEqual(0);
   });
 
+  // POST /api/score omits only the amenity tier that failed to load and keeps the others.
   it("omits only the failing tier, not the other two, on a partial amenity failure", async () => {
     loadAmenitiesSpy.mockImplementation(async () => {
       const real = await actualLoadAmenities.fn();
@@ -338,6 +369,7 @@ describe("POST /api/score — amenity sections", () => {
 });
 
 describe("GET /api/complaints", () => {
+  // GET /api/complaints returns an array of points with exactly the contract keys.
   it("returns an array of points in the contract shape", async () => {
     const { status, body } = await server.request(
       "/api/complaints?lat=40.7484&lng=-73.9857&radius=350"
@@ -355,6 +387,7 @@ describe("GET /api/complaints", () => {
     ]);
   });
 
+  // GET /api/complaints passes the requested tier through to Socrata.
   it("passes the tier through so a panel only sees its own complaint types", async () => {
     await server.request("/api/complaints?lat=40.7484&lng=-73.9857&radius=25&tier=building");
     expect(complaintsSpy).toHaveBeenCalledWith(
@@ -365,12 +398,14 @@ describe("GET /api/complaints", () => {
     );
   });
 
+  // GET /api/complaints never runs the grouped fill unless complete=1.
   it("never triggers the grouped fill without complete=1", async () => {
     // The fill was measured at 2.3-74.3s. Report load must not pay for it.
     await server.request("/api/complaints?lat=40.7484&lng=-73.9857&tier=block");
     expect(groupsSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/complaints defaults to the block radius and default row limit when none are given.
   it("defaults to the block radius when none is given", async () => {
     await server.request("/api/complaints?lat=40.7484&lng=-73.9857");
     expect(complaintsSpy).toHaveBeenCalledWith(
@@ -381,6 +416,7 @@ describe("GET /api/complaints", () => {
     );
   });
 
+  // GET /api/complaints sets x-complaints-truncated and x-complaints-limit headers when the row cap is hit.
   it("reports truncation in headers when the row cap is hit", async () => {
     // A dense block returns only its most recent months at the cap. The array
     // shape is frozen, so the warning rides in a header instead — a frontend
@@ -397,6 +433,7 @@ describe("GET /api/complaints", () => {
     expect(headers.get("x-complaints-limit")).toBe("50");
   });
 
+  // GET /api/complaints sets x-complaints-truncated to false when the result is complete.
   it("says so when the result is complete", async () => {
     const { headers } = await server.request(
       "/api/complaints?lat=40.7484&lng=-73.9857"
@@ -404,6 +441,7 @@ describe("GET /api/complaints", () => {
     expect(headers.get("x-complaints-truncated")).toBe("false");
   });
 
+  // GET /api/complaints exposes the truncation headers through Access-Control-Expose-Headers.
   it("exposes the truncation headers to cross-origin JS", async () => {
     // Without Access-Control-Expose-Headers the browser receives these headers
     // and refuses to let the frontend read them.
@@ -414,6 +452,7 @@ describe("GET /api/complaints", () => {
     expect(exposed.toLowerCase()).toContain("x-complaints-truncated");
   });
 
+  // GET /api/complaints returns 400 for missing coordinates, out-of-bounds coordinates, zero or oversized radius, and oversized or fractional limit.
   it.each([
     ["missing coords", "/api/complaints"],
     ["out of bounds", "/api/complaints?lat=34.05&lng=-118.24"],
@@ -435,19 +474,20 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     // Two types on one day plus an older day, with a status split inside the
     // first, so collapsing and status filtering are both observable.
     groupsSpy.mockResolvedValue([
-      groupTuple("2026-08-14", "Noise - Residential", "closed", 7),
-      groupTuple("2026-08-14", "Noise - Residential", "open", 3),
-      groupTuple("2026-08-14", "Illegal Parking", "closed", 2),
-      groupTuple("2024-11-02", "Street Condition", "open", 5),
+      groupTuple(RECENT_DAY, "Noise - Residential", "closed", 7),
+      groupTuple(RECENT_DAY, "Noise - Residential", "open", 3),
+      groupTuple(RECENT_DAY, "Illegal Parking", "closed", 2),
+      groupTuple(OLD_DAY, "Street Condition", "open", 5),
     ]);
   });
 
+  // GET /api/complaints?complete=1 returns one row per (day, type) with a per-status breakdown and total.
   it("returns one row per (day, type) with a status breakdown inside", async () => {
     const { status, body } = await server.request(BASE);
     expect(status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
     expect(body[0]).toEqual({
-      day: "2026-08-14",
+      day: RECENT_DAY,
       type: "Illegal Parking",
       counts: { open: 0, "in-progress": 0, closed: 2 },
       total: 2,
@@ -457,12 +497,14 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(noise.total).toBe(10);
   });
 
+  // GET /api/complaints?complete=1 reports the number of groups, not complaints, in x-complaints-total.
   it("counts GROUPS in the total, not the complaints inside them", async () => {
     // 3 distinct (day, type) pairs covering 17 underlying complaints.
     const { headers } = await server.request(BASE);
     expect(headers.get("x-complaints-total")).toBe("3");
   });
 
+  // GET /api/complaints?complete=1 fills the group cache at COMPLAINT_GROUPS_CACHE_LIMIT regardless of the caller's page size.
   it("fills at the cache limit, never at the caller's page size", async () => {
     await server.request(`${BASE}&limit=25`);
     expect(groupsSpy).toHaveBeenCalledWith(
@@ -473,12 +515,14 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     );
   });
 
+  // GET /api/complaints?complete=1 restricts results to the requested months window and adjusts the total.
   it("narrows to the requested window", async () => {
     const { body, headers } = await server.request(`${BASE}&months=3`);
-    expect(body.every((r) => r.day >= "2026-05-01")).toBe(true);
+    expect(body.every((r) => r.day === RECENT_DAY)).toBe(true);
     expect(headers.get("x-complaints-total")).toBe("2");
   });
 
+  // GET /api/complaints?complete=1 allows ten cold fills per minute, then returns 429 rate_limited with Retry-After and no further Socrata call.
   it("still limits cold fills: the eleventh in a minute is refused with 429", async () => {
     // No Mongo in this file, so every grouped request is a real fill. Cached
     // pages are exempt; see scoreService.test.js's beforeFill tests.
@@ -494,12 +538,14 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(groupsSpy.mock.calls.length - fillsBefore).toBe(10);
   });
 
+  // GET /api/complaints?complete=1 filters groups by complaint bucket.
   it("filters by complaint bucket", async () => {
     const { body } = await server.request(`${BASE}&bucket=parking`);
     expect(body).toHaveLength(1);
     expect(body[0].type).toBe("Illegal Parking");
   });
 
+  // GET /api/complaints?complete=1 filters by status and drops groups left with no matching complaints.
   it("filters by status and drops groups left with nothing", async () => {
     const { body } = await server.request(`${BASE}&status=open`);
     // Illegal Parking was closed-only, so its group disappears entirely rather
@@ -508,6 +554,7 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(body.find((r) => r.type === "Noise - Residential").total).toBe(3);
   });
 
+  // GET /api/complaints?complete=1 per-status totals add up to the unfiltered total.
   it("splits the unfiltered total across the three status buckets with nothing lost", async () => {
     const unfiltered = await server.request(BASE);
     const sum = (rows) => rows.reduce((n, r) => n + r.total, 0);
@@ -517,6 +564,7 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(parts.reduce((n, p) => n + sum(p.body), 0)).toBe(sum(unfiltered.body));
   });
 
+  // GET /api/complaints?complete=1 pages over groups with limit and offset, giving disjoint pages and correct has-more and offset headers.
   it("pages over groups with a stable, disjoint order", async () => {
     const first = await server.request(`${BASE}&limit=2&offset=0`);
     const second = await server.request(`${BASE}&limit=2&offset=2`);
@@ -529,16 +577,18 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(keys(first.body).filter((k) => keys(second.body).includes(k))).toEqual([]);
   });
 
+  // GET /api/complaints?complete=1 sets x-complaints-truncated when the group fill reaches the cache limit.
   it("reports truncation when the grouped fill hits the cache limit", async () => {
     groupsSpy.mockResolvedValue(
       Array.from({ length: COMPLAINT_GROUPS_CACHE_LIMIT }, (_, i) =>
-        groupTuple(`2026-08-14`, `Type ${i}`, "closed", 1)
+        groupTuple(RECENT_DAY, `Type ${i}`, "closed", 1)
       )
     );
     const { headers } = await server.request(BASE);
     expect(headers.get("x-complaints-truncated")).toBe("true");
   });
 
+  // GET /api/complaints?complete=1 returns 400 for a negative or oversized offset, unknown bucket, raw status or unsupported months window.
   it.each([
     ["negative offset", `${BASE}&offset=-1`],
     ["oversized offset", `${BASE}&offset=999999`],
@@ -551,6 +601,7 @@ describe("GET /api/complaints?complete=1 (grouped browser)", () => {
     expect(body.error).toBeTypeOf("string");
   });
 
+  // GET /api/complaints?complete=1 returns 400 missing_tier when a bucket is given without a tier.
   it("400s when a bucket is given without a tier to scope it", async () => {
     const { status, body } = await server.request(
       "/api/complaints?lat=40.7484&lng=-73.9857&complete=1&bucket=noise"
@@ -570,6 +621,7 @@ describe("GET /api/complaints/group (drill-in)", () => {
     );
   });
 
+  // GET /api/complaints/group scopes the Socrata query to the tier radius, the day and the complaint type.
   it("scopes the query to the tier radius, one day and one type", async () => {
     await server.request(BASE);
     expect(groupDetailSpy).toHaveBeenCalledWith(
@@ -580,6 +632,7 @@ describe("GET /api/complaints/group (drill-in)", () => {
     );
   });
 
+  // GET /api/complaints/group pages with limit and offset, asking Socrata for one extra row to detect a next page.
   it("pages, because the largest measured group is 4,978 rows", async () => {
     const { body, headers } = await server.request(`${BASE}&limit=50&offset=100`);
     expect(body).toHaveLength(50);
@@ -595,6 +648,7 @@ describe("GET /api/complaints/group (drill-in)", () => {
     expect(headers.get("x-complaints-has-more")).toBe("true");
   });
 
+  // GET /api/complaints/group sets has-more to false when the extra probe row does not come back.
   it("says there is no next page when the probe row does not come back", async () => {
     groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1)]);
     const { body, headers } = await server.request(`${BASE}&limit=50`);
@@ -606,6 +660,7 @@ describe("GET /api/complaints/group (drill-in)", () => {
   // count the client already holds can describe a different row set than this
   // response. Stating the total FROM these rows is what lets the drill-in show a
   // count that matches its own list instead of one that contradicts it.
+  // GET /api/complaints/group states the exact total from the rows returned when on the last page.
   it("states the exact total, counted from the rows it returned, on the last page", async () => {
     groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1), complaintRow(2)]);
     const { body, headers } = await server.request(`${BASE}&limit=50`);
@@ -613,6 +668,7 @@ describe("GET /api/complaints/group (drill-in)", () => {
     expect(headers.get("x-complaints-total")).toBe("3");
   });
 
+  // GET /api/complaints/group adds the offset to the returned rows to compute the total on a last page.
   it("counts the total from the offset, so a last page deep in a group is right", async () => {
     groupDetailSpy.mockResolvedValue([complaintRow(0), complaintRow(1)]);
     const { headers } = await server.request(`${BASE}&limit=50&offset=100`);
@@ -621,12 +677,14 @@ describe("GET /api/complaints/group (drill-in)", () => {
 
   // Mid-list the total is genuinely unknown from one page, and guessing it would
   // report a 50-row page as a 50-row group.
+  // GET /api/complaints/group omits the total header when more pages remain.
   it("omits the total when there are further pages", async () => {
     const { headers } = await server.request(`${BASE}&limit=50`);
     expect(headers.get("x-complaints-has-more")).toBe("true");
     expect(headers.get("x-complaints-total")).toBeNull();
   });
 
+  // GET /api/complaints/group returns 400 for a missing tier or day, impossible or malformed dates and an unknown complaint type.
   it.each([
     ["missing tier", "/api/complaints/group?lat=40.7484&lng=-73.9857&type=PLUMBING&day=2026-08-14"],
     ["missing day", "/api/complaints/group?lat=40.7484&lng=-73.9857&tier=block&type=PLUMBING"],
@@ -645,12 +703,14 @@ describe("GET /api/complaints/group (drill-in)", () => {
 });
 
 describe("app wiring", () => {
+  // An unknown path returns a JSON 404 {error:not_found}, not an HTML page.
   it("404s unknown paths as JSON, not an HTML stack page", async () => {
     const { status, body } = await server.request("/api/nope");
     expect(status).toBe(404);
     expect(body).toEqual({ error: "not_found" });
   });
 
+  // CORS reflects Access-Control-Allow-Origin and Vary: Origin for an allowlisted origin.
   it("reflects Access-Control-Allow-Origin for an allowlisted origin", async () => {
     const { headers } = await server.request("/health", {
       headers: { Origin: "http://localhost:3000" },
@@ -659,6 +719,7 @@ describe("app wiring", () => {
     expect(headers.get("vary")).toBe("Origin");
   });
 
+  // CORS omits Access-Control-Allow-Origin for a non-allowlisted origin.
   it("omits Access-Control-Allow-Origin for a non-allowlisted origin", async () => {
     const { headers } = await server.request("/health", {
       headers: { Origin: "https://evil.example.com" },
@@ -666,6 +727,7 @@ describe("app wiring", () => {
     expect(headers.get("access-control-allow-origin")).toBeNull();
   });
 
+  // An OPTIONS preflight to /api/score returns 204 and allows POST.
   it("answers CORS preflight with 204", async () => {
     const res = await fetch(`${server.baseUrl}/api/score`, { method: "OPTIONS" });
     expect(res.status).toBe(204);
@@ -676,6 +738,7 @@ describe("app wiring", () => {
 // --- AI explanation layer ----------------------------------------------------
 
 describe("explanations on POST /api/score", () => {
+  // POST /api/score gives both complaint sections a template explanation and never calls the AI.
   it("always carries a deterministic explanation — this endpoint never calls the AI", async () => {
     const { body } = await server.request("/api/score", {
       method: "POST",
@@ -691,10 +754,10 @@ describe("explanations on POST /api/score", () => {
     }
   });
 
+  // POST /api/score serves template explanations on a cache miss and never calls the AI adapter.
   it("serves the template on a cache miss — the score never waits on an AI call", async () => {
     // No Mongo in this suite, so nothing is ever cached: every response here is
     // the fast path, which is exactly the path that must not touch the AI.
-    const started = Date.now();
     const { body } = await server.request("/api/score", {
       method: "POST",
       body: { lat: 40.6944, lng: -73.9213 },
@@ -702,17 +765,20 @@ describe("explanations on POST /api/score", () => {
 
     expect(body.buildingHealth.explanationSource).toBe("template");
     expect(body.blockQuality.explanationSource).toBe("template");
-    // A real AI call is seconds; this asserts we did not make one.
-    expect(Date.now() - started).toBeLessThan(1000);
+    // Asserted directly rather than by wall-clock time, which flakes on a slow machine.
+    expect(aiSpy).not.toHaveBeenCalled();
   });
 
+  // POST /api/score's block and building explanations each name their own tier and quote that tier's dominant bucket and real count.
   it("explains the tier it is attached to", async () => {
     const { body } = await server.request("/api/score", {
       method: "POST",
       body: { lat: 40.7484, lng: -73.9857 },
     });
-    expect(body.blockQuality.explanation).toMatch(/block/i);
-    expect(body.buildingHealth.explanation).toMatch(/building|address/i);
+    expect(body.blockQuality.explanation).toContain("for this block");
+    expect(body.blockQuality.explanation).toContain("Noise stands out with 1653 complaints");
+    expect(body.buildingHealth.explanation).toContain("for this building");
+    expect(body.buildingHealth.explanation).toContain("Heat and hot water stands out with 12 complaints");
   });
 });
 
@@ -722,6 +788,7 @@ describe("GET /api/explanation", () => {
   // instead (see the describe block above) — none of them ever calls the AI,
   // so this endpoint has no per-tier or per-amenity slow path left to serve.
 
+  // GET /api/explanation?tier=overall returns the AI summary, labelled ai, after one adapter call.
   it("returns the AI whole-report summary when the adapter succeeds", async () => {
     const { status, body } = await server.request(
       "/api/explanation?lat=40.7484&lng=-73.9857&tier=overall"
@@ -732,6 +799,7 @@ describe("GET /api/explanation", () => {
     expect(aiSpy).toHaveBeenCalledTimes(1);
   });
 
+  // GET /api/explanation sends the AI adapter a `sections` array covering both complaint tiers.
   it("sends a `sections` array spanning both complaint tiers, not one tier's counts", async () => {
     await server.request("/api/explanation?lat=40.7484&lng=-73.9857&tier=overall");
     const input = aiSpy.mock.calls[0][0];
@@ -741,6 +809,7 @@ describe("GET /api/explanation", () => {
     expect(labels).toContain("Block Quality");
   });
 
+  // GET /api/explanation returns 200 with a template explanation when the AI fails.
   it("200s with the template when the AI is unavailable, never an error", async () => {
     // CLAUDE.md: the demo must never show a broken state for this feature.
     aiSpy.mockRejectedValue(new Error("ollama unreachable"));
@@ -752,6 +821,7 @@ describe("GET /api/explanation", () => {
     expect(body.explanation.length).toBeGreaterThan(10);
   });
 
+  // GET /api/explanation's body holds only explanation and explanationSource, leaking no failure detail.
   it("does not leak the internal failure reason to the client", async () => {
     aiSpy.mockRejectedValue(new Error("ECONNREFUSED 127.0.0.1:11434"));
     const { body } = await server.request(
@@ -760,6 +830,7 @@ describe("GET /api/explanation", () => {
     expect(Object.keys(body).sort()).toEqual(["explanation", "explanationSource"]);
   });
 
+  // GET /api/explanation still calls the AI when every complaint count is zero.
   it("does NOT skip the AI call when every complaint count is zero (unlike a single complaint tier's template)", async () => {
     countsSpy.mockImplementation(async () => ({
       counts: {
@@ -775,6 +846,7 @@ describe("GET /api/explanation", () => {
     expect(aiSpy).toHaveBeenCalledTimes(1);
   });
 
+  // GET /api/explanation returns 400 for a missing or invalid tier, the no-longer-accepted block tier, missing coordinates and out-of-bounds coordinates.
   it.each([
     ["missing tier", "/api/explanation?lat=40.7484&lng=-73.9857"],
     ["invalid tier", "/api/explanation?lat=40.7484&lng=-73.9857&tier=roof"],
@@ -787,6 +859,7 @@ describe("GET /api/explanation", () => {
     expect(body.error).toBeTypeOf("string");
   });
 
+  // GET /api/explanation returns 503 upstream_unavailable when Socrata counts cannot be fetched.
   it("503s when the upstream counts cannot be fetched", async () => {
     countsSpy.mockRejectedValue(new SocrataError("socrata 503: down", { status: 503 }));
     const { status, body } = await server.request(

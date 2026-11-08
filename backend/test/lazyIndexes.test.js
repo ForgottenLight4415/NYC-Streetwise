@@ -92,6 +92,7 @@ async function indexNames(collection) {
 beforeEach(coldDatabase);
 
 describe("indexes are built by first use, not by a startup hook", () => {
+  // writeCounts on a cold database builds the complaint_cache coord_tier and TTL indexes with no startup hook.
   it("complaint_cache — a write builds them", async () => {
     await writeCounts(LAT, LNG, "building", BUILDING);
     expect(await indexNames(CACHE_COLLECTION)).toEqual(
@@ -99,6 +100,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // readEntries on a cold database also builds the complaint_cache indexes.
   it("complaint_cache — a read builds them too", async () => {
     // A deploy that only ever served cache misses would otherwise never index.
     await readEntries(LAT, LNG, ["building", "block"]);
@@ -107,6 +109,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // writeTrend on a cold database builds the trend_cache coord_tier_months and TTL indexes.
   it("trend_cache — a write builds them", async () => {
     await writeTrend(LAT, LNG, "block", 1, [{ month: "2026-08", count: 3 }]);
     expect(await indexNames(TREND_CACHE_COLLECTION)).toEqual(
@@ -114,6 +117,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // readTrend on a cold database also builds the trend_cache indexes.
   it("trend_cache — a read builds them", async () => {
     await readTrend(LAT, LNG, "block", 9);
     expect(await indexNames(TREND_CACHE_COLLECTION)).toEqual(
@@ -121,6 +125,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // writeComplaintGroups on a cold database builds the complaint_groups_cache indexes.
   it("complaint_groups_cache — a write builds them", async () => {
     await writeComplaintGroups(LAT, LNG, "block", [], false);
     expect(await indexNames(COMPLAINT_GROUPS_COLLECTION)).toEqual(
@@ -128,6 +133,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // readComplaintGroups on a cold database also builds the complaint_groups_cache indexes.
   it("complaint_groups_cache — a read builds them", async () => {
     await readComplaintGroups(LAT, LNG, "block");
     expect(await indexNames(COMPLAINT_GROUPS_COLLECTION)).toEqual(
@@ -135,6 +141,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // writeAmenityDistances on a cold database builds the amenity_distance_cache coord and TTL indexes.
   it("amenity_distance_cache — a write builds them", async () => {
     await writeAmenityDistances(LAT, LNG, { transit: { subway: { meters: 174, name: "2 Av" } } });
     expect(await indexNames(AMENITY_DISTANCE_CACHE_COLLECTION)).toEqual(
@@ -142,6 +149,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // readAmenityDistances on a cold database also builds the amenity_distance_cache indexes.
   it("amenity_distance_cache — a read builds them", async () => {
     await readAmenityDistances(LAT, LNG);
     expect(await indexNames(AMENITY_DISTANCE_CACHE_COLLECTION)).toEqual(
@@ -149,6 +157,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // recordLookup on a cold database builds the address_lookups coord, lookups_desc and lastSeenAt_desc indexes without /api/warm.
   it("address_lookups — a write builds them, with no help from /api/warm", async () => {
     // The regression this guards: warming used to be the only thing that built
     // these in production, which made an unrelated endpoint load-bearing.
@@ -163,6 +172,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // topLookups on a cold database also builds the address_lookups indexes.
   it("address_lookups — a read builds them", async () => {
     await topLookups(4);
     expect(await indexNames(ADDRESS_LOOKUPS_COLLECTION)).toEqual(
@@ -170,6 +180,7 @@ describe("indexes are built by first use, not by a startup hook", () => {
     );
   });
 
+  // The cache TTL indexes carry the right expireAfterSeconds (amenity distances longer), and address_lookups has no TTL index.
   it("every TTL index really carries an expiry, so nothing lives forever", async () => {
     await writeCounts(LAT, LNG, "building", BUILDING);
     await writeTrend(LAT, LNG, "block", 1, [{ month: "2026-08", count: 3 }]);
@@ -218,6 +229,7 @@ describe("memoization — one round trip per process, not per request", () => {
   ];
 
   for (const [label, collection, ensure] of cases) {
+    // For each of the five collections, repeated ensure*Indexes calls after the first issue no further createIndexes (memoized).
     it(`${label} — a second call issues no further createIndexes`, async () => {
       // Build once so the memo is populated, then watch a fresh handle: any
       // further call reaching the driver would mean the memo is not holding.
@@ -232,6 +244,7 @@ describe("memoization — one round trip per process, not per request", () => {
       spy.mockRestore();
     });
 
+    // For each of the five collections, concurrent ensure*Indexes callers trigger at most one createIndexes.
     it(`${label} — concurrent callers share one build`, async () => {
       const db = await getDb();
       const spy = vi.spyOn(db.collection(collection), "createIndexes");
@@ -243,6 +256,7 @@ describe("memoization — one round trip per process, not per request", () => {
     });
   }
 
+  // Repeated cache reads and writes do not re-issue createIndexes once indexes exist.
   it("repeated provider calls do not re-issue index creation", async () => {
     // The cost question the lazy pattern raises: does putting ensure*() on every
     // read make every read pay for it? It must not.
@@ -258,6 +272,7 @@ describe("memoization — one round trip per process, not per request", () => {
     spy.mockRestore();
   });
 
+  // A failed index build is swallowed, the write still succeeds, and the next call retries the build.
   it("a failed build is retried rather than memoized as broken", async () => {
     resetCacheIndexMemo();
     const db = await getDb();

@@ -38,43 +38,51 @@ function transitFixture(overrides = {}) {
 }
 
 describe("isValidDataset", () => {
+  // isValidDataset accepts a complete transit document.
   it("accepts a complete transit document", () => {
     expect(isValidDataset("transit", transitFixture())).toBe(true);
   });
 
+  // isValidDataset rejects an unknown dataset name.
   it("rejects an unknown dataset name", () => {
     expect(isValidDataset("nope", transitFixture())).toBe(false);
   });
 
+  // isValidDataset rejects a document missing a required bucket.
   it("rejects a document missing a bucket", () => {
     const doc = transitFixture();
     delete doc.rail;
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects a document with an unexpected extra bucket.
   it("rejects a document with an extra, unexpected bucket", () => {
     const doc = transitFixture({ extraBucket: bucketFixture([[40.75, -73.98, null]]) });
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects a pts array whose length is not a multiple of 3.
   it("rejects pts whose length is not a multiple of 3", () => {
     const doc = transitFixture();
     doc.subway.pts.push(1);
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects a bucket whose n does not match its pts length.
   it("rejects pts/n mismatch", () => {
     const doc = transitFixture();
     doc.subway.n = 99;
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects a name index pointing past the end of names.
   it("rejects a nameIdx pointing past the end of names", () => {
     const doc = transitFixture();
     doc.subway.pts[2] = 5; // only one name exists
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects coordinates outside the NYC sanity range, such as swapped lat/lng.
   it("rejects a coordinate wildly outside the sanity range (e.g. swapped lat/lng)", () => {
     const doc = transitFixture();
     doc.subway.pts = [-73.98, 40.75, -1]; // lat/lng swapped
@@ -82,6 +90,7 @@ describe("isValidDataset", () => {
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset accepts a subway bucket with matching complexIds and complexIdIdx.
   it("accepts a subway bucket with a valid complexIds/complexIdIdx pair", () => {
     const doc = transitFixture();
     doc.subway.complexIds = ["607"];
@@ -89,12 +98,14 @@ describe("isValidDataset", () => {
     expect(isValidDataset("transit", doc)).toBe(true);
   });
 
+  // isValidDataset rejects complexIdIdx without complexIds.
   it("rejects complexIdIdx present without complexIds (or vice versa)", () => {
     const doc = transitFixture();
     doc.subway.complexIdIdx = [0];
     expect(isValidDataset("transit", doc)).toBe(false);
   });
 
+  // isValidDataset rejects a complexIdIdx index past the end of complexIds.
   it("rejects a complexIdIdx pointing past the end of complexIds", () => {
     const doc = transitFixture();
     doc.subway.complexIds = ["607"];
@@ -104,6 +115,7 @@ describe("isValidDataset", () => {
 });
 
 describe("the committed amenity datasets", () => {
+  // Each committed amenity JSON file (transit, parks, bike) exists, is valid, and has exactly the expected buckets.
   it.each(Object.keys(AMENITY_FILE_PATHS))(
     "%s.json exists, is valid, and covers every expected bucket",
     async (name) => {
@@ -117,6 +129,7 @@ describe("the committed amenity datasets", () => {
 describe("loadAmenities without Mongo", () => {
   beforeEach(() => resetAmenitiesMemo());
 
+  // loadAmenities falls back to the committed files without Mongo and builds queryable spatial indexes.
   it("falls back to the committed files so a fresh clone still scores", async () => {
     const amenities = await loadAmenities();
     expect(amenities.transit).not.toBeNull();
@@ -126,6 +139,7 @@ describe("loadAmenities without Mongo", () => {
     expect(typeof amenities.transit.subway.nearest).toBe("function");
   });
 
+  // loadAmenities memoizes, returning the identical object on repeat calls.
   it("memoizes — same object identity across calls", async () => {
     const first = await loadAmenities();
     const second = await loadAmenities();
@@ -160,6 +174,7 @@ describe("loadAmenities with Mongo", () => {
   // refused. Direct insertOne is the arrange step; saveAmenityDataset is what
   // gets exercised.
 
+  // loadAmenities prefers a valid Mongo dataset over the committed file.
   it("prefers Mongo, so a dataset can be refreshed without a redeploy", async () => {
     const custom = transitFixture({ subway: bucketFixture([[41.0, -74.0, "Custom Stop"]]) });
     const db = await getDb();
@@ -170,6 +185,7 @@ describe("loadAmenities with Mongo", () => {
     expect(result.name).toBe("Custom Stop");
   });
 
+  // loadAmenities uses the committed file for any dataset Mongo lacks while using Mongo for the ones it has.
   it("falls back to the committed file when Mongo has no document for one dataset", async () => {
     // Only "transit" written to Mongo — "parks" and "bike" must still resolve
     // from their committed files in the same loadAmenities() call.
@@ -181,6 +197,7 @@ describe("loadAmenities with Mongo", () => {
     expect(amenities.bike).not.toBeNull();
   });
 
+  // loadAmenities ignores an invalid Mongo dataset and uses the committed file.
   it("falls back to the committed file when the Mongo document is invalid", async () => {
     const broken = transitFixture();
     delete broken.rail;
@@ -192,6 +209,7 @@ describe("loadAmenities with Mongo", () => {
     expect(amenities.transit.rail).toBeDefined();
   });
 
+  // saveAmenityDataset upserts a single document instead of duplicating.
   it("saveAmenityDataset upserts rather than duplicating", async () => {
     // Seed a "previous" doc of comparable size directly, so the write below
     // is measured against it rather than against the (much bigger) real
@@ -217,6 +235,7 @@ describe("loadAmenities with Mongo", () => {
     expect(docs[0].subway.names[0]).toBe("new-stop-0");
   });
 
+  // saveAmenityDataset refuses a write that cuts a bucket's point count by more than 30% and leaves the existing document untouched.
   it("saveAmenityDataset refuses a write that drops a bucket's point count by more than 30%", async () => {
     const big = transitFixture({
       subway: bucketFixture(
@@ -237,6 +256,7 @@ describe("loadAmenities with Mongo", () => {
     expect(doc.subway.n).toBe(20);
   });
 
+  // saveAmenityDataset refuses an invalid document and returns false.
   it("saveAmenityDataset refuses an invalid document outright", async () => {
     const broken = transitFixture();
     delete broken.rail;

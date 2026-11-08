@@ -16,6 +16,7 @@ const TIMES_SQUARE = [40.7580, -73.9855];
 const BUSHWICK = [40.6944, -73.9213];
 
 describe("mockScoreReport", () => {
+  // mockScoreReport returns the same top-level keys, per-tier bucket keys and radii as a live report, flags meta.mock, and names mock amenities "Mock ...".
   it("returns the frozen contract shape", () => {
     const report = mockScoreReport(...TIMES_SQUARE);
 
@@ -68,6 +69,7 @@ describe("mockScoreReport", () => {
     }
   });
 
+  // mockScoreReport gives integer building and block scores from 0 to 100 with a valid band and non-negative integer counts.
   it("produces scores in range with a matching band", () => {
     for (const sub of [
       mockScoreReport(...TIMES_SQUARE).buildingHealth,
@@ -84,6 +86,7 @@ describe("mockScoreReport", () => {
     }
   });
 
+  // mockScoreReport returns an identical report for the same coordinate.
   it("is deterministic per coordinate", () => {
     // The whole point of the mock: the same address must always give the same
     // report, or frontend work becomes impossible to eyeball.
@@ -95,6 +98,7 @@ describe("mockScoreReport", () => {
 });
 
 describe("mockComplaints", () => {
+  // mockComplaints returns points with exactly the contract keys, a known complaint type, finite coordinates and a parseable date.
   it("returns points in the contract shape", () => {
     const points = mockComplaints(...TIMES_SQUARE, 350);
     expect(points.length).toBeGreaterThan(0);
@@ -114,6 +118,7 @@ describe("mockComplaints", () => {
     }
   });
 
+  // mockComplaints keeps every point within the requested radius of the origin.
   it("keeps every point inside the requested radius", () => {
     const [lat, lng] = TIMES_SQUARE;
     const radius = 350;
@@ -127,6 +132,7 @@ describe("mockComplaints", () => {
     }
   });
 
+  // mockComplaints dates every point inside the trailing ~731-day window and not in the future.
   it("dates all points inside the trailing window", () => {
     const now = Date.now();
     const windowStart = now - 731 * 24 * 60 * 60 * 1000;
@@ -137,6 +143,7 @@ describe("mockComplaints", () => {
     }
   });
 
+  // mockComplaints is deterministic for a given coordinate and radius, and differs between locations.
   it("is deterministic per coordinate and radius", () => {
     expect(mockComplaints(...TIMES_SQUARE, 350)).toEqual(
       mockComplaints(...TIMES_SQUARE, 350)
@@ -150,6 +157,7 @@ describe("mockComplaints", () => {
 describe("mockMonthlyTrend", () => {
   const OPTS = { tier: "block", months: 9, now: new Date("2026-06-15") };
 
+  // mockMonthlyTrend returns {month, count} points, oldest first, YYYY-MM formatted, with positive integer counts only.
   it("returns points in the contract shape, oldest first, only non-zero months", () => {
     const points = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
     expect(points.length).toBeGreaterThan(0);
@@ -165,6 +173,7 @@ describe("mockMonthlyTrend", () => {
     }
   });
 
+  // mockMonthlyTrend never spans more months than requested.
   it("never returns more months than requested", () => {
     const points = mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS);
     const monthsSpanned =
@@ -173,6 +182,7 @@ describe("mockMonthlyTrend", () => {
     expect(monthsSpanned).toBeLessThan(OPTS.months);
   });
 
+  // mockMonthlyTrend is deterministic for a given coordinate, tier and radius, and differs between locations.
   it("is deterministic per coordinate, tier, and radius", () => {
     expect(mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)).toEqual(
       mockMonthlyTrend(...TIMES_SQUARE, 350, OPTS)

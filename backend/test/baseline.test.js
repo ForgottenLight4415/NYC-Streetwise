@@ -31,10 +31,12 @@ function fixture(overrides = {}) {
 }
 
 describe("isValidBaseline", () => {
+  // isValidBaseline accepts a complete document covering every bucket.
   it("accepts a complete document", () => {
     expect(isValidBaseline(fixture())).toBe(true);
   });
 
+  // isValidBaseline rejects null, a document without perBucket, and one with an empty perBucket.
   it.each([
     ["null", null],
     ["no perBucket", { _id: "v1" }],
@@ -43,6 +45,7 @@ describe("isValidBaseline", () => {
     expect(isValidBaseline(doc)).toBe(false);
   });
 
+  // isValidBaseline rejects a document missing even one bucket, since it would score that bucket against undefined.
   it("rejects a document missing even one bucket", () => {
     // A half-baseline is worse than none: the missing bucket would score
     // against `undefined` and quietly hand out a free 100.
@@ -51,6 +54,7 @@ describe("isValidBaseline", () => {
     expect(isValidBaseline(doc)).toBe(false);
   });
 
+  // isValidBaseline rejects bucket stats with a non-numeric median, a NaN p90 or a negative median.
   it.each([
     ["a non-numeric median", { median: "x", p90: 10 }],
     ["a NaN p90", { median: 1, p90: NaN }],
@@ -65,6 +69,7 @@ describe("isValidBaseline", () => {
 describe("the committed baseline", () => {
   // This file is an artifact the API depends on at runtime — if it is broken or
   // missing, every score is served as low-confidence. It must stay committed.
+  // The committed baseline.json is valid, covers every bucket, matches the current tier radii and has a sample size of at least 100.
   it("exists, is valid, and covers every bucket at the current radii", async () => {
     const doc = JSON.parse(await readFile(BASELINE_FILE_PATH, "utf8"));
 
@@ -78,6 +83,7 @@ describe("the committed baseline", () => {
     expect(doc.sampleSize).toBeGreaterThanOrEqual(100);
   });
 
+  // Every bucket in the committed baseline has a zeroShare between 0 and 1.
   it("records zeroShare, which the scorer reads", () => {
     // Not a diagnostic: anchorsFor() needs it to place the first complaint
     // above the zero tie on these heavily zero-inflated buckets.
@@ -93,12 +99,14 @@ describe("the committed baseline", () => {
 describe("loadBaseline without Mongo", () => {
   beforeEach(() => resetBaselineMemo());
 
+  // loadBaseline falls back to the committed file (source "file") when Mongo is unavailable.
   it("falls back to the committed file so a fresh clone still scores", async () => {
     const baseline = await loadBaseline();
     expect(baseline.source).toBe("file");
     expect(isValidBaseline(baseline)).toBe(true);
   });
 
+  // loadBaseline memoizes, returning the identical object on repeat calls.
   it("memoizes — the baseline only changes when the script is rerun", async () => {
     const first = await loadBaseline();
     const second = await loadBaseline();
@@ -125,6 +133,7 @@ describe("loadBaseline with Mongo", () => {
     await db.collection(BASELINE_COLLECTION).deleteMany({});
   });
 
+  // loadBaseline prefers a valid Mongo baseline (source "mongo") over the committed file.
   it("prefers Mongo, so the baseline can be refreshed without a redeploy", async () => {
     await saveBaseline(fixture({ sampleSize: 999 }));
     const baseline = await loadBaseline();
@@ -132,10 +141,12 @@ describe("loadBaseline with Mongo", () => {
     expect(baseline.sampleSize).toBe(999);
   });
 
+  // loadBaseline uses the committed file when Mongo has no baseline document.
   it("falls back to the committed file when Mongo has no document", async () => {
     expect((await loadBaseline()).source).toBe("file");
   });
 
+  // loadBaseline ignores an incomplete Mongo baseline and uses the committed file.
   it("falls back to the committed file when the Mongo document is incomplete", async () => {
     const broken = fixture();
     delete broken.perBucket.noise;
@@ -147,6 +158,7 @@ describe("loadBaseline with Mongo", () => {
     expect(isValidBaseline(baseline)).toBe(true);
   });
 
+  // saveBaseline upserts a single document instead of inserting duplicates.
   it("saveBaseline upserts rather than duplicating", async () => {
     await saveBaseline(fixture({ sampleSize: 100 }));
     await saveBaseline(fixture({ sampleSize: 250 }));

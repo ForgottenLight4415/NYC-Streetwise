@@ -32,6 +32,7 @@ beforeEach(() => {
 });
 
 describe("getWalkabilityMetrics", () => {
+  // getWalkabilityMetrics returns every walkability bucket as {meters:null, within:0, name:null} when Places finds nothing.
   it("returns every bucket, all null/0, when Places finds nothing", async () => {
     const result = await getWalkabilityMetrics(POINT.lat, POINT.lng);
     expect(Object.keys(result).sort()).toEqual([...WALKABILITY_BUCKETS].sort());
@@ -40,6 +41,7 @@ describe("getWalkabilityMetrics", () => {
     }
   });
 
+  // getWalkabilityMetrics assigns each place to a bucket using the first of its types that matches.
   it("sorts a place into its bucket by the FIRST type that matches", async () => {
     searchNearbyPlacesSpy.mockResolvedValue([
       { lat: 40.7216, lng: -73.9878, types: ["grocery_store", "point_of_interest"], name: "Corner Grocer" },
@@ -52,6 +54,7 @@ describe("getWalkabilityMetrics", () => {
     expect(result.cafe).toEqual({ meters: null, within: 0, name: null });
   });
 
+  // getWalkabilityMetrics keeps the nearest place per bucket regardless of input order and counts all matches as `within`.
   it("keeps the NEAREST place per bucket and counts every match as `within`", async () => {
     searchNearbyPlacesSpy.mockResolvedValue([
       // Farther cafe first, closer cafe second — nearest must win regardless
@@ -69,6 +72,7 @@ describe("getWalkabilityMetrics", () => {
     expect(result.cafe.meters).toBeLessThan(WALKABILITY_RADIUS);
   });
 
+  // getWalkabilityMetrics ignores places whose types match no bucket.
   it("ignores a place with no recognised type", async () => {
     searchNearbyPlacesSpy.mockResolvedValue([
       { lat: 40.7216, lng: -73.9878, types: ["point_of_interest"], name: "Unrecognised" },
@@ -80,6 +84,7 @@ describe("getWalkabilityMetrics", () => {
     }
   });
 
+  // getWalkabilityMetrics drops a place beyond the walkshed radius even if Places returned it.
   it("drops a place past the walkshed radius even if Places returned it", async () => {
     // Defense in depth: locationRestriction should already cap this, but the
     // function must not trust a third-party API to enforce its own contract.
@@ -92,6 +97,7 @@ describe("getWalkabilityMetrics", () => {
     expect(result.school).toEqual({ meters: null, within: 0, name: null });
   });
 
+  // getWalkabilityMetrics serves from the places cache on a hit without calling Places or writing the cache.
   it("reads from the cache first and never calls Places on a hit", async () => {
     readWalkabilityPlacesSpy.mockResolvedValue([
       { lat: 40.7216, lng: -73.9878, types: ["school"], name: "Cached School" },
@@ -103,6 +109,7 @@ describe("getWalkabilityMetrics", () => {
     expect(writeWalkabilityPlacesSpy).not.toHaveBeenCalled();
   });
 
+  // getWalkabilityMetrics writes the Places result to the cache on a miss, even an empty one.
   it("writes whatever Places returns to the cache on a miss, even an empty result", async () => {
     readWalkabilityPlacesSpy.mockResolvedValue(null);
     searchNearbyPlacesSpy.mockResolvedValue([]);
@@ -112,6 +119,7 @@ describe("getWalkabilityMetrics", () => {
   });
 
   describe("cacheOnly", () => {
+    // With cacheOnly, getWalkabilityMetrics returns null on a cache miss without calling Places or writing the cache.
     it("returns null on a cache miss without ever calling Places", async () => {
       readWalkabilityPlacesSpy.mockResolvedValue(null);
 
@@ -121,6 +129,7 @@ describe("getWalkabilityMetrics", () => {
       expect(writeWalkabilityPlacesSpy).not.toHaveBeenCalled();
     });
 
+    // With cacheOnly, getWalkabilityMetrics still returns metrics built from a cache hit.
     it("still serves a cache hit", async () => {
       readWalkabilityPlacesSpy.mockResolvedValue([]);
 

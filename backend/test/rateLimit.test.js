@@ -50,6 +50,7 @@ beforeEach(resetRateLimits);
 afterEach(() => vi.useRealTimers());
 
 describe("rateLimit", () => {
+  // rateLimit lets exactly `limit` requests through, then responds 429 rate_limited.
   it("allows exactly `limit` requests, then refuses", () => {
     const mw = rateLimit({ limit: 3, windowMs: 60_000, name: "t" });
     const req = fakeReq();
@@ -64,6 +65,7 @@ describe("rateLimit", () => {
     expect(fourth.res.body.error).toBe("rate_limited");
   });
 
+  // rateLimit keeps a separate count per caller IP.
   it("counts each caller separately", () => {
     const mw = rateLimit({ limit: 1, windowMs: 60_000, name: "t" });
     expect(hit(mw, fakeReq("1.1.1.1")).passed).toBe(true);
@@ -72,6 +74,7 @@ describe("rateLimit", () => {
     expect(hit(mw, fakeReq("1.1.1.1")).passed).toBe(false);
   });
 
+  // rateLimit keeps a separate counter per route name, so one endpoint's traffic does not lock out another.
   it("counts each route namespace separately", () => {
     const a = rateLimit({ limit: 1, windowMs: 60_000, name: "a" });
     const b = rateLimit({ limit: 1, windowMs: 60_000, name: "b" });
@@ -84,6 +87,7 @@ describe("rateLimit", () => {
     expect(hit(a, req).passed).toBe(false);
   });
 
+  // rateLimit allows requests again once the time window rolls over.
   it("resets when the window rolls over", () => {
     vi.useFakeTimers();
     const mw = rateLimit({ limit: 1, windowMs: 1_000, name: "t" });
@@ -96,6 +100,7 @@ describe("rateLimit", () => {
     expect(hit(mw, req).passed).toBe(true);
   });
 
+  // rateLimit identifies callers by x-real-ip over the spoofable x-forwarded-for.
   it("prefers platform-set forwarding headers over the client-settable one", () => {
     const mw = rateLimit({ limit: 1, windowMs: 60_000, name: "t" });
     // Vercel sets x-real-ip itself; x-forwarded-for is the spoofable one. A
@@ -107,6 +112,7 @@ describe("rateLimit", () => {
     expect(hit(mw, b).passed).toBe(false);
   });
 
+  // rateLimit uses the first (client) address in an x-forwarded-for chain, not the proxy's.
   it("takes the client, not the proxy, from a forwarded chain", () => {
     const mw = rateLimit({ limit: 1, windowMs: 60_000, name: "t" });
     const a = fakeReq("10.0.0.1", { "x-forwarded-for": "5.5.5.5, 10.0.0.9" });
@@ -116,6 +122,7 @@ describe("rateLimit", () => {
     expect(hit(mw, b).passed).toBe(false);
   });
 
+  // rateLimit sets X-RateLimit-Limit and X-RateLimit-Remaining headers, plus Retry-After when blocked.
   it("publishes the headers a client needs to back off", () => {
     const mw = rateLimit({ limit: 2, windowMs: 60_000, name: "t" });
     const req = fakeReq();
@@ -130,6 +137,7 @@ describe("rateLimit", () => {
     expect(Number(blocked.res.headers["Retry-After"])).toBeGreaterThan(0);
   });
 
+  // rateLimit skips counting requests for which the `when` predicate returns false.
   it("skips the limit entirely when `when` says this request is the cheap kind", () => {
     // How /api/complaints prices its two modes differently behind one path.
     const mw = rateLimit({
@@ -149,6 +157,7 @@ describe("rateLimit", () => {
     expect(hit(mw, expensive).passed).toBe(false);
   });
 
+  // rateLimit caps its in-memory table near RATE_LIMIT_MAX_KEYS entries however many distinct callers appear.
   it("does not grow without bound — its own table cannot be the exhaustion", () => {
     // One entry per distinct caller key, uncollected, is unbounded memory driven
     // by anyone able to vary a header.
@@ -161,6 +170,7 @@ describe("rateLimit", () => {
     );
   });
 
+  // rateLimit sweeps expired entries from its table when a new window opens.
   it("drops expired entries as it goes", () => {
     vi.useFakeTimers();
     const mw = rateLimit({ limit: 5, windowMs: 1_000, name: "t" });
@@ -174,6 +184,7 @@ describe("rateLimit", () => {
     expect(store.size).toBeLessThan(50);
   });
 
+  // rateLimit still lets through a request with no headers and no socket.
   it("survives a request with no headers and no socket", () => {
     const mw = rateLimit({ limit: 1, windowMs: 60_000, name: "t" });
     expect(hit(mw, { headers: {} }).passed).toBe(true);
@@ -181,6 +192,7 @@ describe("rateLimit", () => {
 });
 
 describe("rateLimitGuard", () => {
+  // rateLimitGuard allows `limit` charges, then throws RateLimitedError with retryAfter of at least 1 and sets Remaining to 0.
   it("allows `limit` charges, then throws RateLimitedError with a retry delay", () => {
     const charge = rateLimitGuard({ limit: 2, windowMs: 60_000, name: "g" });
     const req = fakeReq();
@@ -199,6 +211,7 @@ describe("rateLimitGuard", () => {
     expect(res.headers["X-RateLimit-Remaining"]).toBe("0");
   });
 
+  // rateLimitGuard and rateLimit middleware with the same name draw from one shared budget.
   it("shares a counter with middleware of the same name", () => {
     // One budget, whichever way it is charged.
     const opts = { limit: 1, windowMs: 60_000, name: "shared" };

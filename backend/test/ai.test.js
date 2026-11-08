@@ -52,11 +52,13 @@ afterEach(() => {
 });
 
 describe("bucketLabel", () => {
+  // bucketLabel turns camelCase bucket keys into plain words and returns unknown keys unchanged.
   it("humanizes bucket names", () => {
     expect(bucketLabel("heatHotWater")).toBe("heat and hot water");
     expect(bucketLabel("unknownBucket")).toBe("unknownBucket");
   });
 
+  // bucketLabel gives every real bucket a lowercase, comma-free label.
   it("labels every bucket, with no comma to break the joined count list", () => {
     for (const bucket of [...BUCKET_NAMES.building, ...BUCKET_NAMES.block]) {
       const label = bucketLabel(bucket);
@@ -82,32 +84,38 @@ describe("buildOverallSummaryPrompt", () => {
 
   const prompt = buildOverallSummaryPrompt(SECTIONS_INPUT);
 
+  // buildOverallSummaryPrompt formats each section from its counts or its metrics, whichever it carries.
   it("formats each section by whichever shape it carries, counts or metrics", () => {
     expect(prompt).toContain("Building Health: 1 heat and hot water");
     expect(prompt).toContain("Block Quality: 2876 noise");
     expect(prompt).toContain("Transit Access: subway station 0.1 mi away (14 St-Union Sq)");
   });
 
+  // buildOverallSummaryPrompt asks for one summary under 120 words that covers only what stands out.
   it("asks for one summary under 120 words, not a per-section rating", () => {
     expect(prompt).toMatch(/under 120 words/i);
     expect(prompt).toMatch(/do not describe every one of them|only what stands out/i);
   });
 
+  // buildOverallSummaryPrompt forbids inventing addresses and calculating ratios.
   it("still forbids inventing specifics and derived arithmetic", () => {
     expect(prompt).toMatch(/do not invent addresses/i);
     expect(prompt).toMatch(/do not calculate ratios/i);
   });
 
+  // buildOverallSummaryPrompt bans the words good, fair and poor.
   it("bans restating the good/fair/poor rating words, unlike the single-tier prompts", () => {
     // The single-tier prompts only forbid THEIR OWN band word; this one covers
     // all three, since it has no single badge of its own to avoid restating.
     expect(prompt).toMatch(/do not use the words good, fair, poor/i);
   });
 
+  // buildOverallSummaryPrompt also bans the amenity rating words excellent, typical and car-dependent.
   it("also bans the amenity-tier rating words, a separate vocabulary from good/fair/poor", () => {
     expect(prompt).toMatch(/excellent, typical, car-dependent/i);
   });
 
+  // buildOverallSummaryPrompt requires the word "complaints" for counts, so a zero count is never stated as a fact about the building.
   it("requires the word 'complaints' whenever a count is mentioned, so a zero count cannot read as a fact about the building itself", () => {
     // Observed failure this guards: a zero heat/hot-water count summarized as
     // "There is no heat or hot water in the building" — a claim the building
@@ -118,28 +126,33 @@ describe("buildOverallSummaryPrompt", () => {
 });
 
 describe("cleanExplanation", () => {
+  // cleanExplanation returns clean text unchanged.
   it("passes clean text through untouched", () => {
     expect(cleanExplanation("Noise is the main issue here.", "test")).toBe(
       "Noise is the main issue here."
     );
   });
 
+  // cleanExplanation strips a leading "Explanation:" label.
   it("strips a label the model added despite being told not to", () => {
     expect(cleanExplanation("Explanation: Noise is high.", "test")).toBe(
       "Noise is high."
     );
   });
 
+  // cleanExplanation strips wrapping quotation marks.
   it("strips wrapping quotes", () => {
     expect(cleanExplanation('"Noise is high."', "test")).toBe("Noise is high.");
   });
 
+  // cleanExplanation collapses newlines into a single paragraph.
   it("collapses newlines — this renders as one paragraph", () => {
     expect(cleanExplanation("Line one.\n\nLine two.", "test")).toBe(
       "Line one. Line two."
     );
   });
 
+  // cleanExplanation truncates overlong text at a sentence boundary within EXPLANATION_MAX_CHARS.
   it("truncates at a sentence boundary rather than mid-word", () => {
     const long = `${"Noise is a problem here. ".repeat(40)}`;
     const cleaned = cleanExplanation(long, "test");
@@ -147,6 +160,7 @@ describe("cleanExplanation", () => {
     expect(cleaned.endsWith(".")).toBe(true);
   });
 
+  // cleanExplanation throws AIError for empty, whitespace-only, null or non-string input.
   it.each([
     ["empty string", ""],
     ["whitespace", "   \n  "],
@@ -158,6 +172,7 @@ describe("cleanExplanation", () => {
 });
 
 describe("ollama adapter", () => {
+  // The Ollama adapter posts the shared prompt with the configured model, stream:false and temperature, and returns the response text.
   it("sends the shared prompt, the configured model, and stream:false", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ response: "Noise is high here." }));
     const text = await ollama(INPUT);
@@ -173,16 +188,19 @@ describe("ollama adapter", () => {
     expect(body.prompt).toBe(buildOverallSummaryPrompt(INPUT));
   });
 
+  // The Ollama adapter reports an unreachable server with an "ollama unreachable" error.
   it("reports an unreachable server clearly — the normal local failure", async () => {
     fetchSpy.mockRejectedValue(new Error("fetch failed"));
     await expect(ollama(INPUT)).rejects.toThrow(/ollama unreachable/);
   });
 
+  // The Ollama adapter throws AIError on a non-200 response.
   it("throws AIError on a non-200", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ error: "no model" }, 404));
     await expect(ollama(INPUT)).rejects.toThrow(AIError);
   });
 
+  // The Ollama adapter throws AIError when the model returns an empty response.
   it("throws AIError when the model returns nothing", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ response: "" }));
     await expect(ollama(INPUT)).rejects.toThrow(AIError);
@@ -194,11 +212,13 @@ describe("gemini adapter", () => {
     candidates: [{ content: { parts: [{ text: "Noise is high here." }] } }],
   };
 
+  // The Gemini adapter throws a GEMINI_API_KEY error without calling fetch when no key is set.
   it("refuses to call without an API key", async () => {
     await expect(gemini(INPUT)).rejects.toThrow(/GEMINI_API_KEY/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // The Gemini adapter sends the API key in the x-goog-api-key header, not the URL.
   it("sends the key as a header, not a query string", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     fetchSpy.mockResolvedValue(jsonResponse(okPayload));
@@ -211,6 +231,7 @@ describe("gemini adapter", () => {
     expect(url).toContain(AI_MODELS.gemini);
   });
 
+  // The Gemini adapter sends the shared prompt plus the configured temperature and max output tokens.
   it("sends the shared prompt and the configured generation settings", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     fetchSpy.mockResolvedValue(jsonResponse(okPayload));
@@ -222,6 +243,7 @@ describe("gemini adapter", () => {
     expect(body.contents[0].parts[0].text).toBe(buildOverallSummaryPrompt(INPUT));
   });
 
+  // The Gemini adapter omits thinkingConfig unless a thinking budget is configured.
   it("omits thinkingConfig unless a budget is configured", async () => {
     // gemini-3.5-flash-lite (the default) rejects the field with a 400.
     process.env.GEMINI_API_KEY = "test-key";
@@ -232,6 +254,7 @@ describe("gemini adapter", () => {
     expect(body.generationConfig.thinkingConfig).toBeUndefined();
   });
 
+  // The Gemini adapter explains a MAX_TOKENS response with no text as a thinking-budget problem (GEMINI_THINKING_BUDGET=0).
   it("explains a MAX_TOKENS-with-no-text response as a thinking-budget problem", async () => {
     // Measured on gemini-2.5-flash: 111 thinking tokens ate the 120-token cap
     // and the response came back as the fragment "Living here, you would".
@@ -246,6 +269,7 @@ describe("gemini adapter", () => {
     await expect(gemini(INPUT)).rejects.toThrow(/GEMINI_THINKING_BUDGET=0/);
   });
 
+  // The Gemini adapter throws an AIError carrying status 429 on a rate limit.
   it("surfaces a rate limit as an AIError with its status", async () => {
     // The failure most likely to happen mid-demo on the free tier.
     process.env.GEMINI_API_KEY = "test-key";
@@ -256,6 +280,7 @@ describe("gemini adapter", () => {
     });
   });
 
+  // The Gemini adapter includes the finish reason (SAFETY) in the error when the response is empty.
   it("explains an empty response using the block reason", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     fetchSpy.mockResolvedValue(
@@ -264,6 +289,7 @@ describe("gemini adapter", () => {
     await expect(gemini(INPUT)).rejects.toThrow(/SAFETY/);
   });
 
+  // The Gemini adapter joins multi-part responses into one string.
   it("joins multi-part responses", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     fetchSpy.mockResolvedValue(
@@ -277,25 +303,22 @@ describe("gemini adapter", () => {
 
 describe("adapter factory", () => {
 
-  it("selects the adapter from AI_PROVIDER, case-insensitively", () => {
+  // getAdapter selects the Gemini or Ollama adapter from AI_PROVIDER, case-insensitively, re-reading the env var on every call.
+  it("selects the adapter from AI_PROVIDER, case-insensitively, re-reading it on every call", () => {
+    // Switching the variable between calls switches the adapter, so it is read
+    // at call time rather than captured at import.
     process.env.AI_PROVIDER = "GEMINI";
     expect(getAdapter()).toBe(gemini);
     process.env.AI_PROVIDER = "ollama";
     expect(getAdapter()).toBe(ollama);
   });
 
+  // getAdapter throws "unknown AI_PROVIDER" for an unrecognised provider instead of defaulting.
   it("throws on an unknown provider rather than silently defaulting", () => {
     // A typo in a Vercel env var would otherwise mean every explanation is a
     // template and nobody notices the AI feature is dead.
     process.env.AI_PROVIDER = "openai";
     expect(() => getAdapter()).toThrow(/unknown AI_PROVIDER/);
-  });
-
-  it("reads the env var at call time, not import time", () => {
-    process.env.AI_PROVIDER = "gemini";
-    expect(getAdapter()).toBe(gemini);
-    process.env.AI_PROVIDER = "ollama";
-    expect(getAdapter()).toBe(ollama);
   });
 });
 
@@ -318,6 +341,7 @@ describe("gemini thinking-config compatibility", () => {
     vi.resetModules();
   });
 
+  // The Gemini adapter sends thinkingConfig with the configured budget when GEMINI_THINKING_BUDGET is set.
   it("sends the budget when one is configured", async () => {
     const { generateExplanation } = await import("../src/providers/ai/gemini.js");
     fetchSpy.mockResolvedValue(jsonResponse(okPayload));
@@ -327,6 +351,7 @@ describe("gemini thinking-config compatibility", () => {
     expect(body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
   });
 
+  // The Gemini adapter retries without thinkingConfig when the model rejects it with a 400.
   it("retries without thinkingConfig when the model rejects it with a 400", async () => {
     const { generateExplanation } = await import("../src/providers/ai/gemini.js");
     fetchSpy
@@ -340,6 +365,7 @@ describe("gemini thinking-config compatibility", () => {
     ).toBeUndefined();
   });
 
+  // The Gemini adapter throws an error with status 400 when the retry without thinkingConfig also 400s.
   it("still fails cleanly when the retry also 400s", async () => {
     const { generateExplanation } = await import("../src/providers/ai/gemini.js");
     fetchSpy.mockResolvedValue(jsonResponse({ error: "bad request" }, 400));

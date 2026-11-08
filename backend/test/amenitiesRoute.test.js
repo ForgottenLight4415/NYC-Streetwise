@@ -58,6 +58,7 @@ afterEach(() => {
 describe("GET /api/refresh-amenities", () => {
   const SECRET = "test-cron-secret";
 
+  // GET /api/refresh-amenities returns 503 when CRON_SECRET is unset and never calls the bike-share fetch.
   it("refuses everyone when CRON_SECRET is unset, rather than defaulting open", async () => {
     const res = await server.request("/api/refresh-amenities");
     expect(res.status).toBe(503);
@@ -65,6 +66,7 @@ describe("GET /api/refresh-amenities", () => {
     expect(bikeShareSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/refresh-amenities returns 401 with no Authorization header and does not touch the GBFS feed.
   it("401s an unauthenticated caller without touching the GBFS feed", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/refresh-amenities");
@@ -72,6 +74,7 @@ describe("GET /api/refresh-amenities", () => {
     expect(bikeShareSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/refresh-amenities returns 401 for a wrong bearer secret and does not touch the GBFS feed.
   it("401s a wrong secret", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/refresh-amenities", {
@@ -81,6 +84,7 @@ describe("GET /api/refresh-amenities", () => {
     expect(bikeShareSpy).not.toHaveBeenCalled();
   });
 
+  // A valid refresh saves the new bikeShare bucket to Mongo while leaving the committed bikeLane/protectedLane buckets unchanged.
   it("refreshes bikeShare and preserves the committed bikeLane/protectedLane buckets", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/refresh-amenities", {
@@ -100,6 +104,7 @@ describe("GET /api/refresh-amenities", () => {
     expect(doc.protectedLane).toEqual(committedBike.protectedLane);
   });
 
+  // A refresh whose bikeShare fetch is far smaller than the committed count returns saved:false and writes nothing (sanity guard).
   it("refuses to save a bikeShare fetch that looks truncated (the sanity guard)", async () => {
     process.env.CRON_SECRET = SECRET;
     bikeShareSpy.mockResolvedValue(fixtureBucket(1)); // far below 70% of the real count
@@ -115,6 +120,7 @@ describe("GET /api/refresh-amenities", () => {
     expect(await db.collection(AMENITIES_COLLECTION).findOne({ _id: "bike" })).toBeNull();
   });
 
+  // The 401 refusal body does not contain the configured secret.
   it("leaks nothing about the secret in its refusal", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/refresh-amenities", {

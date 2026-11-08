@@ -49,6 +49,7 @@ const ZERO_BUILDING = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, re
 const TYPICAL_BLOCK = { noise: 1000, parking: 1000, streetCondition: 100, sanitation: 100, infrastructure: 50, publicSafety: 20 };
 
 describe("bandFor", () => {
+  // bandFor treats the good and fair thresholds as inclusive lower bounds.
   it("treats thresholds as inclusive lower bounds", () => {
     expect(bandFor(BAND_THRESHOLDS.good)).toBe("good");
     expect(bandFor(BAND_THRESHOLDS.good - 1)).toBe("fair");
@@ -56,6 +57,7 @@ describe("bandFor", () => {
     expect(bandFor(BAND_THRESHOLDS.fair - 1)).toBe("poor");
   });
 
+  // bandFor never gives a worse band for a higher score across 0-100.
   it("is monotonic — a higher score never yields a worse band", () => {
     const rank = { poor: 0, fair: 1, good: 2 };
     let previous = 0;
@@ -70,22 +72,26 @@ describe("bandFor", () => {
 describe("percentileFor", () => {
   const noise = BASELINE.perBucket.noise;
 
+  // percentileFor puts a count equal to the median at the median anchor percentile.
   it("puts a count at the median on the median percentile", () => {
     expect(percentileFor(noise.median, noise)).toBe(
       SCORE_ANCHOR_PERCENTILES.median
     );
   });
 
+  // percentileFor puts a count equal to p90 at the p90 anchor percentile.
   it("puts a count at p90 on the p90 percentile", () => {
     expect(percentileFor(noise.p90, noise)).toBe(SCORE_ANCHOR_PERCENTILES.p90);
   });
 
+  // percentileFor returns 0 for a zero count in every bucket.
   it("puts zero at the bottom of the distribution", () => {
     for (const bucket of Object.values(BASELINE.perBucket)) {
       expect(percentileFor(0, bucket)).toBe(0);
     }
   });
 
+  // percentileFor keeps rising above p90, reaches 100 for very large counts and never exceeds 100.
   it("keeps climbing above p90 without exceeding 100", () => {
     const justOver = percentileFor(noise.p90 + 1, noise);
     expect(justOver).toBeGreaterThan(SCORE_ANCHOR_PERCENTILES.p90);
@@ -93,6 +99,7 @@ describe("percentileFor", () => {
     expect(percentileFor(Number.MAX_SAFE_INTEGER, noise)).toBeLessThanOrEqual(100);
   });
 
+  // percentileFor never decreases as the count increases, for every bucket.
   it("is monotonically non-decreasing in the count", () => {
     // The property everything else rests on: more complaints must never map to
     // a better position in the distribution.
@@ -106,6 +113,7 @@ describe("percentileFor", () => {
     }
   });
 
+  // percentileFor puts a first complaint above the zero-count tie (about 50 for plumbing with a 50% zero share).
   it("places the first complaint above the whole zero tie", () => {
     // 50% of the city has no plumbing complaints, so having one is worse than
     // half the city — NOT a fraction of the way to a median of zero.
@@ -113,6 +121,7 @@ describe("percentileFor", () => {
     expect(percentileFor(1, plumbing)).toBeCloseTo(50, 5);
   });
 
+  // bucketScore gives a zero count in a zero-median bucket a score of 100, not 50.
   it("never lets a zero-median bucket score a zero count as average", () => {
     // Regression: with median 0, the zero anchor used to inherit the median's
     // 50th percentile, so a building with no plumbing complaints scored 50
@@ -120,6 +129,7 @@ describe("percentileFor", () => {
     expect(bucketScore(0, BASELINE.perBucket.plumbing)).toBe(100);
   });
 
+  // percentileFor handles a baseline with median and p90 of 0 without NaN, scoring larger counts higher.
   it("survives a baseline with no spread at all", () => {
     const degenerate = { median: 0, p90: 0, zeroShare: 0.99 };
     expect(percentileFor(0, degenerate)).toBe(0);
@@ -127,6 +137,7 @@ describe("percentileFor", () => {
     expect(percentileFor(1000, degenerate)).toBe(100);
   });
 
+  // percentileFor returns a finite 0-100 value for undefined, null, empty or malformed baseline entries.
   it("survives a missing or malformed baseline entry", () => {
     for (const bad of [undefined, null, {}, { median: NaN, p90: "x" }]) {
       const value = percentileFor(5, bad);
@@ -138,6 +149,7 @@ describe("percentileFor", () => {
 });
 
 describe("bucketScore", () => {
+  // bucketScore inverts the percentile: 100 at zero, 50 at the median, 10 at p90, 0 far above.
   it("inverts the percentile — more complaints means a LOWER score", () => {
     const noise = BASELINE.perBucket.noise;
     expect(bucketScore(0, noise)).toBe(100);
@@ -146,6 +158,7 @@ describe("bucketScore", () => {
     expect(bucketScore(noise.p90 * 10, noise)).toBe(0);
   });
 
+  // bucketScore stays within 0-100 for negative, huge, NaN and undefined counts.
   it("stays inside 0-100 for absurd inputs", () => {
     for (const count of [-5, 0, 1e9, NaN, undefined]) {
       const score = bucketScore(count, BASELINE.perBucket.noise);
@@ -156,6 +169,7 @@ describe("bucketScore", () => {
 });
 
 describe("scoreTier", () => {
+  // scoreTier sets each bucket score from its anchor and averages them into the tier score.
   it("averages the tier's bucket scores", () => {
     // Each bucket pinned to a known anchor: p90 (10), median (50) or 0 (100).
     const tier = scoreTier(
@@ -174,6 +188,7 @@ describe("scoreTier", () => {
     expect(tier.score).toBe(Math.round((10 + 50 + 100 + 100 + 50 + 10) / 6));
   });
 
+  // scoreTier returns the frozen sub-score shape (no bucketStatusCounts unless provided) with counts, radiusMeters, an integer score and a matching band.
   it("returns the frozen sub-score shape", () => {
     const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE);
     expect(Object.keys(tier).sort()).toEqual([
@@ -186,18 +201,22 @@ describe("scoreTier", () => {
       "radiusMeters",
       "score",
     ]);
+    // Omitted entirely when not provided, rather than defaulting to zeros.
+    expect(tier).not.toHaveProperty("bucketStatusCounts");
     expect(tier.radiusMeters).toBe(RADIUS_TIERS.block.radiusMeters);
     expect(Object.keys(tier.counts).sort()).toEqual([...BUCKET_NAMES.block].sort());
     expect(Number.isInteger(tier.score)).toBe(true);
     expect(tier.band).toBe(bandFor(tier.score));
   });
 
+  // scoreTier scores a block with every bucket at the citywide median as exactly 50.
   it("scores a typical block at the middle of the scale", () => {
     // Every bucket exactly at the citywide median must land on 50, or the
     // baseline is not actually centring the scale.
     expect(scoreTier("block", TYPICAL_BLOCK, BASELINE).score).toBe(50);
   });
 
+  // scoreTier ranks a quiet block above a loud one, banding them good and poor.
   it("ranks a quiet block above a loud one", () => {
     const quiet = scoreTier(
       "block",
@@ -214,6 +233,7 @@ describe("scoreTier", () => {
     expect(loud.band).toBe("poor");
   });
 
+  // scoreTier scores an all-zero building 100 but flags it low confidence with the noComplaintsFound reason.
   it("flags an all-zero tier as low confidence", () => {
     // The dangerous failure mode: a mid-street coordinate finds no building
     // complaints and would otherwise be reported as a PERFECT building.
@@ -223,6 +243,7 @@ describe("scoreTier", () => {
     expect(tier.confidenceReason).toBe(CONFIDENCE_REASONS.noComplaintsFound);
   });
 
+  // scoreTier gives normal confidence and no reason to a tier with at least one complaint.
   it("does not flag a tier that has any complaint at all", () => {
     const tier = scoreTier(
       "building",
@@ -233,6 +254,7 @@ describe("scoreTier", () => {
     expect(tier.confidenceReason).toBeNull();
   });
 
+  // scoreTier flags streetCondition, and only streetCondition, as a low-confidence bucket.
   it("marks streetCondition — and only streetCondition — as a weak bucket", () => {
     // 25.6% of Street Condition rows have no coordinates, and the nulls are not
     // uniform by borough, so the bucket cannot be presented as equally solid.
@@ -244,6 +266,7 @@ describe("scoreTier", () => {
     );
   });
 
+  // scoreTier flags low confidence with the noBaseline reason when no baseline is supplied, still returning an integer score.
   it("flags a missing baseline instead of inventing a score", () => {
     const tier = scoreTier("block", TYPICAL_BLOCK, null);
     expect(tier.confidence).toBe(CONFIDENCE.low);
@@ -251,6 +274,7 @@ describe("scoreTier", () => {
     expect(Number.isInteger(tier.score)).toBe(true);
   });
 
+  // scoreTier flags the staleBaseline reason when the baseline radius differs for that tier, leaving the matching tier normal.
   it("flags a baseline computed at a different radius", () => {
     // Retuning RADIUS_TIERS without rerunning buildBaseline silently shifts
     // every score. It must not pass unnoticed.
@@ -266,6 +290,7 @@ describe("scoreTier", () => {
     );
   });
 
+  // scoreTier treats missing buckets as 0 rather than producing NaN.
   it("treats a missing bucket as zero rather than propagating NaN", () => {
     // A partially-built payload must not poison the mean with NaN — the score
     // would render as "NaN" in the UI and nobody would know why.
@@ -275,6 +300,7 @@ describe("scoreTier", () => {
   });
 
   // bucketStatusCounts — pure pass-through, no scoring logic reads it.
+  // scoreTier attaches bucketStatusCounts unchanged when provided, without changing the score.
   it("attaches bucketStatusCounts verbatim when provided", () => {
     const statusCounts = {
       noise: { open: 400, "in-progress": 100, closed: 500 },
@@ -286,27 +312,12 @@ describe("scoreTier", () => {
     // Passing it must not change the score itself — it is purely descriptive.
     expect(tier.score).toBe(scoreTier("block", TYPICAL_BLOCK, BASELINE).score);
   });
-
-  it("omits bucketStatusCounts entirely when not provided, rather than defaulting to zeros", () => {
-    const tier = scoreTier("block", TYPICAL_BLOCK, BASELINE);
-    expect(tier).not.toHaveProperty("bucketStatusCounts");
-    // The existing frozen-shape assertion above must keep passing untouched.
-    expect(Object.keys(tier).sort()).toEqual([
-      "band",
-      "bucketConfidence",
-      "bucketScores",
-      "confidence",
-      "confidenceReason",
-      "counts",
-      "radiusMeters",
-      "score",
-    ]);
-  });
 });
 
 describe("buildReport", () => {
   const counts = { building: ZERO_BUILDING, block: TYPICAL_BLOCK };
 
+  // buildReport returns the frozen top-level shape with a null address and the correct tier radii.
   it("returns the frozen top-level contract shape", () => {
     const report = buildReport(counts, BASELINE);
     expect(Object.keys(report).sort()).toEqual([
@@ -322,6 +333,7 @@ describe("buildReport", () => {
     expect(report.blockQuality.radiusMeters).toBe(RADIUS_TIERS.block.radiusMeters);
   });
 
+  // buildReport records baseline version, baseline source and window months in meta.
   it("records which baseline produced the numbers", () => {
     const report = buildReport(counts, { ...BASELINE, source: "file" });
     expect(report.meta.baselineVersion).toBe("test");
@@ -329,12 +341,14 @@ describe("buildReport", () => {
     expect(report.meta.windowMonths).toBeGreaterThan(0);
   });
 
+  // buildReport merges extra meta without overwriting the baseline fields.
   it("passes extra meta through without overwriting the baseline fields", () => {
     const report = buildReport(counts, BASELINE, { cache: { block: "hit" } });
     expect(report.meta.cache).toEqual({ block: "hit" });
     expect(report.meta.baselineVersion).toBe("test");
   });
 
+  // buildReport is pure: identical inputs give identical outputs and the input is not mutated.
   it("is pure — same inputs, same output, no mutation", () => {
     const input = structuredClone(counts);
     const first = buildReport(input, BASELINE);
@@ -343,6 +357,7 @@ describe("buildReport", () => {
     expect(input).toEqual(counts);
   });
 
+  // buildReport still builds, flagged low confidence with noBaseline, when the baseline is null.
   it("survives no baseline at all", () => {
     const report = buildReport(counts, null);
     expect(report.buildingHealth.confidence).toBe(CONFIDENCE.low);
@@ -352,6 +367,7 @@ describe("buildReport", () => {
     expect(report.meta.baselineVersion).toBeNull();
   });
 
+  // buildReport passes each tier's statusCounts into its section as bucketStatusCounts.
   it("threads per-tier statusCounts into each section as bucketStatusCounts", () => {
     const statusCounts = {
       building: {
@@ -370,6 +386,7 @@ describe("buildReport", () => {
     expect(report.blockQuality.bucketStatusCounts).toEqual(statusCounts.block);
   });
 
+  // buildReport omits bucketStatusCounts from both sections when statusCounts is not passed.
   it("omits bucketStatusCounts from every section when statusCounts is not passed", () => {
     const report = buildReport(counts, BASELINE);
     expect(report.buildingHealth).not.toHaveProperty("bucketStatusCounts");
@@ -380,6 +397,7 @@ describe("buildReport", () => {
 describe("scoring against the committed baseline", () => {
   // Guards the real artifact, not the fixture: if src/config/baseline.json is
   // rebuilt into something degenerate, these fail.
+  // Against the real committed baseline, counts at the citywide median score "fair" and counts at p90 score below fair and below the median score, for each tier.
   it("centres real-world counts sensibly", async () => {
     const { readFile } = await import("node:fs/promises");
     const committed = JSON.parse(
