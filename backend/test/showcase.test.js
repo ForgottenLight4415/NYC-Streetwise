@@ -66,6 +66,7 @@ beforeEach(async () => {
 });
 
 describe("buildCachedScoreReport", () => {
+  // buildCachedScoreReport builds a full report in the live shape purely from cached counts, without calling Socrata.
   it("returns a full report from cache without calling Socrata", async () => {
     await seedCached(PARK);
 
@@ -81,6 +82,7 @@ describe("buildCachedScoreReport", () => {
     expect(report.buildingHealth.explanation).not.toBe("");
   });
 
+  // buildCachedScoreReport returns null when only one tier is cached, without fetching.
   it("returns null when only one tier is cached", async () => {
     // Not a weaker answer — a different one. The overall verdict is the worse of
     // the two bands, so a half-scored report would state a verdict we cannot back.
@@ -90,6 +92,7 @@ describe("buildCachedScoreReport", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // buildCachedScoreReport returns null on a completely cold cache, without fetching.
   it("returns null when nothing is cached, rather than fetching", async () => {
     expect(await buildCachedScoreReport(PARK.lat, PARK.lng)).toBeNull();
     expect(countsSpy).not.toHaveBeenCalled();
@@ -97,6 +100,7 @@ describe("buildCachedScoreReport", () => {
 });
 
 describe("buildShowcase", () => {
+  // buildShowcase pairs a cached coordinate with its directory address, borough, lookup count and counts.
   it("names cached coordinates from the directory", async () => {
     await seedCached(PARK);
 
@@ -109,6 +113,7 @@ describe("buildShowcase", () => {
     expect(item.buildingHealth.counts).toEqual(BUILDING);
   });
 
+  // buildShowcase skips directory rows whose cached counts have expired, without calling Socrata.
   it("skips directory rows whose counts have expired", async () => {
     // The directory has no TTL and the counts cache has a 24h one, so this is
     // the normal steady state, not an edge case.
@@ -121,11 +126,13 @@ describe("buildShowcase", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // buildShowcase returns [] on a cold cache without calling Socrata.
   it("returns an empty list on a cold cache", async () => {
     expect(await buildShowcase({ limit: 6, mode: "top" })).toEqual([]);
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // buildShowcase orders by lookup count in mode=top and by latest lookup in mode=recent.
   it("orders by popularity for mode=top and by recency for mode=recent", async () => {
     await seedCached(LUDLOW, { now: new Date("2026-08-10T00:00:00Z") });
     await recordLookup(LUDLOW, { now: new Date("2026-08-11T00:00:00Z") });
@@ -138,12 +145,14 @@ describe("buildShowcase", () => {
     expect(recent.map((i) => i.address)).toEqual([PARK.address, LUDLOW.address]);
   });
 
+  // buildShowcase honours the limit.
   it("honours the limit", async () => {
     await seedCached(PARK);
     await seedCached(LUDLOW);
     expect(await buildShowcase({ limit: 1, mode: "top" })).toHaveLength(1);
   });
 
+  // buildShowcase in mode=random returns only addresses with cached counts, even when sampling hits an expired row.
   it("mode=random returns only cached addresses", async () => {
     await seedCached(PARK);
     await recordLookup(LUDLOW);
@@ -159,6 +168,7 @@ describe("buildShowcase", () => {
 
 describe("GET /api/showcase", () => {
 
+  // GET /api/showcase always includes a curated fallback subject (address, coordinates, borough, no scores), on a cold or warm cache.
   it("always carries a curated fallback subject, cold cache or warm", async () => {
     // The homepage's hero card needs SOMETHING to score when items is empty, and
     // it must not keep its own copy of addresses that could drift from the set
@@ -179,6 +189,7 @@ describe("GET /api/showcase", () => {
     expect(warm.body.fallback).toBeDefined();
   });
 
+  // GET /api/showcase rotates its fallback across several curated addresses instead of pinning one.
   it("does not pin the fallback to one address", async () => {
     // 456 Park Ave used to be hardcoded as the face of a cold homepage. Every
     // curated entry is equally real and equally pre-warmed, so over enough draws
@@ -194,6 +205,7 @@ describe("GET /api/showcase", () => {
     }
   });
 
+  // GET /api/showcase returns items with the full score payload (tier radii, window months) plus address details, without calling Socrata.
   it("returns items carrying the score payload plus the address", async () => {
     await seedCached(PARK);
 
@@ -215,12 +227,14 @@ describe("GET /api/showcase", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/showcase returns 400 invalid_mode for an unknown mode.
   it("rejects an unknown mode", async () => {
     const res = await server.request("/api/showcase?mode=popular");
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("invalid_mode");
   });
 
+  // GET /api/showcase returns 400 invalid_limit for a limit above SHOWCASE_MAX_LIMIT.
   it("rejects a limit above the cap", async () => {
     const res = await server.request(`/api/showcase?limit=${SHOWCASE_MAX_LIMIT + 1}`);
     expect(res.status).toBe(400);
@@ -235,6 +249,7 @@ describe("GET /api/warm — the only authenticated route", () => {
     delete process.env.CRON_SECRET;
   });
 
+  // GET /api/warm returns 503 warm_not_configured when CRON_SECRET is unset, with no Socrata calls.
   it("refuses everyone when CRON_SECRET is unset, rather than defaulting open", async () => {
     const res = await server.request("/api/warm");
     expect(res.status).toBe(503);
@@ -243,6 +258,7 @@ describe("GET /api/warm — the only authenticated route", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/warm returns 401 with no Authorization header and makes no Socrata calls.
   it("401s an unauthenticated caller without touching Socrata", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/warm");
@@ -252,6 +268,7 @@ describe("GET /api/warm — the only authenticated route", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/warm returns 401 for a wrong bearer secret and makes no Socrata calls.
   it("401s a wrong secret without touching Socrata", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/warm", {
@@ -261,6 +278,7 @@ describe("GET /api/warm — the only authenticated route", () => {
     expect(countsSpy).not.toHaveBeenCalled();
   });
 
+  // GET /api/warm with the right secret warms every curated address (two Socrata calls each) and reports none failed.
   it("runs the warm job for the cron's own bearer header", async () => {
     process.env.CRON_SECRET = SECRET;
     countsSpy.mockImplementation((lat, lng, tier) =>
@@ -282,6 +300,7 @@ describe("GET /api/warm — the only authenticated route", () => {
     );
   });
 
+  // GET /api/warm's 401 response does not leak the secret or any error details.
   it("leaks nothing about the secret in its refusal", async () => {
     process.env.CRON_SECRET = SECRET;
     const res = await server.request("/api/warm", {
@@ -305,6 +324,7 @@ describe("POST /api/lookups — server-to-server only", () => {
 
   const auth = { Authorization: `Bearer ${SECRET}` };
 
+  // POST /api/lookups with the internal secret returns 202 and stores the address with a server-derived borough and a lookup count of 1.
   it("records a lookup and answers 202", async () => {
     const res = await server.request("/api/lookups", {
       method: "POST",
@@ -325,6 +345,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     });
   });
 
+  // POST /api/lookups returns 401 without credentials and stores nothing.
   it("refuses an unauthenticated caller — a browser cannot write here", async () => {
     // The heart of the design: the address shown on the homepage can only come
     // from our own frontend forwarding Google's canonical string. A stranger
@@ -340,6 +361,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     expect(await db.collection(ADDRESS_LOOKUPS_COLLECTION).countDocuments()).toBe(0);
   });
 
+  // POST /api/lookups returns 401 for a wrong secret.
   it("refuses a wrong secret", async () => {
     const res = await server.request("/api/lookups", {
       method: "POST",
@@ -349,6 +371,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     expect(res.status).toBe(401);
   });
 
+  // POST /api/lookups returns 503 lookups_not_configured when INTERNAL_API_SECRET is unset.
   it("fails closed when INTERNAL_API_SECRET is unset", async () => {
     delete process.env.INTERNAL_API_SECRET;
     const res = await server.request("/api/lookups", {
@@ -360,6 +383,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     expect(res.body.error).toBe("lookups_not_configured");
   });
 
+  // POST /api/lookups rejects the CRON_SECRET used by /api/warm.
   it("does not accept /api/warm's secret", async () => {
     // Two credentials, two doors. One leaking must not open the other.
     process.env.CRON_SECRET = "cron-secret";
@@ -372,6 +396,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     delete process.env.CRON_SECRET;
   });
 
+  // POST /api/lookups ignores a borough sent by the caller and derives it from the address.
   it("ignores a borough supplied by the caller", async () => {
     await server.request("/api/lookups", {
       method: "POST",
@@ -384,6 +409,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     expect(doc.borough).toBe("Manhattan");
   });
 
+  // POST /api/lookups returns 400 missing_address for no address and out_of_bounds for a coordinate outside NYC.
   it("still rejects a missing address and an out-of-NYC coordinate", async () => {
     const missing = await server.request("/api/lookups", {
       method: "POST",
@@ -402,6 +428,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     expect(outside.body.error).toBe("out_of_bounds");
   });
 
+  // POST /api/lookups returns 400 invalid_address for an address with bidi control characters or over 200 characters.
   it("keeps the hygiene checks the trusted caller cannot make unnecessary", async () => {
     // Provenance settles "is this a real address". It does not settle "will this
     // string corrupt what it is rendered into", so control and bidi characters
@@ -417,6 +444,7 @@ describe("POST /api/lookups — server-to-server only", () => {
     }
   });
 
+  // POST /api/lookups never calls Socrata.
   it("does not put the address anywhere near Socrata", async () => {
     await server.request("/api/lookups", { method: "POST", headers: auth, body: PARK });
     expect(countsSpy).not.toHaveBeenCalled();

@@ -4,10 +4,12 @@ import { haversineMeters, densifyLine, multiPolygonCentroid } from "../src/lib/g
 // Pure functions, no fixtures needed beyond hand-computed NYC coordinates.
 
 describe("haversineMeters", () => {
+  // haversineMeters returns exactly 0 for identical coordinates.
   it("returns 0 for identical points", () => {
     expect(haversineMeters(40.7484, -73.9857, 40.7484, -73.9857)).toBe(0);
   });
 
+  // haversineMeters gives ~1.11km for 0.01 degrees of latitude, matching the known ~111.32km/degree constant.
   it("matches the known ~111.32km-per-degree-of-latitude constant", () => {
     // Empire State Building to a point exactly 0.01 degrees north.
     const d = haversineMeters(40.7484, -73.9857, 40.7584, -73.9857);
@@ -15,6 +17,7 @@ describe("haversineMeters", () => {
     expect(d).toBeLessThan(1120);
   });
 
+  // haversineMeters returns ~2.2km for the real Union Sq to Times Sq subway-entrance pair.
   it("matches a real measured NYC pair (Union Sq to Times Sq subway entrances)", () => {
     // 14 St-Union Sq (40.735736, -73.990568) to Times Sq-42 St
     // (40.755477, -73.986754) — straight-line distance is ~2.23km per
@@ -24,6 +27,7 @@ describe("haversineMeters", () => {
     expect(d).toBeLessThan(2300);
   });
 
+  // haversineMeters gives the same distance when the two points are swapped.
   it("is symmetric", () => {
     const a = haversineMeters(40.7, -74.0, 40.75, -73.95);
     const b = haversineMeters(40.75, -73.95, 40.7, -74.0);
@@ -32,11 +36,13 @@ describe("haversineMeters", () => {
 });
 
 describe("densifyLine", () => {
+  // densifyLine returns empty or single-point input unchanged.
   it("returns the input for 0 or 1 points", () => {
     expect(densifyLine([], 25)).toEqual([]);
     expect(densifyLine([[-73.99, 40.75]], 25)).toEqual([[-73.99, 40.75]]);
   });
 
+  // densifyLine always keeps the original first and last vertices.
   it("always includes the first and last vertex", () => {
     const line = [
       [-73.99, 40.75],
@@ -48,6 +54,7 @@ describe("densifyLine", () => {
     expect(out[out.length - 1]).toEqual(line[line.length - 1]);
   });
 
+  // densifyLine produces points no more than the requested spacing (25m) apart along a ~2.2km line.
   it("spaces consecutive points at most `spacingMeters` apart", () => {
     // A ~2.2km line (roughly Union Sq to Times Sq), densified at 25m spacing.
     const line = [
@@ -68,6 +75,7 @@ describe("densifyLine", () => {
     }
   });
 
+  // densifyLine handles duplicate (zero-length) segments without emitting NaN coordinates.
   it("collapses zero-length segments without producing NaN points", () => {
     const line = [
       [-73.99, 40.75],
@@ -83,6 +91,7 @@ describe("densifyLine", () => {
 });
 
 describe("multiPolygonCentroid", () => {
+  // multiPolygonCentroid returns the geometric center of a simple square.
   it("returns the geometric center of a simple square", () => {
     // A 1x1 degree square from (0,0) to (1,1), GeoJSON [lng, lat] order,
     // closed ring (first === last).
@@ -102,6 +111,7 @@ describe("multiPolygonCentroid", () => {
     expect(centroid.lat).toBeCloseTo(0.5, 6);
   });
 
+  // multiPolygonCentroid uses the largest ring when given several polygons.
   it("picks the largest ring across multiple polygons", () => {
     const tiny = [
       [10, 10],
@@ -122,6 +132,7 @@ describe("multiPolygonCentroid", () => {
     expect(centroid.lat).toBeCloseTo(1, 6);
   });
 
+  // multiPolygonCentroid returns null when there are no usable rings.
   it("returns null when given no usable rings", () => {
     expect(multiPolygonCentroid([])).toBeNull();
   });

@@ -33,6 +33,7 @@ beforeEach(() => {
 const NYC = "lat=40.7198&lng=-73.9888";
 
 describe("GET /api/trend", () => {
+  // GET /api/trend defaults to the 9-month window with one point per month.
   it("defaults to the 9-month window", async () => {
     const { status, body } = await server.request(`/api/trend?${NYC}&tier=block`);
     expect(status).toBe(200);
@@ -40,6 +41,7 @@ describe("GET /api/trend", () => {
     expect(body.points).toHaveLength(TREND_DEFAULT_MONTHS);
   });
 
+  // GET /api/trend returns one point per month, ascending, unique and YYYY-MM formatted, for every offered window.
   it("returns one point per month, oldest first, for every offered window", async () => {
     for (const months of TREND_WINDOW_OPTIONS) {
       const { status, body } = await server.request(
@@ -59,11 +61,13 @@ describe("GET /api/trend", () => {
   // trendCacheKey rounds, so the query has to as well — otherwise a hit and a
   // miss describe different circles, and this series is what the report's
   // "Show all N" total is counted from.
+  // GET /api/trend queries Socrata with the coordinate rounded the same way as the trend cache key.
   it("queries Socrata with the rounded coordinate its cache keys on", async () => {
     await server.request("/api/trend?lat=40.74839999&lng=-73.98571234&tier=block");
     expect(trendSpy).toHaveBeenCalledWith(40.7484, -73.9857, expect.any(Number), expect.any(Object));
   });
 
+  // GET /api/trend echoes the requested tier and its radiusMeters in the response.
   it("echoes the tier's radius so the caller need not hardcode it", async () => {
     for (const tier of ["building", "block"]) {
       const { body } = await server.request(`/api/trend?${NYC}&tier=${tier}`);
@@ -72,6 +76,7 @@ describe("GET /api/trend", () => {
     }
   });
 
+  // GET /api/trend fills months Socrata omits with count 0, keeps returned counts, and sums the total.
   it("zero-fills months Socrata omits and keeps the ones it returns", async () => {
     // Socrata emits no row for a month with no complaints. The series still has
     // to be continuous, or the chart silently compresses its own time axis.
@@ -94,6 +99,7 @@ describe("GET /api/trend", () => {
     expect(body.total).toBe(10);
   });
 
+  // GET /api/trend ignores Socrata rows for months outside the requested window.
   it("ignores months outside the requested window", async () => {
     trendSpy.mockResolvedValue([{ month: "1999-01", count: 999 }]);
     const { body } = await server.request(`/api/trend?${NYC}&tier=block&months=3`);
@@ -101,6 +107,7 @@ describe("GET /api/trend", () => {
     expect(body.points.every((p) => p.count === 0)).toBe(true);
   });
 
+  // GET /api/trend passes the coordinate, tier radius, tier and months through to the Socrata provider.
   it("passes the tier and window down to the provider", async () => {
     await server.request(`/api/trend?${NYC}&tier=building&months=18`);
     expect(trendSpy).toHaveBeenCalledOnce();
@@ -112,6 +119,7 @@ describe("GET /api/trend", () => {
   });
 
   describe("edge cache headers", () => {
+    // GET /api/trend sends a one-hour public edge Cache-Control header on success.
     it("is cacheable for an hour, on top of its own 24h Mongo cache", async () => {
       const { status, headers } = await server.request(`/api/trend?${NYC}&tier=block`);
       expect(status).toBe(200);
@@ -120,6 +128,7 @@ describe("GET /api/trend", () => {
       );
     });
 
+    // GET /api/trend sends no Cache-Control header on a rejected (400) request.
     it("does not put a cache directive on a rejected request", async () => {
       // The series is labelled by calendar month relative to now, so an error
       // pinned at the edge would outlast the input that caused it.
@@ -130,6 +139,7 @@ describe("GET /api/trend", () => {
   });
 
   describe("validation", () => {
+    // GET /api/trend returns 400 invalid_months for windows outside the offered set.
     it("rejects a window outside the offered set", async () => {
       for (const bad of [7, 36, 0, -3, 2.5]) {
         const { status, body } = await server.request(
@@ -140,23 +150,27 @@ describe("GET /api/trend", () => {
       }
     });
 
+    // GET /api/trend returns 400 for a non-numeric months value.
     it("rejects a non-numeric window", async () => {
       const { status } = await server.request(`/api/trend?${NYC}&tier=block&months=nine`);
       expect(status).toBe(400);
     });
 
+    // GET /api/trend returns 400 missing_tier when no tier is given.
     it("requires a tier", async () => {
       const { status, body } = await server.request(`/api/trend?${NYC}`);
       expect(status).toBe(400);
       expect(body.error).toBe("missing_tier");
     });
 
+    // GET /api/trend returns 400 invalid_tier for an unknown tier.
     it("rejects an unknown tier", async () => {
       const { status, body } = await server.request(`/api/trend?${NYC}&tier=borough`);
       expect(status).toBe(400);
       expect(body.error).toBe("invalid_tier");
     });
 
+    // GET /api/trend returns 400 for coordinates outside NYC.
     it("rejects coordinates outside NYC", async () => {
       const { status } = await server.request("/api/trend?lat=51.5&lng=-0.12&tier=block");
       expect(status).toBe(400);

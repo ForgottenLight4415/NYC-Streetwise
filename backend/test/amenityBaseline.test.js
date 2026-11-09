@@ -27,10 +27,12 @@ function fixture(overrides = {}) {
 }
 
 describe("isValidAmenityBaseline", () => {
+  // isValidAmenityBaseline accepts a complete document covering every amenity bucket.
   it("accepts a complete document", () => {
     expect(isValidAmenityBaseline(fixture())).toBe(true);
   });
 
+  // isValidAmenityBaseline rejects null, a document without perBucket, and one with an empty perBucket.
   it.each([
     ["null", null],
     ["no perBucket", { _id: "v1" }],
@@ -39,12 +41,14 @@ describe("isValidAmenityBaseline", () => {
     expect(isValidAmenityBaseline(doc)).toBe(false);
   });
 
+  // isValidAmenityBaseline rejects a document missing even one amenity bucket (subway).
   it("rejects a document missing even one bucket", () => {
     const doc = fixture();
     delete doc.perBucket.subway;
     expect(isValidAmenityBaseline(doc)).toBe(false);
   });
 
+  // isValidAmenityBaseline rejects bucket stats with a non-numeric median, a NaN p90 or a negative median.
   it.each([
     ["a non-numeric median", { median: "x", p90: 10 }],
     ["a NaN p90", { median: 1, p90: NaN }],
@@ -59,12 +63,14 @@ describe("isValidAmenityBaseline", () => {
 describe("loadAmenityBaseline without Mongo", () => {
   beforeEach(() => resetAmenityBaselineMemo());
 
+  // loadAmenityBaseline falls back to the committed file (source "file") when Mongo is unavailable.
   it("falls back to the committed file so a fresh clone still scores", async () => {
     const baseline = await loadAmenityBaseline();
     expect(baseline.source).toBe("file");
     expect(isValidAmenityBaseline(baseline)).toBe(true);
   });
 
+  // loadAmenityBaseline memoizes, returning the identical object on repeat calls.
   it("memoizes — the baseline only changes when the script is rerun", async () => {
     const first = await loadAmenityBaseline();
     const second = await loadAmenityBaseline();
@@ -91,6 +97,7 @@ describe("loadAmenityBaseline with Mongo", () => {
     await db.collection(AMENITY_BASELINE_COLLECTION).deleteMany({});
   });
 
+  // loadAmenityBaseline prefers a valid Mongo baseline (source "mongo") over the committed file.
   it("prefers Mongo, so the baseline can be refreshed without a redeploy", async () => {
     await saveAmenityBaseline(fixture({ sampleSize: 999 }));
     const baseline = await loadAmenityBaseline();
@@ -98,10 +105,12 @@ describe("loadAmenityBaseline with Mongo", () => {
     expect(baseline.sampleSize).toBe(999);
   });
 
+  // loadAmenityBaseline uses the committed file when Mongo has no baseline document.
   it("falls back to the committed file when Mongo has no document", async () => {
     expect((await loadAmenityBaseline()).source).toBe("file");
   });
 
+  // loadAmenityBaseline ignores an incomplete Mongo baseline (missing park) and uses the committed file.
   it("falls back to the committed file when the Mongo document is incomplete", async () => {
     const broken = fixture();
     delete broken.perBucket.park;
@@ -113,6 +122,7 @@ describe("loadAmenityBaseline with Mongo", () => {
     expect(isValidAmenityBaseline(baseline)).toBe(true);
   });
 
+  // saveAmenityBaseline upserts a single document instead of inserting duplicates.
   it("saveAmenityBaseline upserts rather than duplicating", async () => {
     await saveAmenityBaseline(fixture({ sampleSize: 100 }));
     await saveAmenityBaseline(fixture({ sampleSize: 250 }));

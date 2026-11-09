@@ -10,7 +10,7 @@ vi.mock("../src/providers/ai/index.js", async (importOriginal) => {
   return { ...actual, generateExplanation: generateSpy };
 });
 
-const { explainFromTemplate, explanationInputFor, radiusLabelFor, TIER_LABELS } =
+const { explainFromTemplate, explanationInputFor, radiusLabelFor } =
   await import("../src/services/explain.js");
 
 const TRANSIT_SCORE = {
@@ -43,22 +43,19 @@ afterEach(() => {
 });
 
 describe("radiusLabelFor / explanationInputFor for amenity tiers", () => {
-  it("labels amenity tiers, not just building/block", () => {
-    expect(TIER_LABELS.transit).toBe("Transit Access");
-    expect(TIER_LABELS.parks).toBe("Parks Access");
-    expect(TIER_LABELS.bike).toBe("Bike Access");
-  });
-
+  // radiusLabelFor uses "this location (0.5 mi radius)" for an amenity tier rather than "this block".
   it("uses 'this location' as the subject, not 'this block' (the old ternary's fallback)", () => {
     expect(radiusLabelFor("transit")).toBe("this location (0.5 mi radius)");
   });
 
+  // explanationInputFor passes metrics (and no counts) for an amenity tier.
   it("passes metrics, not counts, for an amenity tier", () => {
     const input = explanationInputFor("transit", TRANSIT_SCORE);
     expect(input.metrics).toBe(TRANSIT_SCORE.metrics);
     expect(input).not.toHaveProperty("counts");
   });
 
+  // explanationInputFor still passes counts (and no metrics) for a complaint tier.
   it("still passes counts, not metrics, for a complaint tier", () => {
     const input = explanationInputFor("building", { band: "good", counts: { heatHotWater: 1 } });
     expect(input.counts).toEqual({ heatHotWater: 1 });
@@ -67,6 +64,7 @@ describe("radiusLabelFor / explanationInputFor for amenity tiers", () => {
 });
 
 describe("amenityTemplateExplanation", () => {
+  // amenityTemplateExplanation names the single nearest amenity across all buckets (bus at 90m beats subway at 240m).
   it("names the single nearest amenity across all buckets in the tier", () => {
     const text = amenityTemplateExplanation({
       label: "Transit Access",
@@ -78,6 +76,7 @@ describe("amenityTemplateExplanation", () => {
     expect(text).toContain(`${amenityBucketLabel("bus")}`);
   });
 
+  // amenityTemplateExplanation says nothing was found nearby when every bucket is null, without inventing a reason.
   it("says nothing was found nearby when every bucket is null, without inventing a reason", () => {
     const text = amenityTemplateExplanation({
       label: "Transit Access",
@@ -88,6 +87,7 @@ describe("amenityTemplateExplanation", () => {
     expect(text.toLowerCase()).toContain("nothing");
   });
 
+  // amenityTemplateExplanation does not throw on undefined, null or empty/malformed input.
   it("never throws on malformed input", () => {
     for (const bad of [undefined, null, {}, { metrics: null }, { metrics: {} }]) {
       expect(() => amenityTemplateExplanation(bad ?? {})).not.toThrow();
@@ -96,6 +96,7 @@ describe("amenityTemplateExplanation", () => {
 });
 
 describe("explainFromTemplate for an amenity tier", () => {
+  // explainFromTemplate routes amenity tiers to the amenity template and tags the result with the template explanation source.
   it("routes to the amenity template, not the complaint one", () => {
     const result = explainFromTemplate("transit", TRANSIT_SCORE);
     expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);

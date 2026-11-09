@@ -40,6 +40,7 @@ async function rows() {
 }
 
 describe("key derivation", () => {
+  // lookupKey rounds coordinates to 4 decimals, the same precision the counts cache keys on.
   it("rounds to the same precision the counts cache keys on", () => {
     // The join to complaint_cache is the entire point: an unrounded key here
     // would name coordinates whose counts could never be found.
@@ -48,6 +49,7 @@ describe("key derivation", () => {
 });
 
 describe("recordLookup", () => {
+  // recordLookup inserts a new row with lookups 1, curated false and equal firstSeenAt/lastSeenAt.
   it("inserts a row with a lookup counter and both timestamps", async () => {
     const now = new Date("2026-08-18T12:00:00Z");
     expect(await recordLookup(PARK, { now })).toBe(true);
@@ -65,6 +67,7 @@ describe("recordLookup", () => {
     expect(doc.lastSeenAt).toEqual(now);
   });
 
+  // recordLookup increments the counter and updates lastSeenAt on a repeat lookup, keeping a single row and the original firstSeenAt.
   it("increments rather than duplicating on a second lookup", async () => {
     await recordLookup(PARK, { now: new Date("2026-08-18T12:00:00Z") });
     await recordLookup(PARK, { now: new Date("2026-08-19T12:00:00Z") });
@@ -78,6 +81,7 @@ describe("recordLookup", () => {
     expect(all[0].lastSeenAt).toEqual(new Date("2026-08-19T12:00:00Z"));
   });
 
+  // recordLookup keeps the first stored address text when the same coordinate is looked up with different formatting.
   it("keeps the first address text for a coordinate", async () => {
     await recordLookup(PARK);
     // Same building, different formatting — rounds to the same key.
@@ -89,21 +93,25 @@ describe("recordLookup", () => {
     expect(all[0].lookups).toBe(2);
   });
 
+  // recordLookup trims whitespace from the stored address.
   it("trims the stored address", async () => {
     await recordLookup({ ...PARK, address: "  456 Park Ave  " });
     expect((await rows())[0].address).toBe("456 Park Ave");
   });
 
+  // recordLookup stores borough as null when it cannot be determined.
   it("stores null for an undeterminable borough rather than omitting the field", async () => {
     await recordLookup({ ...PARK, borough: null });
     expect((await rows())[0].borough).toBeNull();
   });
 
+  // recordLookup returns false and stores nothing for a blank address.
   it("refuses a blank address instead of storing an unnameable row", async () => {
     expect(await recordLookup({ ...PARK, address: "   " })).toBe(false);
     expect(await rows()).toHaveLength(0);
   });
 
+  // Concurrent first lookups of the same address end up as one row with the full count, thanks to the unique index.
   it("survives concurrent first-lookups of one address as a single row", async () => {
     // This is what the unique index buys: without it a race leaves two rows with
     // the count split, and the homepage renders the address twice.
@@ -117,12 +125,14 @@ describe("recordLookup", () => {
 });
 
 describe("recordCurated", () => {
+  // recordCurated inserts a curated row with zero lookups so real traffic outranks seeds.
   it("inserts at zero lookups so real traffic outranks a seed", async () => {
     await recordCurated(PARK);
     const [doc] = await rows();
     expect(doc).toMatchObject({ curated: true, lookups: 0 });
   });
 
+  // recordCurated flags an existing row as curated without changing its lookup count.
   it("flags an already-searched address without inflating its counter", async () => {
     await recordLookup(PARK);
     await recordLookup(PARK);
@@ -143,21 +153,25 @@ describe("read modes", () => {
     await recordLookup(PARK, { now: new Date("2026-08-18T00:00:00Z") });
   });
 
+  // topLookups orders rows by lookup count, most popular first.
   it("topLookups sorts by popularity", async () => {
     const [first, second] = await topLookups(10);
     expect(first.address).toBe(LUDLOW.address);
     expect(second.address).toBe(PARK.address);
   });
 
+  // recentLookups orders rows by most recent lookup, which differs from popularity order.
   it("recentLookups sorts by recency, which is a different order", async () => {
     const [first] = await recentLookups(10);
     expect(first.address).toBe(PARK.address);
   });
 
+  // topLookups honours the limit argument.
   it("respects the limit", async () => {
     expect(await topLookups(1)).toHaveLength(1);
   });
 
+  // sampleLookups returns rows, capped at the number actually stored.
   it("sampleLookups returns rows, capped at the collection size", async () => {
     const sampled = await sampleLookups(10);
     expect(sampled).toHaveLength(2);
@@ -166,6 +180,7 @@ describe("read modes", () => {
     );
   });
 
+  // Directory reads omit Mongo's _id so rows can be spread directly into a response.
   it("omits _id so a row can be spread straight into a response", async () => {
     const [doc] = await topLookups(1);
     expect(doc._id).toBeUndefined();
@@ -173,6 +188,7 @@ describe("read modes", () => {
 });
 
 describe("degradation", () => {
+  // With Mongo unconfigured, directory reads return [] and writes return false.
   it("reads empty and writes false with Mongo unconfigured", async () => {
     const uri = process.env.MONGODB_URI;
     await closeMongo();
@@ -190,6 +206,7 @@ describe("degradation", () => {
     }
   });
 
+  // With Mongo configured but unreachable, directory reads return [] and writes return false without throwing.
   it("does not throw when Mongo is unreachable", async () => {
     // Configured but down — the Atlas-outage case. The homepage still renders.
     const uri = process.env.MONGODB_URI;

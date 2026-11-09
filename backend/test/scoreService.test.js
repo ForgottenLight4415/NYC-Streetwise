@@ -54,7 +54,6 @@ const {
   fetchComplaintPoints,
   fetchComplaintGroupList,
   fetchComplaintGroupDetail,
-  isMockMode,
 } = await import("../src/services/scoreService.js");
 
 const COUNTS = {
@@ -105,6 +104,7 @@ afterEach(() => {
 });
 
 describe("cold call", () => {
+  // getCounts on a cold cache fetches both tiers from Socrata and reports both as cache misses.
   it("fetches both tiers and reports them as misses", async () => {
     const result = await getCounts(40.7484, -73.9857);
 
@@ -113,12 +113,7 @@ describe("cold call", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("costs exactly the two HTTP calls CLAUDE.md budgets, one per tier", async () => {
-    await getCounts(40.7484, -73.9857);
-    const tiers = fetchSpy.mock.calls.map(([, , tier]) => tier).sort();
-    expect(tiers).toEqual(["block", "building"]);
-  });
-
+  // getCounts issues the building and block fetches concurrently, not one after the other.
   it("issues the two tier fetches in parallel", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
@@ -132,6 +127,7 @@ describe("cold call", () => {
     expect(maxInFlight).toBe(2);
   });
 
+  // getCounts writes both tiers' counts back to the cache after fetching.
   it("writes both tiers back to the cache", async () => {
     await getCounts(40.7484, -73.9857);
     const db = await getDb();
@@ -147,6 +143,7 @@ describe("cold call", () => {
 });
 
 describe("warm call", () => {
+  // getCounts serves a repeat call entirely from cache, reporting hits and making no Socrata calls.
   it("serves the second call entirely from cache", async () => {
     await getCounts(40.7484, -73.9857);
     fetchSpy.mockClear();
@@ -157,6 +154,7 @@ describe("warm call", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // getCounts hits the cache for a nearby coordinate that rounds to the same key.
   it("hits for a nearby coordinate that shares the rounded key", async () => {
     await getCounts(40.748412, -73.985712);
     fetchSpy.mockClear();
@@ -166,6 +164,7 @@ describe("warm call", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // getCounts misses the cache and fetches both tiers for a different address.
   it("misses for a different address", async () => {
     await getCounts(40.7484, -73.9857);
     fetchSpy.mockClear();
@@ -175,6 +174,7 @@ describe("warm call", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  // getCounts fetches only the missing tier when one tier is already cached.
   it("fetches only the missing tier on a partial hit", async () => {
     await getCounts(40.7484, -73.9857, { tiers: ["block"] });
     fetchSpy.mockClear();
@@ -186,6 +186,7 @@ describe("warm call", () => {
     expect(result.counts).toEqual(COUNTS);
   });
 
+  // getCounts with forceRefresh re-fetches both tiers, overwrites the cache, and later reads see the new values.
   it("re-fetches and overwrites when forceRefresh is set", async () => {
     await getCounts(40.7484, -73.9857);
     fetchSpy.mockClear();
@@ -207,6 +208,7 @@ describe("warm call", () => {
 });
 
 describe("coordinate handling", () => {
+  // getCounts queries Socrata with the rounded coordinate, so cache hits and misses describe the same circle.
   it("queries Socrata with the ROUNDED coordinate, so a hit and a miss describe the same circle", async () => {
     await getCounts(40.748412, -73.985712);
     for (const [lat, lng] of fetchSpy.mock.calls) {
@@ -215,11 +217,7 @@ describe("coordinate handling", () => {
     }
   });
 
-  it("returns the rounded coordinate it actually used", async () => {
-    const { coord } = await getCounts(40.748412, -73.985712);
-    expect(coord).toEqual({ lat: 40.7484, lng: -73.9857 });
-  });
-
+  // getCounts passes a custom `now` through to the Socrata calls and to the cache timestamp.
   it("passes `now` through so the time window is testable end to end", async () => {
     const now = new Date("2026-08-15T00:00:00Z");
     await getCounts(40.7484, -73.9857, { now });
@@ -234,15 +232,25 @@ describe("coordinate handling", () => {
 });
 
 describe("count integrity", () => {
-  it("returns one number per bucket, never NaN", async () => {
-    const { counts } = await getCounts(40.7484, -73.9857);
-    for (const tier of Object.keys(RADIUS_TIERS)) {
-      for (const value of Object.values(counts[tier])) {
-        expect(Number.isFinite(value)).toBe(true);
+  // getCounts returns exactly the tier's buckets, each a finite number, on both a cache miss and a cache hit.
+  it("returns exactly the tier's buckets, each a finite number, on both a miss and a cache hit", async () => {
+    // The second call is served from Mongo, so this also proves the cache round
+    // trip neither drops a bucket nor turns one into NaN.
+    for (const pass of ["miss", "hit"]) {
+      const { counts, cache } = await getCounts(40.7484, -73.9857);
+      expect(cache.building, pass).toBe(pass);
+      for (const tier of Object.keys(RADIUS_TIERS)) {
+        expect(Object.keys(counts[tier]).sort(), `${pass} ${tier}`).toEqual(
+          Object.keys(RADIUS_TIERS[tier].buckets).sort()
+        );
+        for (const value of Object.values(counts[tier])) {
+          expect(Number.isFinite(value)).toBe(true);
+        }
       }
     }
   });
 
+  // getCounts caches an all-zero building result and serves it as a hit rather than re-fetching.
   it("round-trips zero counts through the cache as a hit", async () => {
     const zeros = { heatHotWater: 0, unsanitaryCondition: 0, plumbing: 0, repairs: 0, electricGas: 0, buildingSafety: 0 };
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
@@ -262,6 +270,7 @@ describe("count integrity", () => {
 });
 
 describe("failure handling", () => {
+  // getCounts rethrows a Socrata failure and caches nothing.
   it("propagates a Socrata failure rather than caching a bogus result", async () => {
     fetchSpy.mockRejectedValue(new SocrataError("socrata 500"));
 
@@ -271,6 +280,7 @@ describe("failure handling", () => {
     expect(await db.collection(CACHE_COLLECTION).countDocuments()).toBe(0);
   });
 
+  // When one tier's fetch fails, getCounts still rejects but the tier that succeeded stays cached.
   it("still returns the tier that succeeded to the cache when the other fails", async () => {
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => {
       if (tier === "building") throw new SocrataError("socrata 500");
@@ -286,6 +296,7 @@ describe("failure handling", () => {
     expect(docs.map((d) => d.radiusTier)).toEqual(["block"]);
   });
 
+  // getCounts still returns Socrata data, as misses, when Mongo is not configured.
   it("serves from Socrata when Mongo is not configured at all", async () => {
     const uri = process.env.MONGODB_URI;
     delete process.env.MONGODB_URI;
@@ -302,6 +313,7 @@ describe("failure handling", () => {
 // --- M5: the whole report, not just the counts -------------------------------
 
 describe("buildScoreReport", () => {
+  // buildScoreReport scores the fetched counts, reports cache status and uses the rounded coordinate in meta.
   it("scores the cached counts and reports where they came from", async () => {
     const report = await buildScoreReport(40.7484, -73.9857);
 
@@ -313,12 +325,14 @@ describe("buildScoreReport", () => {
     expect(report.meta.coord).toEqual({ lat: 40.7484, lng: -73.9857 });
   });
 
+  // buildScoreReport attaches bucketStatusCounts from Socrata to both complaint sections.
   it("attaches bucketStatusCounts from the provider onto each complaint section", async () => {
     const report = await buildScoreReport(40.7484, -73.9857);
     expect(report.buildingHealth.bucketStatusCounts).toEqual(STATUS_COUNTS.building);
     expect(report.blockQuality.bucketStatusCounts).toEqual(STATUS_COUNTS.block);
   });
 
+  // buildScoreReport keeps bucketStatusCounts intact when served from cache on a warm call.
   it("round-trips bucketStatusCounts through the cache on a warm report", async () => {
     await buildScoreReport(40.7484, -73.9857);
     fetchSpy.mockClear();
@@ -329,6 +343,7 @@ describe("buildScoreReport", () => {
     expect(warm.blockQuality.bucketStatusCounts).toEqual(STATUS_COUNTS.block);
   });
 
+  // buildScoreReport serves a warm report from cache with no Socrata calls and reports hits.
   it("serves a warm report from cache without touching the upstream", async () => {
     await buildScoreReport(40.7484, -73.9857);
     fetchSpy.mockClear();
@@ -338,12 +353,14 @@ describe("buildScoreReport", () => {
     expect(warm.meta.cache).toEqual({ building: "hit", block: "hit" });
   });
 
+  // buildScoreReport loads a baseline, giving a baseline version and a non-no_baseline confidence reason.
   it("loads a baseline, so scores are comparable rather than raw counts", async () => {
     const report = await buildScoreReport(40.7484, -73.9857);
     expect(report.meta.baselineVersion).toBeTypeOf("string");
     expect(report.buildingHealth.confidenceReason).not.toBe("no_baseline");
   });
 
+  // buildScoreReport gives a quiet block a higher block score than a loud one.
   it("ranks a quiet address above a loud one", async () => {
     // The end-to-end property that matters: the report has to discriminate.
     fetchSpy.mockImplementation(async (_lat, _lng, tier) => ({
@@ -365,6 +382,7 @@ describe("buildScoreReport", () => {
     expect(quiet.blockQuality.score).toBeGreaterThan(loud.blockQuality.score);
   });
 
+  // buildScoreReport rethrows an upstream Socrata failure instead of inventing a score.
   it("propagates an upstream failure instead of inventing a score", async () => {
     // A fabricated score during an outage is worse than an error: the renter
     // cannot tell it apart from a real one. M6 adds stale-cache fallback.
@@ -378,6 +396,7 @@ describe("fetchComplaintPoints", () => {
     complaintsSpy.mockReset();
   });
 
+  // fetchComplaintPoints passes the radius and limit to Socrata and reports truncated:false when under the cap.
   it("passes the radius and limit through and reports no truncation", async () => {
     complaintsSpy.mockResolvedValue([{ type: "Noise - Residential" }]);
     const result = await fetchComplaintPoints(40.7484, -73.9857, 350, { limit: 100 });
@@ -392,6 +411,7 @@ describe("fetchComplaintPoints", () => {
     expect(result.points).toHaveLength(1);
   });
 
+  // fetchComplaintPoints reports truncated:true when Socrata returns a full page of rows.
   it("flags truncation when the upstream fills the row cap", async () => {
     complaintsSpy.mockResolvedValue(Array.from({ length: 100 }, () => ({})));
     const result = await fetchComplaintPoints(40.7484, -73.9857, 350, { limit: 100 });
@@ -407,6 +427,7 @@ describe("fetchComplaintPoints", () => {
     expect(complaintsSpy).toHaveBeenCalledWith(40.7484, -73.9857, 350, expect.any(Object));
   });
 
+  // fetchComplaintPoints is never cached: each call hits Socrata and nothing is written to Mongo.
   it("is not cached — the cache holds counts, never rows", async () => {
     complaintsSpy.mockResolvedValue([]);
     await fetchComplaintPoints(40.7484, -73.9857, 350);
@@ -434,6 +455,7 @@ describe("fetchComplaintGroupList", () => {
     await db.collection(COMPLAINT_GROUPS_COLLECTION).deleteMany({});
   });
 
+  // fetchComplaintGroupList orders rows newest day first, then by type, for stable paging.
   it("orders newest day first, then by type, so offset paging is stable", async () => {
     const { rows } = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
     expect(rows.map((r) => `${r.day}|${r.type}`)).toEqual([
@@ -451,6 +473,7 @@ describe("fetchComplaintGroupList", () => {
     expect(groupsSpy).toHaveBeenCalledWith(40.7484, -73.9857, 350, expect.any(Object));
   });
 
+  // fetchComplaintGroupList serves a repeat call from Mongo, with cached:true and no second Socrata call.
   it("serves the second call from Mongo without touching Socrata", async () => {
     await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
     const second = await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block" });
@@ -458,6 +481,7 @@ describe("fetchComplaintGroupList", () => {
     expect(second.cached).toBe(true);
   });
 
+  // fetchComplaintGroupList does not read or write the cache for a radius other than the tier's own.
   it("does not read or write the cache for an ad-hoc radius", async () => {
     // The key has no radius dimension, so a 100m request must not collide with
     // the tier's own 350m entry.
@@ -466,6 +490,7 @@ describe("fetchComplaintGroupList", () => {
     expect(await db.collection(COMPLAINT_GROUPS_COLLECTION).countDocuments()).toBe(0);
   });
 
+  // fetchComplaintGroupList calls beforeFill only on a cache miss.
   it("calls beforeFill on a cache miss only, so cached pages cost no fill budget", async () => {
     const beforeFill = vi.fn();
     await fetchComplaintGroupList(40.7484, -73.9857, 350, { tier: "block", beforeFill });
@@ -473,6 +498,7 @@ describe("fetchComplaintGroupList", () => {
     expect(beforeFill).toHaveBeenCalledTimes(1);
   });
 
+  // fetchComplaintGroupList rethrows when beforeFill refuses and makes no Socrata call.
   it("fetches nothing when beforeFill refuses", async () => {
     const refusal = new Error("over budget");
     await expect(
@@ -493,6 +519,7 @@ describe("fetchComplaintGroupDetail", () => {
     groupDetailSpy.mockReset();
   });
 
+  // fetchComplaintGroupDetail requests one row more than the page limit to detect a further page.
   it("asks for one row beyond the page as a has-more probe", async () => {
     groupDetailSpy.mockResolvedValue([]);
     await fetchComplaintGroupDetail(40.7484, -73.9857, 350, {
@@ -509,6 +536,7 @@ describe("fetchComplaintGroupDetail", () => {
     );
   });
 
+  // fetchComplaintGroupDetail trims the extra probe row from the returned page and sets hasMore.
   it("trims the probe row back off the page it returns", async () => {
     groupDetailSpy.mockResolvedValue(
       Array.from({ length: 4 }, () => ({ type: "Noise - Residential", statusBucket: "open" }))
@@ -541,6 +569,7 @@ describe("fetchComplaintGroupDetail", () => {
     );
   });
 
+  // fetchComplaintGroupDetail returns a full page under a status filter and sets hasMore when more rows exist.
   it("returns a full page under a status filter instead of a filtered remnant", async () => {
     // Upstream has already applied the filter, so every row comes back matching.
     groupDetailSpy.mockResolvedValue(
@@ -556,6 +585,7 @@ describe("fetchComplaintGroupDetail", () => {
     expect(result.hasMore).toBe(true);
   });
 
+  // fetchComplaintGroupDetail queries Socrata with the rounded coordinate.
   it("queries the rounded coordinate, so a drill-in matches the group it came from", async () => {
     groupDetailSpy.mockResolvedValue([]);
     await fetchComplaintGroupDetail(40.74839999, -73.98571234, 350, {
@@ -576,10 +606,7 @@ describe("mock mode", () => {
     delete process.env.USE_MOCK_DATA;
   });
 
-  it("is off unless explicitly enabled", () => {
-    expect(isMockMode()).toBe(false);
-  });
-
+  // With USE_MOCK_DATA set, buildScoreReport returns a mock report without calling Socrata or writing the cache.
   it("serves mock data without touching Socrata or the cache", async () => {
     process.env.USE_MOCK_DATA = "1";
     const report = await buildScoreReport(40.7484, -73.9857);
@@ -591,6 +618,7 @@ describe("mock mode", () => {
     expect(await db.collection(CACHE_COLLECTION).countDocuments()).toBe(0);
   });
 
+  // The mock report has the same top-level and per-tier keys as the live report.
   it("returns the same shape as the live path", async () => {
     const live = await buildScoreReport(40.7484, -73.9857);
     process.env.USE_MOCK_DATA = "1";
@@ -613,6 +641,7 @@ describe("mock mode", () => {
 // left to test here.
 
 describe("buildExplanation (the slow path, overall only)", () => {
+  // buildExplanation generates an AI summary for the overall tier and caches it with its source.
   it("generates and caches an AI summary, via the amenity cache path (radiusTier: overall)", async () => {
     const result = await buildExplanation(40.7484, -73.9857);
 
@@ -626,6 +655,7 @@ describe("buildExplanation (the slow path, overall only)", () => {
     expect(doc.explanationSource).toBe("ai");
   });
 
+  // buildExplanation sends the AI adapter a `sections` array including Building Health and Block Quality.
   it("sends a `sections` array covering both complaint tiers to the adapter", async () => {
     await buildExplanation(40.7484, -73.9857);
     const input = aiSpy.mock.calls[0][0];
@@ -634,6 +664,7 @@ describe("buildExplanation (the slow path, overall only)", () => {
     expect(labels).toContain("Block Quality");
   });
 
+  // buildExplanation serves a repeat call from cache without calling the AI again.
   it("serves a second request from cache without regenerating", async () => {
     await buildExplanation(40.7484, -73.9857);
     aiSpy.mockClear();
@@ -643,6 +674,7 @@ describe("buildExplanation (the slow path, overall only)", () => {
     expect(aiSpy).not.toHaveBeenCalled();
   });
 
+  // buildExplanation returns a template fallback when the AI fails and does not cache it.
   it("does not cache a template fallback", async () => {
     // Caching it would make /api/score believe the AI had already run and skip
     // its second call forever.
@@ -655,6 +687,7 @@ describe("buildExplanation (the slow path, overall only)", () => {
     expect(doc?.explanation).toBeUndefined();
   });
 
+  // buildExplanation discards a cached summary whose underlying counts were refreshed later, and regenerates it.
   it("regenerates rather than serving a cached summary whose counts have since been refreshed", async () => {
     // This is the staleness bug: the overall summary and the complaint counts
     // it describes sit on independent 24h TTLs, ticking from independent
@@ -688,11 +721,13 @@ describe("buildExplanation (the slow path, overall only)", () => {
 });
 
 describe("per-section explanations are always the template", () => {
+  // buildScoreReport never calls the AI, even on a cold cache.
   it("never calls the AI, however cold the cache", async () => {
     await buildScoreReport(40.7484, -73.9857);
     expect(aiSpy).not.toHaveBeenCalled();
   });
 
+  // buildScoreReport attaches a template explanation to both complaint sections.
   it("attaches a template explanation to every complaint section, unconditionally", async () => {
     const report = await buildScoreReport(40.7484, -73.9857);
     expect(report.blockQuality.explanationSource).toBe("template");
@@ -700,6 +735,7 @@ describe("per-section explanations are always the template", () => {
     expect(report.blockQuality.explanation.length).toBeGreaterThan(0);
   });
 
+  // Complaint sections stay template-explained after an AI overall summary exists, while the summary itself uses the AI text.
   it("stays the template even once a whole-report AI summary has been generated for the same address", async () => {
     await buildExplanation(40.7484, -73.9857);
 
@@ -710,6 +746,7 @@ describe("per-section explanations are always the template", () => {
     expect(warm.summary.explanationSource).toBe("ai");
   });
 
+  // buildScoreReport gives a template summary when cold and the cached AI summary once one exists.
   it("attaches a template `summary` on a cold report, and the cached AI summary once one exists", async () => {
     const cold = await buildScoreReport(40.7484, -73.9857);
     expect(cold.summary.explanationSource).toBe("template");

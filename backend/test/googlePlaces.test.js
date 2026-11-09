@@ -31,6 +31,7 @@ afterEach(() => {
 });
 
 describe("searchNearbyPlaces", () => {
+  // searchNearbyPlaces normalises a Google Places response into {lat, lng, types, name} objects.
   it("normalises Google's response to {lat, lng, types, name}", async () => {
     fetchSpy.mockResolvedValue(
       jsonResponse({
@@ -50,6 +51,7 @@ describe("searchNearbyPlaces", () => {
     ]);
   });
 
+  // searchNearbyPlaces sets name to null when a place has no displayName.
   it("names a place null when Places has no displayName", async () => {
     fetchSpy.mockResolvedValue(
       jsonResponse({
@@ -61,6 +63,7 @@ describe("searchNearbyPlaces", () => {
     expect(result[0].name).toBeNull();
   });
 
+  // searchNearbyPlaces skips places that lack a location instead of crashing.
   it("drops a result with no location rather than crashing on it", async () => {
     fetchSpy.mockResolvedValue(
       jsonResponse({
@@ -76,6 +79,7 @@ describe("searchNearbyPlaces", () => {
     expect(result[0].name).toBe("Has location");
   });
 
+  // searchNearbyPlaces sends a single request with API key, narrow field mask, all included types, distance ranking and the right circle.
   it("sends one combined request covering every type, ranked by distance", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ places: [] }));
     await searchNearbyPlaces(ORIGIN, 800, TYPES);
@@ -96,6 +100,7 @@ describe("searchNearbyPlaces", () => {
     expect(body.locationRestriction.circle.center.longitude).toBe(ORIGIN.lng);
   });
 
+  // searchNearbyPlaces returns [] without calling fetch when GOOGLE_MAPS_API_KEY is unset.
   it("returns [] without calling fetch when no API key is configured", async () => {
     delete process.env.GOOGLE_MAPS_API_KEY;
     const result = await searchNearbyPlaces(ORIGIN, 800, TYPES);
@@ -103,24 +108,28 @@ describe("searchNearbyPlaces", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // searchNearbyPlaces returns [] rather than throwing on a non-2xx response (429).
   it("degrades to [], never throws, on a non-2xx response", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ error: "quota exceeded" }, 429));
     const result = await searchNearbyPlaces(ORIGIN, 800, TYPES);
     expect(result).toEqual([]);
   });
 
+  // searchNearbyPlaces returns [] rather than throwing when fetch rejects (network failure or timeout).
   it("degrades to [], never throws, when fetch itself rejects (network failure or timeout)", async () => {
     fetchSpy.mockRejectedValue(new Error("network down"));
     const result = await searchNearbyPlaces(ORIGIN, 800, TYPES);
     expect(result).toEqual([]);
   });
 
+  // searchNearbyPlaces returns [] when the response's places field is not an array.
   it("degrades to [] on a malformed (non-array places) response body", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ places: "not an array" }));
     const result = await searchNearbyPlaces(ORIGIN, 800, TYPES);
     expect(result).toEqual([]);
   });
 
+  // searchNearbyPlaces returns [] when the response has no places field (a genuine zero-result answer).
   it("degrades to [] when the response has no places field at all (a genuine zero-result answer)", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({}));
     const result = await searchNearbyPlaces(ORIGIN, 800, TYPES);

@@ -62,6 +62,7 @@ afterEach(() => {
 });
 
 describe("overallSections", () => {
+  // overallSections flattens the present report sections into labelled entries and skips absent amenity tiers.
   it("flattens present report sections with human labels, skipping absent ones", () => {
     const sections = overallSections(REPORT);
     expect(sections).toHaveLength(3);
@@ -72,6 +73,7 @@ describe("overallSections", () => {
     ]);
   });
 
+  // overallSections passes counts for complaint tiers and metrics for amenity tiers.
   it("passes counts for complaint tiers and metrics for amenity tiers", () => {
     const [building, , transit] = overallSections(REPORT);
     expect(building.counts).toBe(REPORT.buildingHealth.counts);
@@ -80,6 +82,7 @@ describe("overallSections", () => {
     expect(transit).not.toHaveProperty("counts");
   });
 
+  // overallSections works on a report with only the two required complaint sections.
   it("never throws on a report with only the two required sections", () => {
     expect(() => overallSections(ALL_ZERO_REPORT)).not.toThrow();
     expect(overallSections(ALL_ZERO_REPORT)).toHaveLength(2);
@@ -87,12 +90,15 @@ describe("overallSections", () => {
 });
 
 describe("templateOverallSummary", () => {
-  it("always returns a non-empty sentence", () => {
+  // templateOverallSummary quotes the real block noise count (2876) and ends as a complete sentence.
+  it("states the real block complaint count, as a complete sentence", () => {
     const text = templateOverallSummary(overallSections(REPORT));
-    expect(text).toBeTypeOf("string");
-    expect(text.length).toBeGreaterThan(10);
+    // REPORT's block noise count is 2876; the summary must quote it, not a placeholder.
+    expect(text).toContain("2876 complaints");
+    expect(text).toMatch(/\.$/);
   });
 
+  // templateOverallSummary mentions both complaint tiers (block noise and building heat/hot water), not just the worse-banded one.
   it("covers BOTH complaint tiers, not just the worse-banded one", () => {
     // blockQuality is "poor" with noise standing out; buildingHealth is "good"
     // with heat/hot water standing out. Unlike the old ~100-word version
@@ -103,23 +109,27 @@ describe("templateOverallSummary", () => {
     expect(text.toLowerCase()).toContain("heat and hot water");
   });
 
+  // templateOverallSummary names the single nearest transit amenity (the bus stop at 90m).
   it("names the single nearest amenity within the transit topic", () => {
     // bus (90m) is nearer than subway (240m).
     const text = templateOverallSummary(overallSections(REPORT));
     expect(text).toContain("Broadway/E 14 St");
   });
 
+  // templateOverallSummary says no 311 complaints were filed when every complaint section is all zero.
   it("says no complaints were filed when every complaint section is all-zero", () => {
     const text = templateOverallSummary(overallSections(ALL_ZERO_REPORT));
     expect(text.toLowerCase()).toContain("no 311 complaints");
   });
 
+  // templateOverallSummary does not throw on undefined, empty or malformed sections.
   it("never throws on malformed or empty input", () => {
     for (const bad of [undefined, [], [{}], [{ counts: {} }, { metrics: {} }]]) {
       expect(() => templateOverallSummary(bad)).not.toThrow();
     }
   });
 
+  // templateOverallSummary for a full six-section report stays between 60 and 120 words.
   it("stays in the neighborhood of the ~120-word AI target for a full report", () => {
     // REPORT only has 3 of the 6 possible sections (no parks/bike/walkability),
     // so a full report — every topic present — is what actually exercises the
@@ -163,6 +173,7 @@ describe("templateOverallSummary", () => {
     expect(wordCount).toBeLessThan(120);
   });
 
+  // templateOverallSummary covers transit, bike and walkability topics in one summary.
   it("covers all three amenity topics — transit, parks/bike, and walkability", () => {
     const fullSections = [
       ...overallSections(REPORT),
@@ -185,6 +196,7 @@ describe("templateOverallSummary", () => {
 });
 
 describe("explainOverallFromTemplate", () => {
+  // explainOverallFromTemplate labels its source as the template source and never calls the AI.
   it("labels its source honestly and never calls the AI", () => {
     const result = explainOverallFromTemplate(REPORT);
     expect(result.explanationSource).toBe(EXPLANATION_SOURCES.template);
@@ -194,12 +206,14 @@ describe("explainOverallFromTemplate", () => {
 });
 
 describe("explainOverallWithAI", () => {
+  // explainOverallWithAI returns the AI text, labelled with the AI source, when the adapter succeeds.
   it("returns AI text when the adapter succeeds", async () => {
     const result = await explainOverallWithAI(REPORT);
     expect(result.explanationSource).toBe(EXPLANATION_SOURCES.ai);
     expect(result.explanation).toBe("A summary sentence about this address.");
   });
 
+  // explainOverallWithAI sends the adapter only a `sections` array with one entry per present report section.
   it("sends a `sections` array to the adapter, not counts/metrics/band directly", async () => {
     await explainOverallWithAI(REPORT);
     const input = generateSpy.mock.calls[0][0];
@@ -208,6 +222,7 @@ describe("explainOverallWithAI", () => {
     expect(input.sections).toHaveLength(3);
   });
 
+  // explainOverallWithAI still calls the AI on an all-zero report instead of short-circuiting.
   it("does NOT short-circuit on an all-zero report — unlike a single complaint tier", async () => {
     // A whole-report summary can still have amenity facts worth saying even
     // when every complaint count is zero, so it must not skip the AI call
@@ -216,6 +231,7 @@ describe("explainOverallWithAI", () => {
     expect(generateSpy).toHaveBeenCalledTimes(1);
   });
 
+  // explainOverallWithAI falls back to the template, with an error set, when the adapter times out, is rate limited or throws a non-Error.
   it.each([
     ["a timeout", () => generateSpy.mockRejectedValue(new Error("timed out"))],
     ["a rate limit", () => generateSpy.mockRejectedValue(new Error("429 quota"))],
@@ -228,6 +244,7 @@ describe("explainOverallWithAI", () => {
     expect(result.error).toBeDefined();
   });
 
+  // explainOverallWithAI never rejects, even when the adapter fails.
   it("never rejects, whatever the adapter does", async () => {
     generateSpy.mockRejectedValue(new Error("catastrophe"));
     await expect(explainOverallWithAI(REPORT)).resolves.toBeDefined();

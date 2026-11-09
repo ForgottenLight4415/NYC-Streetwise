@@ -46,6 +46,7 @@ const UNION_SQ = { lat: 40.735736, lng: -73.990568 };
 const HERALD_SQ = { lat: 40.7484, lng: -73.9878 };
 
 describe("GET /api/amenities/nearby — validation", () => {
+  // GET /api/amenities/nearby returns 400 missing_tier when tier is absent.
   it("400s a missing tier", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&bucket=park`
@@ -54,6 +55,7 @@ describe("GET /api/amenities/nearby — validation", () => {
     expect(res.body.error).toBe("missing_tier");
   });
 
+  // GET /api/amenities/nearby returns 400 invalid_tier for a non-amenity tier (building).
   it("400s an invalid tier", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=building&bucket=park`
@@ -62,6 +64,7 @@ describe("GET /api/amenities/nearby — validation", () => {
     expect(res.body.error).toBe("invalid_tier");
   });
 
+  // GET /api/amenities/nearby returns 400 missing_bucket when bucket is absent.
   it("400s a missing bucket", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=parks`
@@ -70,6 +73,7 @@ describe("GET /api/amenities/nearby — validation", () => {
     expect(res.body.error).toBe("missing_bucket");
   });
 
+  // GET /api/amenities/nearby returns 400 invalid_bucket for a bucket outside the given tier.
   it("400s a bucket that doesn't belong to the given tier", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=parks&bucket=subway`
@@ -78,6 +82,7 @@ describe("GET /api/amenities/nearby — validation", () => {
     expect(res.body.error).toBe("invalid_bucket");
   });
 
+  // GET /api/amenities/nearby returns 400 out_of_bounds for coordinates outside NYC.
   it("400s an out-of-bounds coordinate", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=0&lng=0&tier=parks&bucket=park`
@@ -86,6 +91,7 @@ describe("GET /api/amenities/nearby — validation", () => {
     expect(res.body.error).toBe("out_of_bounds");
   });
 
+  // GET /api/amenities/nearby returns 400 bucket_not_applicable for the bikeLane and protectedLane line buckets.
   it.each(["bikeLane", "protectedLane"])(
     "400s %s as bucket_not_applicable — a resampled line, not discrete instances",
     async (bucket) => {
@@ -99,6 +105,7 @@ describe("GET /api/amenities/nearby — validation", () => {
 });
 
 describe("GET /api/amenities/nearby — real committed data (transit/parks/bike)", () => {
+  // Nearby subway at Union Sq returns the single 14 St-Union Sq complex with all its routes and ascending entrance distances.
   it("groups Union Sq's own entrances into ONE instance — they share a single MTA complex_id", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=transit&bucket=subway`
@@ -130,6 +137,7 @@ describe("GET /api/amenities/nearby — real committed data (transit/parks/bike)
     expect([...entrances].sort((a, b) => a - b)).toEqual(entrances);
   });
 
+  // Nearby subway at Herald Sq returns multiple complexes, capped at AMENITY_SUBWAY_COMPLEX_CAP, sorted by distance, flagged truncated and de-duplicated by route overlap.
   it("caps subway complexes at AMENITY_SUBWAY_COMPLEX_CAP near a hub with several distinct complexes, sorted ascending, deduped by route overlap", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${HERALD_SQ.lat}&lng=${HERALD_SQ.lng}&tier=transit&bucket=subway`
@@ -160,6 +168,7 @@ describe("GET /api/amenities/nearby — real committed data (transit/parks/bike)
     }
   });
 
+  // Nearby parks at Union Sq returns at least one park within 800m.
   it("returns at least one park instance near Union Square itself", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=parks&bucket=park`
@@ -169,6 +178,7 @@ describe("GET /api/amenities/nearby — real committed data (transit/parks/bike)
     expect(res.body.instances[0].meters).toBeLessThanOrEqual(800);
   });
 
+  // Nearby bus at Union Sq is capped at AMENITY_BUS_STOP_CAP poles, sorted nearest first and flagged truncated.
   it("caps bus stops at AMENITY_BUS_STOP_CAP physical poles, closest first, near a dense hub", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=transit&bucket=bus`
@@ -183,6 +193,7 @@ describe("GET /api/amenities/nearby — real committed data (transit/parks/bike)
 });
 
 describe("GET /api/amenities/nearby — walkability (cache-only)", () => {
+  // Nearby walkability returns an empty, non-truncated list when nothing is cached, rather than calling Places.
   it("answers [] rather than making a live Places call when nothing is cached yet", async () => {
     const res = await server.request(
       `/api/amenities/nearby?lat=${UNION_SQ.lat}&lng=${UNION_SQ.lng}&tier=walkability&bucket=grocery`
@@ -193,6 +204,7 @@ describe("GET /api/amenities/nearby — walkability (cache-only)", () => {
     expect(readWalkabilityPlacesSpy).toHaveBeenCalled();
   });
 
+  // Nearby walkability filters cached places to the requested bucket and sorts them nearest first.
   it("filters cached places into the requested bucket and sorts nearest first", async () => {
     readWalkabilityPlacesSpy.mockResolvedValue([
       { lat: UNION_SQ.lat + 0.002, lng: UNION_SQ.lng, types: ["grocery_store"], name: "Far Grocer" },
@@ -209,6 +221,7 @@ describe("GET /api/amenities/nearby — walkability (cache-only)", () => {
 });
 
 describe("edge cache headers", () => {
+  // Nearby static-dataset tiers get a one-week public edge Cache-Control header.
   it("marks the static-dataset tiers cacheable for a week", async () => {
     // These come from a committed dataset rebuilt on a scale of years, and the
     // request never touches Socrata, Mongo, or Google — so the whole response
@@ -222,6 +235,7 @@ describe("edge cache headers", () => {
     );
   });
 
+  // Nearby walkability responses carry no Cache-Control header, since an empty cold result is temporary.
   it("does NOT cache walkability, whose empty result is temporary", async () => {
     // The walkability path is cache-only: a cold coordinate answers with an
     // empty list and becomes populated as soon as /api/score runs for it. An
@@ -236,6 +250,7 @@ describe("edge cache headers", () => {
     expect(res.headers.get("cache-control")).toBeNull();
   });
 
+  // A rejected (400) nearby request carries no Cache-Control header.
   it("does not put a cache directive on a rejected request", async () => {
     // A 400 handed to a CDN with a cache directive would pin the error.
     const res = await server.request(
